@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "matutosi-skills",
+  "description": "Claude Code skills for Japanese manuscripts and photo metadata / 日本語原稿の整形・推敲と，写真のコメントのためのスキル集",
+  "owner": {
+    "name": "Toshikazu Matsumura"
+  },
+  "plugins": [
+    {
+      "name": "jpg-user-comment",
+      "source": "./plugins/jpg-user-comment",
+      "description": "Read and write the Exif UserComment of JPEG files via CSV (no external dependencies)."
+    },
+    {
+      "name": "ja-manuscript",
+      "source": "./plugins/ja-manuscript",
+      "description": "日本語 Markdown 原稿の整形 (1文1行・表の列幅揃え) と推敲 (1回の点検・収束するまでの推敲ループ・リライトの採り入れ・朱書き PDF の反映)."
+    }
+  ]
+}

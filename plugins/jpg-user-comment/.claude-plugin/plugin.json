@@ -1,0 +1,8 @@
+{
+  "name": "jpg-user-comment",
+  "version": "0.1.0",
+  "description": "Read and write the Exif UserComment (tag 0x9286) of JPEG files using a CSV of filename and comment.",
+  "author": { "name": "Toshikazu Matsumura" },
+  "license": "MIT",
+  "keywords": ["jpeg", "exif", "usercomment", "csv", "photo"]
+}
