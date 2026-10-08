@@ -22,10 +22,7 @@ ink はその2枚の差分なので、どちらも下の文字と混ざらない
     python extract_marks.py _review/foo.pdf --pages 7 --zoom  # 筆跡ごとに拡大も出す
 """
 import argparse
-import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -36,9 +33,13 @@ try:
 except ImportError:
     sys.exit("pypdf が要ります: pip install pypdf")
 try:
-    from PIL import Image
+    from PIL import Image  # noqa: F401  (pypdfium2 の to_pil が使う)
 except ImportError:
     sys.exit("Pillow が要ります: pip install pillow")
+try:
+    import pypdfium2 as pdfium
+except ImportError:
+    sys.exit("pypdfium2 が要ります: pip install pypdfium2")
 try:
     import numpy as np
 except ImportError:
@@ -99,31 +100,15 @@ def to_clusters(rects, gap_x=25.0, gap_y=12.0):
 def render(pdf, page_no, dpi, strip_annots=False):
     """1ページを描画して Image を返す。
 
-    一時ファイルは必ずシステムの一時領域に作る。Dropbox などの同期フォルダ内に
-    作ると、同期プロセスがつかんだままになって削除できないことがある。
+    strip_annots=True で注釈を描かない(朱書きを消した版)。PDF は書き換えない。
     """
-    tmpdir = Path(tempfile.mkdtemp(prefix="proofmarks_"))
+    doc = pdfium.PdfDocument(str(pdf))
     try:
-        src, target = pdf, page_no
-        if strip_annots:
-            reader = pypdf.PdfReader(str(pdf))
-            writer = pypdf.PdfWriter()
-            pg = reader.pages[page_no - 1]
-            if "/Annots" in pg:
-                del pg["/Annots"]
-            writer.add_page(pg)
-            src = tmpdir / "one.pdf"
-            with open(src, "wb") as fh:
-                writer.write(fh)
-            target = 1
-        subprocess.run(["pdftoppm", "-r", str(dpi), "-png",
-                        "-f", str(target), "-l", str(target),
-                        str(src), str(tmpdir / "page")],
-                       check=True, capture_output=True)
-        with Image.open(sorted(tmpdir.glob("page-*.png"))[-1]) as fh:
-            return fh.copy()
+        page = doc[page_no - 1]
+        img = page.render(scale=dpi / 72, draw_annots=not strip_annots).to_pil()
+        return img.convert("RGB")
     finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+        doc.close()
 
 
 def ink_only(band, clean_band):

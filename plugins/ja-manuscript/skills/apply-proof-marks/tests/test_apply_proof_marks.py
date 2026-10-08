@@ -5,13 +5,12 @@
 
 apply_fixes.py は標準ライブラリだけで試せる．
 extract_marks.py は pypdf と Pillow が要る (無ければ飛ばす)．
-画像の切り出しまで試すには poppler (pdftoppm) も要る (無ければその試験だけ飛ばす)．
+画像の切り出しまで試すには pypdfium2 も要る (無ければその試験だけ飛ばす)．
 テスト用の朱書き PDF は，pypdf で手書きの注釈 (Ink) を入れて作る．
 """
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -28,7 +27,11 @@ try:
     HAVE_PDF = True
 except ImportError:
     HAVE_PDF = False
-HAVE_POPPLER = shutil.which("pdftoppm") is not None
+try:
+    import pypdfium2  # noqa: F401
+    HAVE_PDFIUM = True
+except ImportError:
+    HAVE_PDFIUM = False
 
 
 def run(script, args, cwd):
@@ -156,7 +159,7 @@ class TestExtractMarks(Base):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.names(), ["p003_b1"])
 
-    @unittest.skipUnless(HAVE_POPPLER, "poppler (pdftoppm) が要る")
+    @unittest.skipUnless(HAVE_PDF and HAVE_PDFIUM, "pypdfium2 が要る")
     def test_crop_images(self):
         code, out, err = run("extract_marks.py", ["proof.pdf", "--pages", "1"], self.d)
         self.assertEqual(code, 0, err)

@@ -36,7 +36,7 @@ Claude Code で次を実行してください．
 必要な道具は次のとおりです．
 
 - Python 3.9 以降
-- `apply-proof-marks`: `pypdf`・`numpy`・`Pillow`，および poppler (`pdftoppm`・`pdftotext`)
+- `apply-proof-marks`: `pypdf`・`pypdfium2`・`numpy`・`Pillow` (どれも `pip install` で入る)
 - ほかの5つ: Python の標準ライブラリだけ
 
 ### jpg-user-comment (JPEG のコメント)
@@ -65,7 +65,7 @@ Only the Python standard library is required.
 python run_tests.py
 ```
 
-`apply-proof-marks` のテストには `pypdf`・`Pillow` が要り，画像の切り出しの試験には poppler も要ります．
+`apply-proof-marks` のテストには `pypdf`・`Pillow` が要り，画像の切り出しの試験には `pypdfium2` も要ります．
 無いときは，その試験だけを飛ばします．
 GitHub では，push のたびに Ubuntu と Windows でテストを回します (`.github/workflows/test.yml`)．
 

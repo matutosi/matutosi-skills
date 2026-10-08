@@ -57,15 +57,15 @@ python ${CLAUDE_SKILL_DIR}/scripts/extract_marks.py _review/manuscript.pdf --lis
 章の切れ目は、本文のコード ID を検索すると分かる。
 
 ```bash
-pdftotext -layout _review/manuscript.pdf /tmp/t.txt
 python -c "
 import sys; sys.stdout.reconfigure(encoding='utf-8')
-t = open('/tmp/t.txt', encoding='utf-8', errors='replace').read().split('\f')
+from pypdf import PdfReader
+t = [p.extract_text() or '' for p in PdfReader('_review/manuscript.pdf').pages]
 for c in ['code_05_01_R', 'code_06_01_R']:
     print(c, [i+1 for i,p in enumerate(t) if c in p][:1])"
 ```
 
-日本語は文字化けするが、**コード ID・節番号・英数字は拾える**ので位置決めに使える。
+日本語は文字化けすることがあるが、**コード ID・節番号・英数字は拾える**ので位置決めに使える。
 
 ```bash
 python ${CLAUDE_SKILL_DIR}/scripts/extract_marks.py \
@@ -320,12 +320,13 @@ python ${CLAUDE_SKILL_DIR}/../polish-loop/scripts/calibrate.py \
 
 ## 前提
 
-- `pypdf`、`Pillow`、`pdftoppm`(poppler)、`numpy`(重なりの判定に使う)
+- `pypdf`、`pypdfium2`(ページの描画)、`Pillow`、`numpy`(重なりの判定に使う)。
+  すべて `pip install pypdf pypdfium2 pillow numpy` で入る(poppler は要らない)
 - **Windows では `PYTHONIOENCODING=utf-8` を付けて実行する。** 付けないと標準出力の
   日本語が cp932 で化け、`朱書き無し:` の行が読めない。
 - **Read ツールで校正 PDF を直接開かない。** 25MB を超えると
   「password-protected」という誤った理由で失敗する(実際は暗号化されていない)。
-  ページを見たいときも `pdftoppm` で描画する。
+  ページを見たいときも `extract_marks.py` の帯の画像か、pypdfium2 で描画したものを見る。
 - 朱書きが **`/Ink` 注釈**として PDF に入っていること。
   画像として焼き込まれている場合はこの方法が使えないので、色で探すことになる
   (その場合は図の緑を拾う誤検出を目視で外す)。
