@@ -570,6 +570,11 @@ def cmd_import(args):
 
 
 def main(argv=None):
+    # Windows では標準出力が OS の文字コードになり，パイプで受けると文字化けする．
+    # 書き出す CSV ファイルと同じ UTF-8 にそろえる
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(
         description="JPEG の Exif UserComment を CSV (filename,comment) で入出力する")
     sub = parser.add_subparsers(dest="command", required=True)

@@ -33,13 +33,9 @@ if hasattr(sys.stdout, "reconfigure"):
 
 BS = chr(92)   # バックスラッシュ。リテラルで書くと環境によって潰れる
 
-DEFAULT_TERMS = [
-    ("カラーバー", "色バー"), ("バイオリンプロット", "バイオリン図"),
-    ("デンドログラム", "樹形図"), ("モザイクプロット", "モザイク図"),
-    ("三角グラフ", "三角図"), ("どうし", "同士"), ("乱数種", "乱数の種"),
-    ("パネル記号", "タグ"), ("図題", "キャプション"), ("標本サイズ", "標本数"),
-    ("既定", "デフォルト"), ("読み手", "受け手"),
-]
+# 用語の組 (正, 誤) は原稿ごとに違うので，_polish/config.json の "terms" に書く
+# (例: [["デンドログラム", "樹形図"], ["既定", "デフォルト"]])
+DEFAULT_TERMS = []
 FORBIDDEN = [("全角括弧", "（"), ("全角括弧", "）"), ("読点、", "、"), ("句点。", "。"),
              ("en ダッシュ", "–"), ("≈", "≈"), ("波ダッシュ", "〜")]
 
@@ -239,11 +235,10 @@ def t_figleaf(files, cfg):
     分岐の問い(「見せたいのは」など)は本文に出なくて当然なので、
     各 c(...) の**最後の要素**(＝行き先)だけを見る。
     """
+    # 図の生成元 (R や Python のスクリプト) は config.json の figure_sources に書いたときだけ見る
     srcs = cfg.get("figure_sources", [])
     if not srcs:
-        srcs = [p for p in ("make_flowcharts.R", "make_channel.py") if os.path.exists(p)]
-    if not srcs:
-        return ["(図の生成元が見つからない。config.json の figure_sources に書く)"]
+        return []
     body = re.sub(r"\s", "", "".join(io.open(f, encoding="utf-8").read() for f in files))
     hits, seen = [], set()
     for src in srcs:

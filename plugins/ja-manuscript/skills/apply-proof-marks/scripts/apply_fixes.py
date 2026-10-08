@@ -30,9 +30,10 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-USER_SKILLS = Path.home() / ".claude" / "skills"
-SPL = USER_SKILLS / "sentence-per-line" / "scripts" / "sentence_per_line.py"
-PAD = USER_SKILLS / "markdown-table-pad" / "scripts" / "pad_tables.py"
+# 整形のスキルは同じ置き場 (プラグインなら同じプラグイン) の兄弟にある
+SKILLS = Path(__file__).resolve().parents[2]
+SPL = SKILLS / "sentence-per-line" / "scripts" / "sentence_per_line.py"
+PAD = SKILLS / "markdown-table-pad" / "scripts" / "pad_tables.py"
 
 
 def main():
