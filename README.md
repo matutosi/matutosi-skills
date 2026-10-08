@@ -48,6 +48,27 @@ Python の標準ライブラリだけで動きます．
 Export the Exif UserComment of JPEG files to a CSV, edit it in a spreadsheet, and import it back.
 Only the Python standard library is required.
 
+## サンプル / Examples
+
+各プラグインの `examples/` に，手で試すためのサンプルと手順 (README) があります．
+試すときは，フォルダを別の場所に写してから使ってください (原稿や写真を書き換えるため)．
+
+- [plugins/ja-manuscript/examples/](plugins/ja-manuscript/examples/): 誤りをわざと入れた2章の練習原稿と，リライトの草稿
+- [plugins/jpg-user-comment/examples/](plugins/jpg-user-comment/examples/): JPEG 2枚と，コメントを書いた CSV
+
+## テスト / Tests
+
+スクリプトのテストは，各スキルの `tests/` にあります．
+次のコマンドで，すべてを順に走らせます．
+
+```
+python run_tests.py
+```
+
+`apply-proof-marks` のテストには `pypdf`・`Pillow` が要り，画像の切り出しの試験には poppler も要ります．
+無いときは，その試験だけを飛ばします．
+GitHub では，push のたびに Ubuntu と Windows でテストを回します (`.github/workflows/test.yml`)．
+
 ## ライセンス / License
 
 MIT License．[LICENSE](LICENSE) を見てください．

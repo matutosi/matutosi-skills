@@ -1,0 +1,5 @@
+[
+  {"file": "chapter_01.md", "before": "必ず誤時が混じります", "after": "必ず誤字が混じります"},
+  {"file": "chapter_01.md", "before": "状況は調査者によって状況は", "after": "状況は調査者によって"},
+  {"file": "chapter_01.md", "before": "検討を行うとき", "after": "検討をするとき"}
+]
