@@ -46,9 +46,14 @@ _polish/
   "manuscript": "chapter_*.md",
   "check": "python check_manuscript.py",
   "figure_sources": ["make_flowcharts.R", "make_channel.py"],
-  "terms": [["デンドログラム", "樹形図"], ["カラーバー", "色バー"]]
+  "terms": [["デンドログラム", "樹形図"], ["カラーバー", "色バー"]],
+  "forbidden": {"全角(": "（", "読点、": "、", "句点。": "。"},
+  "check_heading_number": true
 }
 ```
+
+`forbidden` と `check_heading_number` は `apply_fixes.py` が使う (置換で禁止文字や見出しの空白落ちが**増えたら**警告)。
+書かなければ、その点検はしない。
 
 ## 手順
 
@@ -74,12 +79,19 @@ _polish/
 レビュアには `before`(原文そのまま1行)と `after`(置換後の全文)を出させ、まとめて当てる。
 
 ```bash
-python ${CLAUDE_SKILL_DIR}/scripts/apply_fixes.py fixes.json          # 確認だけ
-python ${CLAUDE_SKILL_DIR}/scripts/apply_fixes.py fixes.json --apply  # 適用
+python ${CLAUDE_SKILL_DIR}/scripts/apply_fixes.py fixes.json                      # 確認だけ
+python ${CLAUDE_SKILL_DIR}/scripts/apply_fixes.py fixes.json --apply --partial     # 適用
 ```
 
-- **`before` が原稿にちょうど1回現れるものだけ当てる**。0回・複数回は当てずに報告する
-- CRLF は保つ。適用後に禁止文字と見出しの空白を自動で点検する
+- **`before` が原稿にちょうど1回現れるものだけ当てる**。0回・複数回・ファイル無しが1件でもあれば、
+  既定では何も書かずに止まる。推敲ではレビュアの before がずれるのは普通なので **`--partial`** を付け、
+  当たらなかったものは報告を見て直す。
+- キー名は `before`/`after` でも `old`/`new` でもよい (apply-proof-marks と同じ本体)。CRLF と BOM は保つ。
+- **確認の出力で、当てる箇所ごとの前後の文脈 (置換前・置換後) を必ず見る。** 巻き込みはここで見つける。
+- 次は**警告**として出る (`--strict` なら警告でも止まる)。一意の検査では防げない巻き込みを拾うため。
+  - before が語の途中で切れている (「にわか雨」の「わか」だけを置き換えた，のような形)・3文字以下と短い
+  - 置換のあと after の出現数が1つ増えない・before がまたできた (前後とつながって別の語ができた)
+  - config の `forbidden` の文字や、見出しの番号のあとの空白落ちが増えた
 
 #### 「高」の指摘だけ、書き直し案を3つ出して選ぶ
 
@@ -211,7 +223,7 @@ python ${CLAUDE_SKILL_DIR}/scripts/calibrate.py \
 
 | ファイル | 役割 |
 | --- | --- |
-| `scripts/apply_fixes.py` | before/after を一意一致で適用し、禁止文字と見出しを点検する |
+| `scripts/apply_fixes.py` | before/after を一意一致で適用し、前後の文脈を見せ、巻き込みを警告する (apply-proof-marks と共通の本体) |
 | `scripts/scan_recurring.py` | 指摘の型ごとに原稿全体を照合する(14型) |
 | `scripts/round_report.py` | severity の集計・推移表と、型の出現回数を記録する |
 | `scripts/calibrate.py` | AI の指摘と朱書きを突き合わせ、見逃し・空振りを数える |

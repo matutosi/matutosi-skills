@@ -1,6 +1,6 @@
 {
   "name": "ja-manuscript",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "日本語 Markdown 原稿の整形と推敲: sentence-per-line, markdown-table-pad, manuscript-polish, polish-loop, rewrite-improve, apply-proof-marks.",
   "author": { "name": "Toshikazu Matsumura" },
   "license": "MIT",

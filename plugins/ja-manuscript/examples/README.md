@@ -39,7 +39,9 @@
    - 照合のスクリプトだけを試すなら，`python <skills>/polish-loop/scripts/scan_recurring.py` を実行します．
      「次の3点」「検討を行う」「デンドログラム」「デフォルト」「（」が要確認として挙がります．
    - 修正案の一括適用は `python <skills>/polish-loop/scripts/apply_fixes.py fixes_example.json` で確認し，
-     `--apply` を付けると書き換えます．3件とも当たります．
+     `--apply` を付けると書き換えます．3件とも当たり，当てる箇所ごとに前後の文脈が置換前・置換後で並びます．
+     `fixes_example.json` に `{"file": "chapter_01.md", "before": "調査", "after": "踏査"}` のような短い行を足すと，
+     一致が1回でなければ止まり，1回だけでも「短い」「語の途中で切れている」の警告が出ます．
 5. **rewrite-improve**: 「`_rewrite` のリライトをもとに `chapter_01.md` を改善して」
    - リライトの冒頭の主題文が採り入れられ，**被度の範囲の誤り (0〜9) は採り入れられなければ**成功です
      (元原稿の 0〜5 が正しい)．

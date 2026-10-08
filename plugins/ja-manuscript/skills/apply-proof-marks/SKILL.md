@@ -220,6 +220,13 @@ python ${CLAUDE_SKILL_DIR}/scripts/apply_fixes.py fixes.json --apply --post
 
 `--post` で sentence-per-line・markdown-table-pad・check_manuscript まで走る。
 
+- **本体は polish-loop の `scripts/apply_fixes.py`** (このスキルの `apply_fixes.py` はそれを呼ぶ入口)。
+  polish-loop のスキルが同じ置き場に無いと動かない。キー名は `old`/`new` でも `before`/`after` でもよい。
+- 1件でも当たらなければ何も書かずに止まる (`--partial` で残りだけ当てる)。CRLF と BOM は元のファイルに合わせる。
+- **確認の出力に、当てる箇所ごとの前後の文脈が置換前・置換後で並ぶ。必ず見てから `--apply` する。**
+  語の途中で切れた置換・短すぎる置換・前後とつながって数が合わない置換は警告になる
+  (`--strict` で警告でも止まる)。中身は polish-loop の SKILL.md の 3 節。
+
 コードブロックや図を変えたときは、別途、図の再生成とコードの採番の振り直しを行う(`render-figures` などの道具があれば回す)。
 
 ### 6. 漏れを確かめて記録・コミット
@@ -296,7 +303,7 @@ python ${CLAUDE_SKILL_DIR}/../polish-loop/scripts/calibrate.py \
 | ファイル | 役割 |
 | -------- | ---- |
 | `scripts/extract_marks.py` | `/Ink` 注釈から朱書きの帯を求め、その周辺を切り出す |
-| `scripts/apply_fixes.py` | 置換リスト(JSON)を検証してから一括適用し、後処理を走らせる |
+| `scripts/apply_fixes.py` | polish-loop の `apply_fixes.py` を呼ぶ入口 (置換リストを検証してから一括適用し、後処理を走らせる) |
 
 ### extract_marks.py の主な引数
 
