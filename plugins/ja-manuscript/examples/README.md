@@ -10,6 +10,9 @@
 | `_rewrite/chapter_01.md` | 第1章のリライト (見出しから書き起こした草稿)．事実の誤りを1つ入れてある |
 | `_polish/config.json` | `polish-loop` の照合で使う用語の組 (正，誤) |
 | `fixes_example.json` | `polish-loop` の一括適用に渡す修正案の例 |
+| `proof/chapter_01_proof.pdf` | `chapter_01.md` を組んで，手書きの注釈 (Ink) で朱書きを7つ入れた校正 PDF |
+| `proof/expected_fixes.json` | 上の朱書きを反映したときの正解 (6件) |
+| `proof/make_proof_pdf.py` | 校正 PDF を作り直すスクリプト (PyMuPDF と fontTools が要る) |
 
 `chapter_01.md` に入れた誤りは次のとおりです．
 
@@ -45,6 +48,29 @@
 5. **rewrite-improve**: 「`_rewrite` のリライトをもとに `chapter_01.md` を改善して」
    - リライトの冒頭の主題文が採り入れられ，**被度の範囲の誤り (0〜9) は採り入れられなければ**成功です
      (元原稿の 0〜5 が正しい)．
-6. **apply-proof-marks**: 朱書きの PDF が要るので，このフォルダには入れていません．
-   原稿を PDF にして印刷し，赤で書き込んでからスキャンするか，タブレットで手書きの注釈を入れてください．
-   注釈を取り出す部分は，スキルの `tests/` で，手書きの注釈を入れた PDF を作って試しています．
+6. **apply-proof-marks**: 「`proof/chapter_01_proof.pdf` の朱書きを `chapter_01.md` に反映して」
+   - 朱書きは次の7つです．6件が修正案の表に挙がり，7 が要判断として別に扱われれば成功です．
+
+     | 朱書き | 意味 |
+     |---|---|
+     | 1. 「誤時」の「時」を消し，上に「字」 | 「誤字」に直す |
+     | 2. 2つ目の「状況は」を消し，「トル」 | 削除 |
+     | 3. 「すことができます」を消し，上に「します」 | 「洗い出します」に直す |
+     | 4. 「重複」の後に挿入の印と「と欠番」 | 「重複と欠番」に直す |
+     | 5. 括弧2つを丸で囲み，「半角」 | 全角の括弧を半角に |
+     | 6. 「樹形図」を消し，上に「デンドログラム」 | 用語をそろえる |
+     | 7. 表の右の余白に「縦長の例も？」 | **要判断** (勝手に直さない) |
+
+   - 答え合わせは，`proof/expected_fixes.json` と，スキルが作った修正案を見比べます．
+     正解をそのまま当てるなら `python <skills>/polish-loop/scripts/apply_fixes.py proof/expected_fixes.json` で確認し，`--apply` で書き換えます．
+   - 朱書きを取り出す部分だけを試すなら，次を実行します．帯 (朱書きのかたまり) が4本出ます．
+
+     ```bash
+     python <skills>/apply-proof-marks/scripts/extract_marks.py proof/chapter_01_proof.pdf --list
+     python <skills>/apply-proof-marks/scripts/extract_marks.py proof/chapter_01_proof.pdf --pages 1 --clean always --ink always
+     ```
+
+     `marks/` に，帯ごとの画像 (`p001_b1.png`)・朱書きを消した版 (`_clean`)・朱書きだけの版 (`_ink`) ができます．
+     画像まで出すには poppler (`pdftoppm`) が要ります．
+   - 手書きの文字は，フォントの字形の輪郭をなぞった筆跡なので，輪郭だけの太い字に見えます．
+     自分の朱書きで試すなら，原稿を PDF にしてタブレットで手書きの注釈を入れてください．

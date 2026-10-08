@@ -1,0 +1,8 @@
+[
+  {"file": "chapter_01.md", "before": "必ず誤時が混じります", "after": "必ず誤字が混じります"},
+  {"file": "chapter_01.md", "before": "状況は調査者によって状況は", "after": "状況は調査者によって"},
+  {"file": "chapter_01.md", "before": "洗い出すことができます", "after": "洗い出します"},
+  {"file": "chapter_01.md", "before": "- 調査区の番号の重複", "after": "- 調査区の番号の重複と欠番"},
+  {"file": "chapter_01.md", "before": "被度の範囲（0〜5 の外にある値）", "after": "被度の範囲(0〜5 の外にある値)"},
+  {"file": "chapter_01.md", "before": "樹形図の読み方", "after": "デンドログラムの読み方"}
+]
