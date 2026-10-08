@@ -228,6 +228,17 @@ class TestCsv(Base):
         with open(out, "rb") as handle:
             self.assertTrue(handle.read(3) == b"\xef\xbb\xbf")
 
+    def test_export_to_stdout_is_utf8(self):
+        # -o を省くと標準出力へ．パイプで受けても (Windows でも) UTF-8 になる
+        import subprocess
+        path = self.path("a.jpg")
+        jc.write_comment(path, "桜")
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "jpg_comment.py")
+        r = subprocess.run([sys.executable, script, "export", self.dir, "--basename"],
+                           capture_output=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("a.jpg,桜", r.stdout.decode("utf-8"))
+
     def test_dry_run_does_not_write(self):
         path = self.path("a.jpg")
         csv_path = os.path.join(self.dir, "c.csv")
