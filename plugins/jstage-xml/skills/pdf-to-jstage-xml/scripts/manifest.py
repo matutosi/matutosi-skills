@@ -17,6 +17,11 @@ import json
 import zipfile
 from pathlib import Path
 
+import sys  # noqa: E402
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 OUT = "out"
 NAME = "manifest.json"
 

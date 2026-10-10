@@ -39,6 +39,9 @@ from lxml import etree
 
 import merge_backup
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 SKILL_DIR = Path(__file__).resolve().parent.parent
 XL = "{http://www.w3.org/XML/1998/namespace}lang"
 INLINE = {"italic": "*", "bold": "**", "sup": "^", "sub": "~"}

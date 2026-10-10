@@ -36,6 +36,9 @@ import pymupdf
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from list_articles import entries, squash, NS   # noqa: E402
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 CACHE = Path(os.environ.get("JSTAGE_ROOT", ".")).resolve() / "_fingerprint"
 UA = "Mozilla/5.0 (jstage-xml pdf_fingerprint; +https://github.com/matutosi/matutosi-skills)"
 CATEGORIES = ["原著論文", "原著", "総説", "短報", "資料", "特集", "報告", "寄稿", "解説"]

@@ -21,6 +21,9 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 UA = "Mozilla/5.0 (jstage-xml list_articles; +https://github.com/matutosi/matutosi-skills)"
 API = "https://api.jstage.jst.go.jp/searchapi/do"
 NS = {"a": "http://www.w3.org/2005/Atom",

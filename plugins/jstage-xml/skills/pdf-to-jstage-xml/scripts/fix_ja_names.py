@@ -22,6 +22,11 @@ from pathlib import Path
 
 import yaml
 
+import sys  # noqa: E402
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 JA = re.compile(r"[ぁ-ゖァ-ヺ一-鿿々]")
 AUTHOR = re.compile(r'<name name-style="eastern" xml:lang="ja">\s*<surname>([^<]+)</surname>\s*'
                     r'<given-names>([^<]+)</given-names>')

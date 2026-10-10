@@ -33,6 +33,11 @@ import argparse
 import re
 from pathlib import Path
 
+import sys  # noqa: E402
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 J = "[ぁ-ゖァ-ヺー一-鿿々〆]"  # 中黒「・」(U+30FB) は含めない
 A = "[A-Za-z0-9]"
 REF_HEADINGS = ("# 引用文献", "# 文献", "# References", "# REFERENCES", "# REFFERENCES", "# REFERENCE",

@@ -35,6 +35,9 @@ from pathlib import Path
 
 import manifest
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 
 def main():
     ap = argparse.ArgumentParser()

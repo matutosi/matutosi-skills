@@ -21,6 +21,9 @@ from pathlib import Path
 
 import yaml
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 SKILL_DIR = Path(__file__).resolve().parent.parent
 UA = "Mozilla/5.0 (pdf-to-jstage-xml; +https://www.jstage.jst.go.jp)"
 

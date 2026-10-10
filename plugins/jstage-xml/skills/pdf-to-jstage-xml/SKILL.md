@@ -430,11 +430,11 @@ XML を作ったエージェントとは**別のエージェント**に，PDF �
 **上げる前に，手元のプレビューで見た目を確かめる** (J-STAGE のプレビューは待ち時間と手作業が多い)．
 
 ```
-python <support-ac>/jstage/preview_tool/preview.py W --open
+python $S/preview_tool/preview.py W --open
 ```
 
 J-STAGE が XML から作る全文 HTML に合わせたページができ，先頭の枠にリンク先の無い引用・画像の欠けなどの警告が出る
-(プレビューの道具は support-ac にある: [jstage/preview_tool](https://github.com/matutosi/support-ac/tree/main/jstage/preview_tool))．公式の確認 (XML 検証・編集登載のプレビュー) の代わりではない．
+(出力は `<作業の根>/_preview/`．使い方は `scripts/preview_tool/README.md`)．公式の確認 (XML 検証・編集登載のプレビュー) の代わりではない．
 
 **上げ方は，記事がすでに公開されているかで違う** (2026-09-28 に 13(1):1 で確かめた)．
 

@@ -23,6 +23,11 @@ import re
 
 import pymupdf
 
+import sys  # noqa: E402
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 JA = re.compile(r"[　-鿿＀-￯]")
 
 

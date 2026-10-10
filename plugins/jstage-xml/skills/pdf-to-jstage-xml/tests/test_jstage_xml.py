@@ -37,7 +37,7 @@ def load(name):
 
 class TestCompile(unittest.TestCase):
     def test_all_scripts_compile(self):
-        for p in sorted(SCRIPTS.glob("*.py")):
+        for p in sorted(SCRIPTS.rglob("*.py")):
             with self.subTest(script=p.name):
                 compile(p.read_text(encoding="utf-8"), str(p), "exec")
 

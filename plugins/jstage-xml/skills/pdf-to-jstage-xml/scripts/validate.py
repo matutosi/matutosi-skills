@@ -25,6 +25,9 @@ from lxml import etree
 
 import manifest
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 SKILL_DIR = Path(__file__).resolve().parent.parent
 DTD_DIR = SKILL_DIR / "dtd"
 DTD_BASE = "https://www.jstage.jst.go.jp/dtds/1.1/"

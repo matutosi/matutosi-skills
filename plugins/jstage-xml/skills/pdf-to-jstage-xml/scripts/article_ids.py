@@ -24,6 +24,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from list_articles import entries, squash, NS   # noqa: E402  (同じディレクトリの取得部を使う)
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 # 対応表は作業の根 (環境変数 JSTAGE_ROOT．無ければいまのディレクトリ) に置く
 CSV = Path(os.environ.get("JSTAGE_ROOT", ".")).resolve() / "article_ids.csv"
 COLS = ["short", "article_id", "volume", "issue", "fpage", "lpage", "url", "title"]

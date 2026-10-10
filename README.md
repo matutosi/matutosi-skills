@@ -58,7 +58,8 @@ Only the Python standard library is required.
 - 雑誌ごとの設定は `journals/<資料コード>.yaml` に置きます．ひな形 (`_template`) と，作例として植生学会誌 (`vegsci`) の設定と記録が入っています．
 - 作業ディレクトリ・控え・記事識別子の対応表は，任意のフォルダ (作業の根) に置きます．環境変数 `JSTAGE_ROOT` か `--root` で渡します．
 - 必要な道具: Python 3.11 以降と `pip install pymupdf lxml pyyaml`．スキャンの号は，PDF に入っている OCR の文字をそのまま使います．
-- J-STAGE の論文一覧の取得・控えの取り方・調査のまとめ・手元のプレビューは，[support-ac](https://github.com/matutosi/support-ac) の `jstage/` を見てください．
+- 論文一覧の取得 (`scripts/list_articles.py`) と，登載前に見た目を確かめる手元のプレビュー (`scripts/preview_tool/`) も入っています．
+- 控えの取り方と調査のまとめは，[support-ac](https://github.com/matutosi/support-ac) の `jstage/` を見てください．
 
 ## サンプル / Examples
 

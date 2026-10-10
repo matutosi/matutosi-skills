@@ -40,6 +40,9 @@ import yaml
 import extract_scan as es
 import from_backup as fb
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 SKILL_DIR = Path(__file__).resolve().parent.parent
 REPO = Path(os.environ.get("JSTAGE_ROOT", ".")).resolve()   # 控えの相対パスの基準 (作業の根)
 # OCR が数字と取り違える字 (実測: 24(1):65 の 2DOO・200D・ll2・3斗4・4フ5・］17)

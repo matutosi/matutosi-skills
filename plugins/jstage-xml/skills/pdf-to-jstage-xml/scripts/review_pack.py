@@ -20,6 +20,11 @@ from lxml import etree
 
 import manifest
 
+import sys  # noqa: E402
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 XML_NS = "{http://www.w3.org/XML/1998/namespace}"
 XLINK = "{http://www.w3.org/1999/xlink}href"
 

@@ -31,6 +31,9 @@ from pathlib import Path
 import yaml
 from lxml import etree
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 XL = "{http://www.w3.org/XML/1998/namespace}lang"
 
 
