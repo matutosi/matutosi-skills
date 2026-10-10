@@ -1,0 +1,8 @@
+{
+  "name": "jstage-xml",
+  "version": "0.1.0",
+  "description": "学会誌の論文 PDF から J-STAGE に登載する全文 XML (JATS 1.1) を作る．雑誌ごとの設定は journals/ に置く．",
+  "author": { "name": "Toshikazu Matsumura" },
+  "license": "MIT",
+  "keywords": ["jstage", "jats", "xml", "pdf", "journal"]
+}

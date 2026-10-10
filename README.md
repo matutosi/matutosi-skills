@@ -1,7 +1,8 @@
 # matutosi-skills
 
 Claude Code のプラグインのマーケットプレイスです．
-日本語の Markdown 原稿を整形・推敲するスキルと，JPEG 写真のコメントを CSV で読み書きするスキルを収めています．
+日本語の Markdown 原稿を整形・推敲するスキル，JPEG 写真のコメントを CSV で読み書きするスキル，
+学会誌の論文 PDF から J-STAGE の全文 XML を作るスキルを収めています．
 
 A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts and for the Exif UserComment of JPEG files.
 
@@ -13,6 +14,7 @@ Claude Code で次を実行してください．
 /plugin marketplace add matutosi/matutosi-skills
 /plugin install ja-manuscript@matutosi-skills
 /plugin install jpg-user-comment@matutosi-skills
+/plugin install jstage-xml@matutosi-skills
 ```
 
 必要なプラグインだけを入れても構いません．
@@ -48,6 +50,16 @@ Python の標準ライブラリだけで動きます．
 Export the Exif UserComment of JPEG files to a CSV, edit it in a spreadsheet, and import it back.
 Only the Python standard library is required.
 
+### jstage-xml (J-STAGE の全文 XML)
+
+学会誌の論文 PDF (原稿の無い過去の号を含む) から，J-STAGE に登載する全文 XML (JATS 1.1，FULL-J) と登載用の zip を作るスキル `pdf-to-jstage-xml` です．
+「この論文 PDF を J-STAGE の全文 XML にして」のように頼むと使われます．手順は [SKILL.md](plugins/jstage-xml/skills/pdf-to-jstage-xml/SKILL.md) にあります．
+
+- 雑誌ごとの設定は `journals/<資料コード>.yaml` に置きます．ひな形 (`_template`) と，作例として植生学会誌 (`vegsci`) の設定と記録が入っています．
+- 作業ディレクトリ・控え・記事識別子の対応表は，任意のフォルダ (作業の根) に置きます．環境変数 `JSTAGE_ROOT` か `--root` で渡します．
+- 必要な道具: Python 3.11 以降と `pip install pymupdf lxml pyyaml`．スキャンの号は，PDF に入っている OCR の文字をそのまま使います．
+- J-STAGE の論文一覧の取得・控えの取り方・調査のまとめ・手元のプレビューは，[support-ac](https://github.com/matutosi/support-ac) の `jstage/` を見てください．
+
 ## サンプル / Examples
 
 各プラグインの `examples/` に，手で試すためのサンプルと手順 (README) があります．
@@ -65,6 +77,7 @@ Only the Python standard library is required.
 python run_tests.py
 ```
 
+`jstage-xml` のテストは PyMuPDF・PyYAML が無いと一部を飛ばします．
 `apply-proof-marks` のテストには `pypdf`・`Pillow` が要り，画像の切り出しの試験には `pypdfium2` も要ります．
 無いときは，その試験だけを飛ばします．
 GitHub では，push のたびに Ubuntu と Windows でテストを回します (`.github/workflows/test.yml`)．

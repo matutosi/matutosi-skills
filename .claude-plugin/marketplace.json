@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "matutosi-skills",
-  "description": "Claude Code skills for Japanese manuscripts and photo metadata / 日本語原稿の整形・推敲と，写真のコメントのためのスキル集",
+  "description": "Claude Code skills for Japanese manuscripts, photo metadata and J-STAGE full-text XML / 日本語原稿の整形・推敲，写真のコメント，J-STAGE の全文 XML のためのスキル集",
   "owner": {
     "name": "Toshikazu Matsumura"
   },
@@ -15,6 +15,11 @@
       "name": "ja-manuscript",
       "source": "./plugins/ja-manuscript",
       "description": "日本語 Markdown 原稿の整形 (1文1行・表の列幅揃え) と推敲 (1回の点検・収束するまでの推敲ループ・リライトの採り入れ・朱書き PDF の反映)."
+    },
+    {
+      "name": "jstage-xml",
+      "source": "./plugins/jstage-xml",
+      "description": "学会誌の論文 PDF (原稿なし) から J-STAGE 用の全文 XML (JATS 1.1) を作る．植生学会誌の設定と記録を作例として含む．"
     }
   ]
 }
