@@ -6,6 +6,8 @@ Claude Code のプラグインのマーケットプレイスです．
 
 A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts and for the Exif UserComment of JPEG files.
 
+<a id="install"></a>
+
 ## 入れ方 / Install
 
 Claude Code で次を実行してください．
@@ -20,7 +22,11 @@ Claude Code で次を実行してください．
 必要なプラグインだけを入れても構いません．
 入れたあとは，Claude Code を開き直すとスキルが読み込まれます．
 
+<a id="plugins"></a>
+
 ## プラグイン / Plugins
+
+<a id="ja-manuscript"></a>
 
 ### ja-manuscript (日本語原稿の整形・推敲)
 
@@ -41,6 +47,8 @@ Claude Code で次を実行してください．
 - `apply-proof-marks`: `pypdf`・`pypdfium2`・`numpy`・`Pillow` (どれも `pip install` で入る)
 - ほかの5つ: Python の標準ライブラリだけ
 
+<a id="jpg-user-comment"></a>
+
 ### jpg-user-comment (JPEG のコメント)
 
 JPEG の Exif UserComment (タグ 0x9286) を，ファイル名とコメントの2列の CSV で書き出し，書き戻します．
@@ -49,6 +57,8 @@ Python の標準ライブラリだけで動きます．
 
 Export the Exif UserComment of JPEG files to a CSV, edit it in a spreadsheet, and import it back.
 Only the Python standard library is required.
+
+<a id="jstage-xml"></a>
 
 ### jstage-xml (J-STAGE の全文 XML)
 
@@ -61,6 +71,8 @@ Only the Python standard library is required.
 - 論文一覧の取得 (`scripts/list_articles.py`) と，登載前に見た目を確かめる手元のプレビュー (`scripts/preview_tool/`) も入っています．
 - 控えの取り方と調査のまとめは，[support-ac](https://github.com/matutosi/support-ac) の `jstage/` を見てください．
 
+<a id="examples"></a>
+
 ## サンプル / Examples
 
 各プラグインの `examples/` に，手で試すためのサンプルと手順 (README) があります．
@@ -68,6 +80,8 @@ Only the Python standard library is required.
 
 - [plugins/ja-manuscript/examples/](plugins/ja-manuscript/examples/): 誤りをわざと入れた2章の練習原稿と，リライトの草稿
 - [plugins/jpg-user-comment/examples/](plugins/jpg-user-comment/examples/): JPEG 2枚と，コメントを書いた CSV
+
+<a id="tests"></a>
 
 ## テスト / Tests
 
@@ -82,6 +96,8 @@ python run_tests.py
 `apply-proof-marks` のテストには `pypdf`・`Pillow` が要り，画像の切り出しの試験には `pypdfium2` も要ります．
 無いときは，その試験だけを飛ばします．
 GitHub では，push のたびに Ubuntu と Windows でテストを回します (`.github/workflows/test.yml`)．
+
+<a id="license"></a>
 
 ## ライセンス / License
 
