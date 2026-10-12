@@ -22,6 +22,14 @@ Claude Code で次を実行してください．
 必要なプラグインだけを入れても構いません．
 入れたあとは，Claude Code を開き直すとスキルが読み込まれます．
 
+コマンドが分からないときは，Claude Code にふつうの言葉で頼んでも入れてくれます．
+
+```
+GitHub の matutosi/matutosi-skills から ja-manuscript のスキルをインストールして
+```
+
+プラグイン名 (`ja-manuscript`) を `jpg-user-comment` や `jstage-xml` に替えれば，ほかのプラグインも同じように入れられます．
+
 <a id="plugins"></a>
 
 ## プラグイン / Plugins
