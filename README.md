@@ -45,7 +45,7 @@ GitHub の matutosi/matutosi-skills から ja-manuscript のスキルをイン�
 | `manuscript-polish` | 入稿前の原稿を1回点検し，誤字脱字・表記ゆれ・文体・相互参照の問題を一覧にする |
 | `polish-loop` | 章を分担した複数のレビュアで推敲を巡ごとに回し，指摘が収束するまで続ける |
 | `rewrite-improve` | 見出しから書き起こしたリライトと元原稿を比べ，リライトの良い点を元原稿に採り入れる |
-| `apply-proof-marks` | 紙に朱書きした校正 PDF (手書きの注釈入り) を読み，原稿の Markdown に反映する |
+| `apply-proof-marks` | 紙に朱書きした校正 PDF (手書きの注釈入り) やスキャン画像を読み，原稿の Markdown に反映する |
 
 「1文ごとに改行して」「表を整形して」「推敲を回して」「朱書きを反映して」のように頼むと，対応するスキルが使われます．
 

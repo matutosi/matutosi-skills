@@ -20,6 +20,12 @@ ink はその2枚の差分なので、どちらも下の文字と混ざらない
     python extract_marks.py _review/foo.pdf --pages 56-71     # 範囲を切り出す
     python extract_marks.py _review/foo.pdf --pages 7 --clean always --ink always
     python extract_marks.py _review/foo.pdf --pages 7 --zoom  # 筆跡ごとに拡大も出す
+
+画像 (スキャン・写真の jpg/png/tif) を渡すと、朱書きを**色で**探す。
+    python extract_marks.py _review/scan/*.jpg --color red    # 紙に赤ペン(既定)
+    python extract_marks.py _review/scan/page01.png --color green
+画像では Ink 注釈の座標が無いので、図の中の同じ色も拾う(帯を見て外す)。
+朱書きの下の字は戻せないので `_clean` は作らない。`_ink` は色の画素だけを白地に置いた版。
 """
 import argparse
 import sys
@@ -149,6 +155,145 @@ def stroke_overlap(img, clean, rects, H, sy):
     return best
 
 
+# ---------------------------------------------------------------- 画像からの取り出し
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"}
+COLOR_HUE = {"red": 0.0, "orange": 25.0, "green": 135.0, "blue": 220.0}
+
+
+def parse_hue(spec):
+    """`red` などの名前か `#rrggbb` から色相(度)を返す。"""
+    spec = spec.strip().lower()
+    if spec in COLOR_HUE:
+        return COLOR_HUE[spec]
+    s = spec.lstrip("#")
+    if len(s) != 6:
+        sys.exit("--color は %s か #rrggbb で指定する" % "/".join(COLOR_HUE))
+    import colorsys
+    r, g, b = (int(s[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return colorsys.rgb_to_hsv(r, g, b)[0] * 360
+
+
+def color_mask(img, hue, hue_tol=25.0, min_sat=0.40, min_val=0.30):
+    """指定の色相に近く、彩度と明度が一定以上の画素を True にする。
+
+    黒い本文・灰色の網掛け・白地は彩度が低いので外れる。図の同じ色は外れない。
+    """
+    hsv = np.asarray(img.convert("HSV")).astype(float)
+    h = hsv[..., 0] * 360 / 255
+    d = np.abs(h - hue)
+    d = np.minimum(d, 360 - d)
+    return (d <= hue_tol) & (hsv[..., 1] >= min_sat * 255) & (hsv[..., 2] >= min_val * 255)
+
+
+def mask_bands(mask, pad, gap, min_pixels):
+    """色の画素のある行を縦にまとめて帯(top, bot, 画素数)にする(画像の座標)。"""
+    counts = mask.sum(axis=1)
+    rows = np.where(counts >= 2)[0]
+    if len(rows) == 0:
+        return []
+    spans, s, p = [], rows[0], rows[0]
+    for y in rows[1:]:
+        if y - p > gap:
+            spans.append((s, p))
+            s = y
+        p = y
+    spans.append((s, p))
+    h = mask.shape[0]
+    out = []
+    for s, e in spans:
+        n = int(counts[s:e + 1].sum())
+        if n < min_pixels:             # JPEG のにじみ・ごみ
+            continue
+        top, bot = max(0, s - pad), min(h, e + 1 + pad)
+        if out and top <= out[-1][1]:
+            out[-1][1] = bot
+            out[-1][2] += n
+        else:
+            out.append([top, bot, n])
+    return out
+
+
+def mask_clusters(mask, cell, gap):
+    """色の画素をセル単位でまとめ、近いものどうしを書き込み1つぶんの矩形にする。"""
+    h, w = mask.shape
+    gh, gw = (h + cell - 1) // cell, (w + cell - 1) // cell
+    pad = np.zeros((gh * cell, gw * cell), bool)
+    pad[:h, :w] = mask
+    occ = pad.reshape(gh, cell, gw, cell).sum(axis=(1, 3)) >= 2
+    rects = [[x * cell, y * cell, (x + 1) * cell, (y + 1) * cell]
+             for y, x in zip(*np.nonzero(occ))]
+    # 縦の向きは問わないので to_clusters を流用し、重なりが無くなるまで繰り返す
+    while True:
+        merged = to_clusters(rects, gap_x=gap, gap_y=gap)
+        if len(merged) == len(rects):
+            return sorted(merged, key=lambda c: (c[1], c[0]))
+        rects = merged
+
+
+def image_dpi(img, fallback):
+    d = img.info.get("dpi")
+    try:
+        v = float(d[0]) if d else 0
+    except (TypeError, ValueError):
+        v = 0
+    return v if v >= 50 else fallback
+
+
+def run_images(files, args):
+    if np is None:
+        sys.exit("画像から探すには numpy が要ります: pip install numpy")
+    hue = parse_hue(args.color)
+    outdir = Path(files[0]).resolve().parent / "marks"
+    outdir.mkdir(exist_ok=True)
+    if args.clean == "always":
+        print("注意: 画像では朱書きの下の字を戻せないので、_clean は作らない")
+    rows = []
+    for f in files:
+        img = Image.open(f).convert("RGB")
+        dpi = image_dpi(img, args.dpi)
+        px = dpi / 72                                   # 1pt あたりの画素
+        mask = color_mask(img, hue, args.hue_tol, args.min_sat)
+        bands = mask_bands(mask, pad=int(args.pad * px), gap=int(args.pad * px),
+                           min_pixels=args.min_pixels)
+        stem = Path(f).stem
+        for k, (top, bot, n) in enumerate(bands, start=1):
+            name = "%s_b%d" % (stem, k)
+            rows.append((stem, k, top, bot, n, name, ""))
+            if args.list:
+                continue
+            band = img.crop((0, top, img.width, bot))
+            band.save(outdir / (name + ".png"))
+            if args.ink == "always":
+                m = mask[top:bot]
+                a = np.asarray(band)
+                only = np.full_like(a, 255)
+                only[m] = a[m]
+                Image.fromarray(only).save(outdir / (name + "_ink.png"))
+        if args.zoom and not args.list and bands:
+            sub = np.zeros_like(mask)
+            for top, bot, _ in bands:
+                sub[top:bot] = mask[top:bot]
+            for j, c in enumerate(mask_clusters(sub, cell=max(4, int(4 * px)),
+                                                gap=25 * px), start=1):
+                l = max(0, int(c[0] - 90 * px)); t = max(0, int(c[1] - 16 * px))
+                r = min(img.width, int(c[2] + 90 * px)); b = min(img.height, int(c[3] + 16 * px))
+                img.crop((l, t, r, b)).save(outdir / ("%s_z%d.png" % (stem, j)))
+
+    man = outdir / "manifest.tsv"
+    with open(man, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("image\tband\ttop\tbot\tpixels\tname\toverlap\n")
+        for r in rows:
+            fh.write("\t".join(str(x) for x in r) + "\n")
+
+    hit = [Path(f).stem for f in files if any(r[0] == Path(f).stem for r in rows)]
+    print("朱書きのある画像: %d / %d" % (len(hit), len(files)))
+    print("帯: %d 本" % len(rows))
+    blank = [Path(f).stem for f in files if Path(f).stem not in hit]
+    print("朱書き無し: %s" % (",".join(blank) if blank else "なし"))
+    print("注意: 色で探したので、図の中の同じ色も帯になる。帯を見て外す")
+    print("manifest: %s" % man)
+
+
 # ---------------------------------------------------------------- 本体
 def parse_pages(spec):
     if not spec:
@@ -166,8 +311,8 @@ def parse_pages(spec):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("pdf")
-    ap.add_argument("--pages", help="56-71 や 88,90 の形で指定")
+    ap.add_argument("src", nargs="+", help="校正 PDF (1つ) か、画像 (jpg/png/tif。複数可)")
+    ap.add_argument("--pages", help="56-71 や 88,90 の形で指定 (PDF のみ)")
     ap.add_argument("--dpi", type=int, default=170)
     ap.add_argument("--pad", type=float, default=18.0,
                     help="帯の上下に足す文脈(pt)。本文1行 ≒ 14pt")
@@ -181,9 +326,27 @@ def main():
     ap.add_argument("--zoom", action="store_true",
                     help="筆跡のかたまりごとに拡大画像も出す(手書きが読めないとき)")
     ap.add_argument("--zoom-dpi", type=int, default=300)
+    ap.add_argument("--color", default="red",
+                    help="画像のみ: 朱書きの色。red/orange/green/blue か #rrggbb")
+    ap.add_argument("--hue-tol", type=float, default=25.0,
+                    help="画像のみ: 色相の許容幅(度)")
+    ap.add_argument("--min-sat", type=float, default=0.40,
+                    help="画像のみ: 彩度の下限(0-1)。薄い色の図を外したいときは上げる")
+    ap.add_argument("--min-pixels", type=int, default=30,
+                    help="画像のみ: これより画素の少ない帯は捨てる(にじみ・ごみ)")
     args = ap.parse_args()
 
-    pdf = Path(args.pdf).resolve()
+    images = [s for s in args.src if Path(s).suffix.lower() in IMAGE_EXT]
+    if images:
+        if len(images) != len(args.src):
+            sys.exit("PDF と画像を混ぜて渡さない")
+        if args.pages:
+            print("注意: --pages は PDF のときだけ効く (画像は渡したものをすべて見る)")
+        return run_images(images, args)
+    if len(args.src) != 1:
+        sys.exit("PDF は1つだけ渡す")
+
+    pdf = Path(args.src[0]).resolve()
     outdir = pdf.parent / "marks"
     outdir.mkdir(exist_ok=True)
     want = parse_pages(args.pages)

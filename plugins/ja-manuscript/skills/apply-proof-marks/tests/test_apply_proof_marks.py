@@ -168,5 +168,61 @@ class TestExtractMarks(Base):
         self.assertTrue(any(f.startswith("p001_b2") for f in pngs), pngs)
 
 
+try:
+    import numpy  # noqa: F401
+    HAVE_NUMPY = True
+except ImportError:
+    HAVE_NUMPY = False
+
+
+@unittest.skipUnless(HAVE_PDF and HAVE_NUMPY, "Pillow と numpy が要る")
+class TestExtractMarksImage(Base):
+    """画像 (スキャン・写真) から朱書きを色で探す．"""
+
+    def setUp(self):
+        super().setUp()
+        from PIL import Image, ImageDraw
+        # 黒い本文の行・赤ペンの線2本 (離れた位置)・薄い赤 (網掛け) の帯
+        im = Image.new("RGB", (600, 800), "white")
+        dr = ImageDraw.Draw(im)
+        for y in range(80, 700, 40):
+            dr.rectangle((60, y, 540, y + 12), fill=(20, 20, 20))
+        dr.line((100, 126, 260, 126), fill=(220, 30, 40), width=4)
+        dr.line((300, 606, 420, 600), fill=(220, 30, 40), width=4)
+        dr.rectangle((60, 400, 540, 430), fill=(250, 225, 225))  # 彩度が低いので拾わない
+        im.save(self.p("p001.png"), dpi=(72, 72))
+        Image.new("RGB", (600, 800), "white").save(self.p("p002.jpg"))
+
+    def rows(self):
+        return [r.split("\t") for r in read(self.p("marks", "manifest.tsv")).splitlines()[1:]]
+
+    def test_list(self):
+        code, out, err = run("extract_marks.py", ["p001.png", "p002.jpg", "--list"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertEqual([r[5] for r in self.rows()], ["p001_b1", "p001_b2"])
+        self.assertIn("朱書き無し: p002", out)
+        self.assertFalse([f for f in os.listdir(self.p("marks")) if f.endswith(".png")])
+
+    def test_crop_ink_zoom(self):
+        code, out, err = run("extract_marks.py",
+                             ["p001.png", "--ink", "always", "--zoom"], self.d)
+        self.assertEqual(code, 0, err)
+        pngs = set(os.listdir(self.p("marks")))
+        for f in ["p001_b1.png", "p001_b1_ink.png", "p001_b2.png", "p001_z1.png", "p001_z2.png"]:
+            self.assertIn(f, pngs)
+        self.assertNotIn("p001_b1_clean.png", pngs)  # 画像では作らない
+
+    def test_other_color(self):
+        # 緑を指定すると赤の線は拾わない
+        code, out, err = run("extract_marks.py", ["p001.png", "--color", "green", "--list"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.rows(), [])
+
+    def test_mixed_input_is_rejected(self):
+        make_marked_pdf(self.p("proof.pdf"), [[(100, 700, 160, 715)]])
+        code, out, err = run("extract_marks.py", ["proof.pdf", "p001.png"], self.d)
+        self.assertNotEqual(code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
