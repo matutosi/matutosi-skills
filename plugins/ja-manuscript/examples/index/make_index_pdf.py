@@ -154,7 +154,7 @@ def main():
         first = p.read_text(encoding="utf-8").splitlines()[0]
         titles.append(re.sub(r"\s*\{#.*\}$", "", first.lstrip("# ")).strip())
     ts.new_page(nombre=False)
-    ts.text((MARGIN_X, TOP + 20), "はじめてのパンづくり", 20)
+    ts.text((MARGIN_X, TOP + 20), "植生解析入門", 20)
     ts.text((MARGIN_X, TOP + 60), "目次", 13)
     for i, t in enumerate(titles):
         ts.text((MARGIN_X + 10, TOP + 90 + i * 24), t, BODY)
@@ -164,7 +164,7 @@ def main():
             ts.add(kind, val)
 
     doc.set_toc(ts.toc)
-    doc.set_metadata({"title": "はじめてのパンづくり (build-index の例)"})
+    doc.set_metadata({"title": "植生解析入門 (build-index の例)"})
     try:
         doc.subset_fonts()
     except Exception as e:  # fontTools が無いときは全部入りになる

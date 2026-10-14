@@ -313,25 +313,25 @@ class TestBook(unittest.TestCase):
     def test_front_matter_is_skipped(self):
         self.assertEqual(self.book.skip, {0})
         # 目次ページにしか無い語 (本のタイトル) は見つからない
-        self.assertEqual(self.book.find(["はじめてのパンづくり"], None), [])
+        self.assertEqual(self.book.find(["植生解析入門"], None), [])
 
     def test_find_and_chapter_filter(self):
-        everywhere = self.book.find(["発酵"], None)
-        self.assertIn(5, everywhere)
-        in_ch3 = self.book.find(["発酵"], [3])
+        everywhere = self.book.find(["群集"], None)
+        self.assertIn(2, everywhere)
+        in_ch3 = self.book.find(["群集"], [3])
         self.assertTrue(in_ch3)
         self.assertTrue(set(in_ch3) < set(everywhere))
-        self.assertTrue(min(in_ch3) > 7)
+        self.assertTrue(min(in_ch3) > 6)
 
     def test_find_across_line_breaks(self):
         # 行の折り返しをまたぐ語も，空白を落として探すので見つかる
-        self.assertTrue(self.book.find(["ベーキングパウダー"], None))
+        self.assertTrue(self.book.find(["ブレイ・カーティス距離"], None))
 
     def test_exclude_section(self):
         b = bi.Book(os.path.join(EXAMPLE, "sample_book.pdf"))
-        before = b.find(["酵母"], None)
+        before = b.find(["群集"], None)
         b.exclude_section("第3章")
-        after = b.find(["酵母"], None)
+        after = b.find(["群集"], None)
         self.assertTrue(set(after) < set(before))
 
 
@@ -353,7 +353,7 @@ class TestCli(unittest.TestCase):
             want = f.read()
         self.assertEqual(got.replace("\r\n", "\n"), want.replace("\r\n", "\n"))
         self.assertIn("見出し", so)  # 日本語が UTF-8 で出る
-        self.assertIn("**5**", got)
+        self.assertIn("**10**", got)
 
     def test_report_marks_main(self):
         rc, so, _ = run("build_index.py", [os.path.join(EXAMPLE, "terms.yaml"), "--check-only", "--report"])
@@ -396,13 +396,13 @@ class TestHelpers(unittest.TestCase):
             self.assertEqual(rc, 0, se)
             with open(os.path.join(tmp, "candidates_chapter_01.md"), encoding="utf-8") as f:
                 text = f.read()
-            self.assertIn("| 酵母 |", text)
-            self.assertIn("グルテン", text)
+            self.assertIn("| 組成表 |", text)
+            self.assertIn("被度", text)
             self.assertTrue(os.path.exists(os.path.join(tmp, "candidates_all.md")))
             # 複数の章に出る語は，全章の表に章を並べて載る
             with open(os.path.join(tmp, "candidates_all.md"), encoding="utf-8") as f:
                 allt = f.read()
-            self.assertRegex(allt, r"\| 発酵 \| .*\| [23] \|")
+            self.assertRegex(allt, r"\| 群集 \| 01, 02, 03 \|")
 
     def test_sample_paragraphs(self):
         files = [os.path.join(EXAMPLE, "chapter_0%d.md" % i) for i in (1, 2, 3)]
