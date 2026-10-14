@@ -14,7 +14,7 @@
     {
       "name": "ja-manuscript",
       "source": "./plugins/ja-manuscript",
-      "description": "日本語 Markdown 原稿の整形 (1文1行・表の列幅揃え) と推敲 (1回の点検・収束するまでの推敲ループ・リライトの採り入れ・朱書き PDF の反映)."
+      "description": "日本語 Markdown 原稿の整形 (1文1行・表の列幅揃え) と推敲 (1回の点検・収束するまでの推敲ループ・リライトの採り入れ・朱書き PDF の反映) と，書籍の巻末索引づくり (辞書の規則で並べる・主要ページの太字・点検)."
     },
     {
       "name": "jstage-xml",
