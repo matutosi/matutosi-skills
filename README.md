@@ -41,18 +41,20 @@ GitHub の matutosi/matutosi-skills から ja-manuscript のスキルをイン�
 | スキル | 何をするか |
 |---|---|
 | `apply-proof-marks` | 紙に朱書きした校正 PDF (手書きの注釈入り)・スキャン・スマホの写真を読み，原稿の Markdown に反映する |
+| `build-index` | 書籍の原稿とビルド済み PDF から，巻末の索引を作る．PDF を全文検索してページ番号を付け，辞書の規則 (清音 → 濁音 → 半濁音，長音符は直前の母音) で並べる．主要ページの太字と点検も行う |
 | `manuscript-polish` | 入稿前の原稿を1回点検し，誤字脱字・表記ゆれ・文体・相互参照の問題を一覧にする |
 | `markdown-table-pad` | Markdown の表の列幅を，全角文字の幅を数えてそろえる |
 | `polish-loop` | 章を分担した複数のレビュアで推敲を巡ごとに回し，指摘が収束するまで続ける |
 | `rewrite-improve` | 見出しから書き起こしたリライトと元原稿を比べ，リライトの良い点を元原稿に採り入れる |
 | `sentence-per-line` | 原稿を1文1行に整形し，段落の間の空行を1つにそろえる |
 
-「1文ごとに改行して」「表を整形して」「推敲を回して」「朱書きを反映して」のように頼むと，対応するスキルが使われます．
+「1文ごとに改行して」「表を整形して」「推敲を回して」「朱書きを反映して」「索引を作って」のように頼むと，対応するスキルが使われます．
 
 必要な道具は次のとおりです．
 
 - Python 3.9 以降
 - `apply-proof-marks`: `pypdf`・`pypdfium2`・`numpy`・`Pillow` (どれも `pip install` で入る)．もとの原稿との差で探す `--ref` を使うときだけ `opencv-python` も要る
+- `build-index`: `pypdfium2`・`pyyaml` (どちらも `pip install` で入る)．見出しのよみの候補を出す補助 (任意) を使うときだけ `pykakasi` も要る
 - ほかの5つ: Python の標準ライブラリだけ
 
 <a id="jpg-user-comment"></a>
@@ -86,7 +88,7 @@ Only the Python standard library is required.
 各プラグインの `examples/` に，手で試すためのサンプルと手順 (README) があります．
 試すときは，フォルダを別の場所に写してから使ってください (原稿や写真を書き換えるため)．
 
-- [plugins/ja-manuscript/examples/](plugins/ja-manuscript/examples/): 誤りをわざと入れた2章の練習原稿と，リライトの草稿
+- [plugins/ja-manuscript/examples/](plugins/ja-manuscript/examples/): 誤りをわざと入れた2章の練習原稿と，リライトの草稿．索引づくりの例 (架空の入門書 3 章と組んだ PDF) は [index/](plugins/ja-manuscript/examples/index/)
 - [plugins/jpg-user-comment/examples/](plugins/jpg-user-comment/examples/): JPEG 2枚と，コメントを書いた CSV
 
 <a id="tests"></a>
@@ -101,6 +103,7 @@ python run_tests.py
 ```
 
 `jstage-xml` のテストは PyMuPDF・PyYAML が無いと一部を飛ばします．
+`build-index` のテストには `pypdfium2`・`pyyaml` が要ります (無ければ PDF を使う試験を飛ばします)．
 `apply-proof-marks` のテストには `pypdf`・`Pillow` が要り，画像の切り出しの試験には `pypdfium2` も，`--ref` の試験には `opencv-python` も要ります (無ければ飛ばす)．
 無いときは，その試験だけを飛ばします．
 GitHub では，push のたびに Ubuntu と Windows でテストを回します (`.github/workflows/test.yml`)．
