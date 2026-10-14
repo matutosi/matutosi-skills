@@ -90,11 +90,11 @@ class TestSortKey(unittest.TestCase):
         # 小書きの仮名・促音・拗音は，大きい仮名として音順に数える
         self.assertEqual(order(["はつこう", "はっこう", "はつぎ"]), ["はつぎ", "はつこう", "はっこう"])
         # 同じ音なら大きい仮名が先
-        self.assertEqual(order(["しょくぱん", "しよくぱん"]), ["しよくぱん", "しょくぱん"])
+        self.assertEqual(order(["しょくせい", "しよくせい"]), ["しよくせい", "しょくせい"])
 
     def test_katakana_yomi_same_as_hiragana(self):
-        self.assertEqual(bi.sort_key("ハンドミキサー"), bi.sort_key("はんどみきさー"))
-        self.assertEqual(order(["ベーカリー", "へいや", "へあ"]), ["へあ", "へいや", "ベーカリー"])  # ー は え 段 (べ) の「え」
+        self.assertEqual(bi.sort_key("ユークリッド"), bi.sort_key("ゆーくりっど"))
+        self.assertEqual(order(["ベータ", "へいや", "へあ"]), ["へあ", "へいや", "ベータ"])  # ー は え 段 (べ) の「え」
 
     def test_nakaguro_after_plain(self):
         self.assertEqual(order(["くろ・しろ", "くろしろ"]), ["くろしろ", "くろ・しろ"])
@@ -105,7 +105,7 @@ class TestSortKey(unittest.TestCase):
 
     def test_row_of(self):
         self.assertEqual(bi.row_of("がす"), "か")
-        self.assertEqual(bi.row_of("ぱんち"), "は")
+        self.assertEqual(bi.row_of("ひど"), "は")
         self.assertEqual(bi.row_of("おーぶん"), "あ")
         self.assertEqual(bi.row_of("しょーとにんぐ"), "さ")
         self.assertEqual(bi.row_of("ヴぁいおりん"), "あ")  # ヴ → う (濁音)
@@ -114,7 +114,7 @@ class TestSortKey(unittest.TestCase):
         self.assertEqual(bi.row_of(""), "英字")
 
     def test_to_hira(self):
-        self.assertEqual(bi.to_hira("ハンドミキサー"), "はんどみきさー")
+        self.assertEqual(bi.to_hira("ユークリッド"), "ゆーくりっど")
         self.assertEqual(bi.to_hira("ヶ"), "け")
 
 
@@ -164,13 +164,13 @@ def entry(name, yomi="あ", **kw):
 
 class TestResolveAndRender(unittest.TestCase):
     def test_main_pages_are_added_and_bold(self):
-        book = FakeBook(list(range(1, 100)), {"酵母": [10, 11]})
-        entries = [{"見出し": "酵母", "よみ": "こうぼ", "主": [12, 40]}]
+        book = FakeBook(list(range(1, 100)), {"方形区": [10, 11]})
+        entries = [{"見出し": "方形区", "よみ": "ほうけいく", "主": [12, 40]}]
         bi.resolve(entries, book)
         self.assertEqual(entries[0]["_pages"], [10, 11, 12, 40])
         self.assertEqual(entries[0]["_main"], [12, 40])
         text, lines = bi.render(entries, "索引", 2)
-        self.assertIn("酵母  10-11, **12**, **40**", text)
+        self.assertIn("方形区  10-11, **12**, **40**", text)
         self.assertEqual(lines, 1)
 
     def test_main_as_single_int(self):
@@ -198,21 +198,21 @@ class TestResolveAndRender(unittest.TestCase):
 
     def test_render_order_rows_refs_and_subs(self):
         entries = [
-            entry("ハンドミキサー", "はんどみきさー", _pages=[3, 5]),
-            entry("パンチ", "ぱんち", _pages=[6]),
-            entry("発酵", "はっこう", _pages=[2, 5, 6], _main=[5],
-                  副=[entry("二次発酵", "にじはっこう", _pages=[6]),
-                      entry("一次発酵", "いちじはっこう", _pages=[5])],
-                  も見よ=["パンチ"]),
-            entry("イースト", "いーすと", 参照="酵母"),
-            entry("酵母", "こうぼ", _pages=[1]),
+            entry("ユークリッド", "ゆーくりっど", _pages=[3, 5]),
+            entry("被度", "ひど", _pages=[6]),
+            entry("序列化", "じょれつか", _pages=[2, 5, 6], _main=[5],
+                  副=[entry("対応分析", "たいおうぶんせき", _pages=[6]),
+                      entry("主成分分析", "しゅせいぶんぶんせき", _pages=[5])],
+                  も見よ=["被度"]),
+            entry("コドラート", "こどらーと", 参照="方形区"),
+            entry("方形区", "ほうけいく", _pages=[1]),
             entry("pH", "pH", _pages=[8]),
         ]
         text, lines = bi.render(entries, "索引", 2)
         self.assertEqual(lines, 8)
-        want = ["## あ", "イースト → 酵母", "## か", "酵母  1", "## は",
-                "発酵  2, **5**, 6  パンチ も見よ", "    一次発酵  5", "    二次発酵  6",
-                "パンチ  6", "ハンドミキサー  3, 5", "## 英字", "pH  8"]
+        want = ["## か", "コドラート → 方形区", "## さ", "序列化  2, **5**, 6  被度 も見よ",
+                "    主成分分析  5", "    対応分析  6", "## は", "被度  6", "方形区  1",
+                "## や", "ユークリッド  3, 5", "## 英字", "pH  8"]
         got = [ln for ln in text.splitlines() if ln]
         self.assertEqual(got[1:], want)  # 先頭は見出し
         self.assertTrue(got[0].startswith("# 索引"))
@@ -253,7 +253,7 @@ class TestCheck(unittest.TestCase):
         self.assertTrue(any("副見出しのよみが無い" in e for e in errors))
 
     def test_yomi_must_be_kana_or_latin(self):
-        errors, _ = self.errs([entry("酵母", "酵母")])
+        errors, _ = self.errs([entry("方形区", "方形区")])
         self.assertTrue(any("ひらがな" in e for e in errors))
 
     def test_duplicate_headings(self):
@@ -363,7 +363,7 @@ class TestCli(unittest.TestCase):
     def test_main_out_of_range_fails(self):
         terms = os.path.join(self.tmp.name, "terms.yaml")
         with open(terms, "w", encoding="utf-8") as f:
-            f.write("meta:\n  pdf: %s\nentries:\n  - 見出し: 酵母\n    よみ: こうぼ\n    主: [99]\n"
+            f.write("meta:\n  pdf: %s\nentries:\n  - 見出し: 方形区\n    よみ: ほうけいく\n    主: [99]\n"
                     % os.path.join(EXAMPLE, "sample_book.pdf").replace("\\", "/"))
         rc, _, se = run("build_index.py", [terms, "--check-only"])
         self.assertEqual(rc, 1)
@@ -372,7 +372,7 @@ class TestCli(unittest.TestCase):
     def test_missing_yomi_fails_with_hint(self):
         terms = os.path.join(self.tmp.name, "terms.yaml")
         with open(terms, "w", encoding="utf-8") as f:
-            f.write("entries:\n  - 見出し: 酵母\n")
+            f.write("entries:\n  - 見出し: 方形区\n")
         rc, so, se = run("build_index.py", [terms, "-p", os.path.join(EXAMPLE, "sample_book.pdf"), "--check-only"])
         self.assertEqual(rc, 1)
         self.assertIn("よみが無い", se)
@@ -413,26 +413,26 @@ class TestHelpers(unittest.TestCase):
 
 class TestSuggestYomi(unittest.TestCase):
     class Fake:
-        TABLE = {"酵母": "こうぼ", "発酵": "はっこう", "一次発酵": "いちじはっこう", "ハンドミキサー": "ハンドミキサー"}
+        TABLE = {"方形区": "ほうけいく", "序列化": "じょれつか", "主成分分析": "しゅせいぶんぶんせき", "ユークリッド": "ユークリッド"}
 
         def convert(self, text):
             return [{"orig": text, "hira": self.TABLE.get(text, text)}]
 
     def test_suggest_only_missing(self):
         entries = [
-            {"見出し": "酵母"},
-            {"見出し": "ハンドミキサー", "よみ": "はんどみきさー"},
+            {"見出し": "方形区"},
+            {"見出し": "ユークリッド", "よみ": "ゆーくりっど"},
             {"見出し": "pH"},
-            {"見出し": "発酵", "副": [{"見出し": "一次発酵"}]},
+            {"見出し": "序列化", "副": [{"見出し": "主成分分析"}]},
         ]
         rows = sy.suggest(entries, self.Fake())
         self.assertEqual([(r[1], r[3]) for r in rows],
-                         [("酵母", "こうぼ"), ("発酵", "はっこう"), ("一次発酵", "いちじはっこう")])
+                         [("方形区", "ほうけいく"), ("序列化", "じょれつか"), ("主成分分析", "しゅせいぶんぶんせき")])
 
     def test_all_shows_only_mismatch(self):
-        entries = [{"見出し": "酵母", "よみ": "こうぼ"}, {"見出し": "発酵", "よみ": "はつこう"}]
+        entries = [{"見出し": "方形区", "よみ": "ほうけいく"}, {"見出し": "序列化", "よみ": "じょれっか"}]
         rows = sy.suggest(entries, self.Fake(), show_all=True)
-        self.assertEqual([(r[1], r[2], r[3]) for r in rows], [("発酵", "はつこう", "はっこう")])
+        self.assertEqual([(r[1], r[2], r[3]) for r in rows], [("序列化", "じょれっか", "じょれつか")])
 
     def test_cli_without_pykakasi_exits_zero(self):
         if HAVE_KAKASI:
@@ -440,7 +440,7 @@ class TestSuggestYomi(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             terms = os.path.join(tmp, "t.yaml")
             with open(terms, "w", encoding="utf-8") as f:
-                f.write("entries:\n  - 見出し: 酵母\n")
+                f.write("entries:\n  - 見出し: 方形区\n")
             rc, so, _ = run("suggest_yomi.py", [terms])
             self.assertEqual(rc, 0)
             self.assertIn("pip install pykakasi", so)
@@ -449,7 +449,7 @@ class TestSuggestYomi(unittest.TestCase):
     def test_cli_with_pykakasi_does_not_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             terms = os.path.join(tmp, "t.yaml")
-            body = "entries:\n  - 見出し: 酵母\n"
+            body = "entries:\n  - 見出し: 方形区\n"
             with open(terms, "w", encoding="utf-8") as f:
                 f.write(body)
             rc, so, _ = run("suggest_yomi.py", [terms])
