@@ -202,7 +202,7 @@ def t_axis(files, cfg):
 
 
 def t_lablang(files, cfg):
-    """R版とPython版で、図の中の文字の言語が食い違っていないか。"""
+    """対になる2つの図(コードブロック ID が `_R` と `_py` のもの)で、図の中の文字の言語が食い違っていないか。"""
     LAB = re.compile(r"(?:labs|set_xlabel|set_ylabel|xlab|ylab)\s*\(([^\n]*)")
     hits = []
     for f in files:
@@ -288,7 +288,7 @@ TYPES = [
     ("selfref", "自分の章を指す参照", t_selfref),
     ("exercises", "練習問題と解答の数", t_exercises),
     ("axis", "図の軸に出たコードの内部名", t_axis),
-    ("lablang", "RとPythonで図の中の言語が違う", t_lablang),
+    ("lablang", "対になる図(_R と _py)で図の中の言語が違う", t_lablang),
     ("fig-leaf", "図の中の語が本文に無い", t_figleaf),
     ("manual", "機械照合できない型(一覧のみ)", t_manual),
 ]
