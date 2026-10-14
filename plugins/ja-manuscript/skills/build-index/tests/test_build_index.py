@@ -63,7 +63,7 @@ def order(yomis):
 class TestSortKey(unittest.TestCase):
     def test_seion_dakuon_handakuon(self):
         # 清音 → 濁音 → 半濁音
-        self.assertEqual(order(["ぱん", "ばん", "はん"]), ["はん", "ばん", "ぱん"])
+        self.assertEqual(order(["ぴょう", "びょう", "ひょう"]), ["ひょう", "びょう", "ぴょう"])
         self.assertEqual(order(["がん", "かん", "かな"]), ["かな", "かん", "がん"])
 
     def test_dakuten_compared_left_to_right(self):
@@ -76,9 +76,9 @@ class TestSortKey(unittest.TestCase):
 
     def test_long_mark_counts_as_previous_vowel(self):
         # 長音符は直前の母音と同じ．同じ母音が並ぶ語どうしでは長音符のある語が先
-        self.assertEqual(order(["らあめん", "らーめん"]), ["らーめん", "らあめん"])
+        self.assertEqual(order(["ゆうくりっど", "ゆーくりっど"]), ["ゆーくりっど", "ゆうくりっど"])
         # 長音符は「あ」として数えるので，「い」より先
-        self.assertEqual(order(["らいめん", "らーめん"]), ["らーめん", "らいめん"])
+        self.assertEqual(order(["ゆえくりっど", "ゆーくりっど"]), ["ゆーくりっど", "ゆえくりっど"])
         # 母音は直前の仮名で決まる (き → い)
         self.assertEqual(order(["きいろ", "きーろ", "きうろ"]), ["きーろ", "きいろ", "きうろ"])
 
@@ -88,7 +88,7 @@ class TestSortKey(unittest.TestCase):
 
     def test_small_kana_sound_order(self):
         # 小書きの仮名・促音・拗音は，大きい仮名として音順に数える
-        self.assertEqual(order(["はつこう", "はっこう", "はつぎ"]), ["はつぎ", "はつこう", "はっこう"])
+        self.assertEqual(order(["じょれっか", "じょれつか", "じょれき"]), ["じょれき", "じょれつか", "じょれっか"])
         # 同じ音なら大きい仮名が先
         self.assertEqual(order(["しょくせい", "しよくせい"]), ["しよくせい", "しょくせい"])
 
@@ -97,17 +97,17 @@ class TestSortKey(unittest.TestCase):
         self.assertEqual(order(["ベータ", "へいや", "へあ"]), ["へあ", "へいや", "ベータ"])  # ー は え 段 (べ) の「え」
 
     def test_nakaguro_after_plain(self):
-        self.assertEqual(order(["くろ・しろ", "くろしろ"]), ["くろしろ", "くろ・しろ"])
+        self.assertEqual(order(["ぶれい・かーていす", "ぶれいかーていす"]), ["ぶれいかーていす", "ぶれい・かーていす"])
 
     def test_latin_after_kana_case_insensitive(self):
-        self.assertEqual(order(["pH", "apple", "わに", "あか", "Banana"]),
-                         ["あか", "わに", "apple", "Banana", "pH"])
+        self.assertEqual(order(["PCA", "ecan", "わに", "あか", "NMDS"]),
+                         ["あか", "わに", "ecan", "NMDS", "PCA"])
 
     def test_row_of(self):
-        self.assertEqual(bi.row_of("がす"), "か")
+        self.assertEqual(bi.row_of("じゅけいず"), "さ")
         self.assertEqual(bi.row_of("ひど"), "は")
-        self.assertEqual(bi.row_of("おーぶん"), "あ")
-        self.assertEqual(bi.row_of("しょーとにんぐ"), "さ")
+        self.assertEqual(bi.row_of("おーでぃねーしょん"), "あ")
+        self.assertEqual(bi.row_of("しょくせい"), "さ")
         self.assertEqual(bi.row_of("ヴぁいおりん"), "あ")  # ヴ → う (濁音)
         self.assertEqual(bi.row_of("ゐど"), "わ")
         self.assertEqual(bi.row_of("pH"), "英字")
