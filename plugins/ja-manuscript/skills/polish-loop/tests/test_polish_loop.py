@@ -101,6 +101,41 @@ class TestApplyFixes(Base):
         self.assertEqual(code, 0, err)
         self.assertIn("誤字", read(self.p("chapter_01.md")))
 
+    def test_count_replaces_all_when_number_matches(self):
+        # 全体置換: count を付ければ，ちょうどその数のときだけ全部を置き換える
+        f = self.fixes([{"file": "chapter_01.md", "before": "す．", "after": "す。", "count": 2}])
+        code, out, err = run("apply_fixes.py", [f, "--apply"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(read(self.p("chapter_01.md")), "これは誤時です。\n表記を統一します。\n")
+        self.assertIn("(1/2)", out)
+
+    def test_count_mismatch_stops(self):
+        # count が実際の数と違えば，何も書かずに止まる (想定外の箇所を見つける)
+        f = self.fixes([{"file": "chapter_01.md", "before": "す．", "after": "す。", "count": 3}])
+        code, out, err = run("apply_fixes.py", [f, "--apply"], self.d)
+        self.assertEqual(code, 1)
+        self.assertIn("2 件ヒット (3 件のはず)", out)
+        self.assertNotIn("す。", read(self.p("chapter_01.md")))
+
+    def test_count_all_occurrences_with_different_lengths(self):
+        write(self.p("chapter_03.md"), "A 図です．B 図です．C 図です．\n")
+        f = self.fixes([{"file": "chapter_03.md", "before": "図です", "after": "グラフです", "count": 3}])
+        code, out, err = run("apply_fixes.py", [f, "--apply"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(read(self.p("chapter_03.md")), "A グラフです．B グラフです．C グラフです．\n")
+
+    def test_count_in_tsv(self):
+        write(self.p("fixes.tsv"), "chapter_01.md\tす．\tす。\t2\n")
+        code, out, err = run("apply_fixes.py", ["fixes.tsv", "--apply"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(read(self.p("chapter_01.md")).count("す。"), 2)
+
+    def test_bad_count_is_rejected(self):
+        f = self.fixes([{"file": "chapter_01.md", "before": "誤時", "after": "誤字", "count": 0}])
+        code, out, err = run("apply_fixes.py", [f, "--apply"], self.d)
+        self.assertEqual(code, 1)
+        self.assertIn("count", out)
+
     def test_old_new_keys_and_mixed(self):
         f = self.fixes([{"file": "chapter_01.md", "old": "誤時", "new": "誤字"},
                         {"file": "chapter_01.md", "before": "統一します", "after": "そろえます"}])

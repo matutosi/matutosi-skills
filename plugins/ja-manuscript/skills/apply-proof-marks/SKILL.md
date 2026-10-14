@@ -268,6 +268,8 @@ python ${CLAUDE_SKILL_DIR}/scripts/apply_fixes.py fixes.json --apply --post
 - **本体は polish-loop の `scripts/apply_fixes.py`** (このスキルの `apply_fixes.py` はそれを呼ぶ入口)。
   polish-loop のスキルが同じ置き場に無いと動かない。キー名は `old`/`new` でも `before`/`after` でもよい。
 - 1件でも当たらなければ何も書かずに止まる (`--partial` で残りだけ当てる)。CRLF と BOM は元のファイルに合わせる。
+- 同じ語を意図して全体で置き換えるときは、その項目に `"count": N` を付ける (ちょうど N 回のときだけ N か所とも当てる)。
+  ページをまたぐ一括置換は、先に対象語のあるページの朱書きを確かめる (「落とし穴」)。
 - **確認の出力に、当てる箇所ごとの前後の文脈が置換前・置換後で並ぶ。必ず見てから `--apply` する。**
   語の途中で切れた置換・短すぎる置換・前後とつながって数が合わない置換は警告になる
   (`--strict` で警告でも止まる)。中身は polish-loop の SKILL.md の 3 節。

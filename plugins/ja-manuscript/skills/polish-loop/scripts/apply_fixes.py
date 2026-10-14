@@ -10,16 +10,21 @@ apply-proof-marks/scripts/apply_fixes.py はこれを呼ぶだけの入口。
   python apply_fixes.py fixes.json --apply        # 実際に書き換える
   python apply_fixes.py fixes.json --apply --partial   # 一致しないものは飛ばし、残りを当てる
   python apply_fixes.py fixes.json --apply --post      # 適用後に整形 (1文1行・表) を走らせる
-  python apply_fixes.py fixes.tsv  --apply        # TSV(file<TAB>before<TAB>after)でもよい
+  python apply_fixes.py fixes.tsv  --apply        # TSV(file<TAB>before<TAB>after[<TAB>count])でもよい
 
 fixes.json の形 (キー名は before/after でも old/new でもよい。混ざっていてもよい):
   [{"file": "chapter_04.md", "before": "…", "after": "…"},
-   {"file": "chapter_05.md", "old": "この行は消す．\\n", "new": ""}]
+   {"file": "chapter_05.md", "old": "この行は消す．\\n", "new": ""},
+   {"file": "chapter_06.md", "before": "ggsave(", "after": "ggsave_(", "count": 37}]   # 全体置換 (下記)
 
 決めごと:
   - `before` が原稿に**ちょうど1回**現れるものだけ当てる。
     1件でも 0回・複数回・ファイルが無い があれば、**何も書かずに止まる** (--partial なら飛ばして残りを当てる)。
     部分適用にならないよう、全件を検査してから書き込む。
+  - **全体置換**: 同じ語を意図して何か所も置き換えるときは、`"count": N` を付ける。
+    `before` がちょうど N 回現れるときだけ、N か所すべてを置き換える (N と違えば止まる)。
+    「何か所あるはずか」を自分で数えて書かせることで、想定外の箇所 (巻き込み) を見つける。
+    N か所ぶんの文脈をすべて出し、警告も1か所ごとに調べる。
   - 改行コード (CRLF) と BOM は元のファイルに合わせる。before/after の改行は \\n で書けばよい。
   - 巻き込みを見つけるため、次を警告する (--strict なら警告でも止まる)。
       * 語の途中で切れている before (前後と同じ字種で続く) と、3文字以下の短い before
@@ -73,7 +78,10 @@ def load_fixes(path):
         for n, r in enumerate(json.loads(text), 1):
             if "file" not in r:
                 raise ValueError("#%d: file が無い" % n)
-            rows.append((n, r["file"], pick(r, "before", "old", n), pick(r, "after", "new", n)))
+            cnt = r.get("count", 1)
+            if not isinstance(cnt, int) or isinstance(cnt, bool) or cnt < 1:
+                raise ValueError("#%d: count は 1 以上の整数にする (%r)" % (n, cnt))
+            rows.append((n, r["file"], pick(r, "before", "old", n), pick(r, "after", "new", n), cnt))
     else:
         n = 0
         for ln in text.split("\n"):
@@ -81,10 +89,15 @@ def load_fixes(path):
                 continue
             n += 1
             cells = ln.rstrip("\r").split("\t")
-            if len(cells) != 3:
-                raise ValueError("TSV の %d 行目の列数が3でない: %s" % (n, ln[:50]))
-            rows.append((n, cells[0], cells[1], cells[2]))
-    return [(n, f, b.replace("\r\n", "\n"), a.replace("\r\n", "\n")) for n, f, b, a in rows]
+            if len(cells) not in (3, 4):
+                raise ValueError("TSV の %d 行目の列数が3か4でない: %s" % (n, ln[:50]))
+            cnt = 1
+            if len(cells) == 4:
+                if not cells[3].strip().isdigit() or int(cells[3]) < 1:
+                    raise ValueError("TSV の %d 行目: count は 1 以上の整数にする (%r)" % (n, cells[3]))
+                cnt = int(cells[3])
+            rows.append((n, cells[0], cells[1], cells[2], cnt))
+    return [(n, f, b.replace("\r\n", "\n"), a.replace("\r\n", "\n"), c) for n, f, b, a, c in rows]
 
 
 def load_config(path):
@@ -153,15 +166,15 @@ def split_warnings(text, pos, before):
     return out
 
 
-def count_warnings(old, new, before, after):
+def count_warnings(old, new, before, after, times=1):
     """置換の前後で数が合うか (前後とつながって別の語ができていないか) を見る。"""
     out = []
-    left = new.count(before) - after.count(before)
+    left = new.count(before) - times * after.count(before)
     if before and left > 0:
         out.append("置換のあとに before がまだ %d 回ある (前後とつながってできた)" % left)
     if after:
         delta = new.count(after) - old.count(after)
-        expect = 1 - before.count(after)
+        expect = times * (1 - before.count(after))
         if delta != expect:
             out.append("after の出現数が %+d になった (%+d のはず。前後とつながっていないか)" % (delta, expect))
     return out
@@ -215,8 +228,8 @@ def main():
         return 1
 
     by_file = {}
-    for n, f, b, a in rows:
-        by_file.setdefault(f, []).append((n, b, a))
+    for n, f, b, a, c in rows:
+        by_file.setdefault(f, []).append((n, b, a, c))
 
     ng, warns, shown, staged = [], [], [], {}
     for f, items in by_file.items():
@@ -225,19 +238,28 @@ def main():
             continue
         orig, bom, crlf = read_doc(f)
         s, applied = orig, 0
-        for n, b, a in items:
+        for n, b, a, want in items:
             c = s.count(b) if b else 0
-            if c != 1:
-                ng.append("#%d %s: %d 件ヒット — %s" % (n, f, c, b[:40].replace("\n", "⏎")))
+            if c != want:
+                ng.append("#%d %s: %d 件ヒット (%d 件のはず) — %s" % (n, f, c, want, b[:40].replace("\n", "⏎")))
                 continue
-            pos = s.index(b)
-            line = s.count("\n", 0, pos) + 1
-            new = s[:pos] + a + s[pos + len(b):]
-            w = split_warnings(s, pos, b) + count_warnings(s, new, b, a)
-            warns += ["#%d %s:%d %s" % (n, f, line, x) for x in w]
-            shown.append(("#%d %s:%d" % (n, f, line), context(s, pos, len(b), args.context),
-                          context(new, pos, len(a), args.context)))
-            s, applied = new, applied + 1
+            # 先頭から順に1か所ずつ置き換える。文脈は置換前の本文の位置で示す
+            new, start, shift = s, 0, 0
+            for k in range(want):
+                pos = s.index(b, start)
+                line = s.count("\n", 0, pos) + 1
+                cur = pos + shift
+                w = split_warnings(s, pos, b)
+                tag = "#%d %s:%d" % (n, f, line) + (" (%d/%d)" % (k + 1, want) if want > 1 else "")
+                warns += ["%s %s" % (tag, x) for x in w]
+                after_ctx = new[:cur] + a + new[cur + len(b):]
+                shown.append((tag, context(s, pos, len(b), args.context),
+                              context(after_ctx, cur, len(a), args.context)))
+                new = after_ctx
+                shift += len(a) - len(b)
+                start = pos + len(b)
+            warns += ["#%d %s %s" % (n, f, x) for x in count_warnings(s, new, b, a, want)]
+            s, applied = new, applied + want
         if applied:
             warns += ["%s %s" % (f, x) for x in style_warnings(orig, s, cfg)]
             staged[f] = (s, bom, crlf, applied)
