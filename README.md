@@ -45,14 +45,14 @@ GitHub の matutosi/matutosi-skills から ja-manuscript のスキルをイン�
 | `manuscript-polish` | 入稿前の原稿を1回点検し，誤字脱字・表記ゆれ・文体・相互参照の問題を一覧にする |
 | `polish-loop` | 章を分担した複数のレビュアで推敲を巡ごとに回し，指摘が収束するまで続ける |
 | `rewrite-improve` | 見出しから書き起こしたリライトと元原稿を比べ，リライトの良い点を元原稿に採り入れる |
-| `apply-proof-marks` | 紙に朱書きした校正 PDF (手書きの注釈入り) やスキャン画像を読み，原稿の Markdown に反映する |
+| `apply-proof-marks` | 紙に朱書きした校正 PDF (手書きの注釈入り)・スキャン・スマホの写真を読み，原稿の Markdown に反映する |
 
 「1文ごとに改行して」「表を整形して」「推敲を回して」「朱書きを反映して」のように頼むと，対応するスキルが使われます．
 
 必要な道具は次のとおりです．
 
 - Python 3.9 以降
-- `apply-proof-marks`: `pypdf`・`pypdfium2`・`numpy`・`Pillow` (どれも `pip install` で入る)
+- `apply-proof-marks`: `pypdf`・`pypdfium2`・`numpy`・`Pillow` (どれも `pip install` で入る)．もとの原稿との差で探す `--ref` を使うときだけ `opencv-python` も要る
 - ほかの5つ: Python の標準ライブラリだけ
 
 <a id="jpg-user-comment"></a>
@@ -101,7 +101,7 @@ python run_tests.py
 ```
 
 `jstage-xml` のテストは PyMuPDF・PyYAML が無いと一部を飛ばします．
-`apply-proof-marks` のテストには `pypdf`・`Pillow` が要り，画像の切り出しの試験には `pypdfium2` も要ります．
+`apply-proof-marks` のテストには `pypdf`・`Pillow` が要り，画像の切り出しの試験には `pypdfium2` も，`--ref` の試験には `opencv-python` も要ります (無ければ飛ばす)．
 無いときは，その試験だけを飛ばします．
 GitHub では，push のたびに Ubuntu と Windows でテストを回します (`.github/workflows/test.yml`)．
 

@@ -218,10 +218,102 @@ class TestExtractMarksImage(Base):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.rows(), [])
 
+    @unittest.skipUnless(HAVE_PDFIUM, "pypdfium2 が要る")
+    def test_scanned_pdf_falls_back_to_color(self):
+        # 注釈が無く、ページが画像だけの PDF (紙のスキャン) は、自動で色で探す
+        from PIL import Image
+        Image.open(self.p("p001.png")).save(self.p("scan.pdf"), resolution=72)
+        code, out, err = run("extract_marks.py", ["scan.pdf", "--list"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertIn("スキャンとみなして", out)
+        self.assertEqual([r[5] for r in self.rows()], ["p001_b1", "p001_b2"])
+
+    def test_text_pdf_without_ink_warns(self):
+        # 注釈の無い普通の PDF は、切り替えずに注意だけ出す
+        make_marked_pdf(self.p("proof.pdf"), [[]])
+        code, out, err = run("extract_marks.py", ["proof.pdf", "--list"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertIn("Ink 注釈がありません", out)
+
+    def test_sideways_photo_is_rotated(self):
+        # 横倒しの写真 (行が縦に走る) は 90° 回して読む．EXIF の 72dpi は大きさから見積もり直す
+        from PIL import Image
+        Image.open(self.p("p001.png")).resize((1500, 2000)).rotate(-90, expand=True).save(
+            self.p("side.jpg"), dpi=(72, 72), quality=95)
+        code, out, err = run("extract_marks.py", ["side.jpg", "--list"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertIn("90° 回して", out)
+        self.assertEqual([r[5] for r in self.rows()], ["side_b1", "side_b2"])
+
+    def test_rotate_zero_keeps_orientation(self):
+        from PIL import Image
+        Image.open(self.p("p001.png")).resize((1500, 2000)).rotate(-90, expand=True).save(
+            self.p("side.jpg"), dpi=(72, 72), quality=95)
+        code, out, err = run("extract_marks.py", ["side.jpg", "--list", "--rotate", "0"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("回して", out)
+
     def test_mixed_input_is_rejected(self):
         make_marked_pdf(self.p("proof.pdf"), [[(100, 700, 160, 715)]])
         code, out, err = run("extract_marks.py", ["proof.pdf", "p001.png"], self.d)
         self.assertNotEqual(code, 0)
+
+
+try:
+    import cv2  # noqa: F401
+    HAVE_CV2 = True
+except ImportError:
+    HAVE_CV2 = False
+
+
+@unittest.skipUnless(HAVE_PDF and HAVE_NUMPY and HAVE_PDFIUM and HAVE_CV2,
+                     "Pillow・numpy・pypdfium2・OpenCV が要る")
+class TestExtractMarksRef(Base):
+    """もとの原稿 (参照 PDF) との差で探す．"""
+
+    def setUp(self):
+        super().setUp()
+        import random
+        from PIL import Image, ImageDraw
+        rnd = random.Random(1)
+        # 参照: 長さのそろわない「字」のかたまりを並べた本文 (特徴点が取れるように)
+        ref = Image.new("RGB", (1000, 1400), "white")
+        dr = ImageDraw.Draw(ref)
+        for y in range(120, 1250, 45):
+            x = 100
+            while x < 880:
+                w = rnd.randint(8, 30)
+                dr.rectangle((x, y + rnd.randint(0, 6), x + w, y + 22 - rnd.randint(0, 6)),
+                             fill=(20, 20, 20))
+                x += w + rnd.randint(6, 14)
+        dr.rectangle((600, 700, 800, 800), fill=(60, 180, 120))   # 図の緑 (朱書きではない)
+        ref.save(self.p("ref.pdf"), resolution=120)
+        # スキャン: 少しずらして赤と青の書き込みを足す
+        scan = Image.new("RGB", (1000, 1400), "white")
+        scan.paste(ref.rotate(0.4, fillcolor="white").crop((0, 0, 992, 1394)), (8, 6))
+        dr = ImageDraw.Draw(scan)
+        dr.line((150, 300, 400, 300), fill=(220, 30, 40), width=4)
+        dr.line((200, 1000, 450, 990), fill=(30, 60, 220), width=4)
+        scan.save(self.p("scan.png"), dpi=(120, 120))
+
+    def rows(self):
+        return [r.split("\t") for r in read(self.p("marks", "manifest.tsv")).splitlines()[1:]]
+
+    def test_ref_finds_any_color_and_makes_clean(self):
+        code, out, err = run("extract_marks.py", ["scan.png", "--ref", "ref.pdf"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertIn("参照 PDF との差で探した: 1 / 1", out)
+        rows = self.rows()
+        self.assertEqual(len(rows), 2, rows)                 # 赤と青．図の緑は拾わない
+        self.assertTrue(int(rows[0][2]) < 300 < int(rows[0][3]))
+        self.assertTrue(int(rows[1][2]) < 995 < int(rows[1][3]))
+        self.assertTrue(os.path.exists(self.p("marks", "scan_b1_clean.png")))
+
+    def test_color_finds_figure_green(self):
+        # 比べるため: 色で緑を探すと図を拾う
+        code, out, err = run("extract_marks.py", ["scan.png", "--color", "green", "--list"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.rows()), 1)
 
 
 if __name__ == "__main__":

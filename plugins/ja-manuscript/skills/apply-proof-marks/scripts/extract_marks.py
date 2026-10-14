@@ -26,6 +26,20 @@ ink はその2枚の差分なので、どちらも下の文字と混ざらない
     python extract_marks.py _review/scan/page01.png --color green
 画像では Ink 注釈の座標が無いので、図の中の同じ色も拾う(帯を見て外す)。
 朱書きの下の字は戻せないので `_clean` は作らない。`_ink` は色の画素だけを白地に置いた版。
+
+紙をスキャンした PDF (注釈が無く、ページが画像だけ) を渡したときも、
+各ページを元の解像度で描画して、画像と同じく色で探す (自動で切り替わる)。
+
+スマホの写真は、横倒しなら本文の行の向きを見て縦に直し (上下は見分けられないので、
+逆さなら --rotate 270)、EXIF の 72dpi は用紙 (A4) の
+長辺から見積もり直し、彩度の下限の既定を 0.30 に下げる (写真の赤ペンはスキャンより薄い)。
+
+`--ref もとの原稿.pdf` を付けると、色ではなく**もとの原稿との差**で探す (OpenCV が要る)。
+    python extract_marks.py scan.pdf --ref manuscript.pdf
+    python extract_marks.py p07.jpg p29.jpg --ref manuscript.pdf --ref-pages 7,29
+図の同じ色を拾わず、赤以外のペンも拾い、参照の画像が `_clean` になる。
+印刷したときと同じ版の PDF が要る。位置が合わないページは色の方法に戻る。
+写真は台形にゆがむので合わないことが多い (スキャン向け)。
 """
 import argparse
 import sys
@@ -231,31 +245,206 @@ def mask_clusters(mask, cell, gap):
 
 
 def image_dpi(img, fallback):
+    """画像の解像度 (dpi)。72dpi 以下 (写真の既定値) は用紙 (A4) の長辺から見積もる。"""
     d = img.info.get("dpi")
     try:
         v = float(d[0]) if d else 0
     except (TypeError, ValueError):
         v = 0
+    if v > 72:
+        return v
+    if max(img.size) >= 1500:                       # A4 の長辺 (11.69in) に写っているとみなす
+        return max(img.size) / 11.69
     return v if v >= 50 else fallback
 
 
+def is_photo(img):
+    """カメラで撮った画像か (EXIF に機種名がある)。"""
+    try:
+        ex = img.getexif()
+    except Exception:
+        return False
+    return bool(ex.get(271) or ex.get(272))         # Make / Model
+
+
+def stripe(profile, k=15):
+    """濃さのプロファイルの細かい揺れ (行の縞) だけを測る。照明のむらのような緩い変化は除く。"""
+    smooth = np.convolve(profile, np.ones(k) / k, mode="same")
+    return float(np.std(profile - smooth))
+
+
+def lines_are_vertical(img):
+    """本文の行が縦に走っているか (横倒しの写真)。
+
+    局所の背景より暗い画素を字とみなし (机の影・照明のむらに強い)、中央だけで
+    行方向と列方向の縞の強さを比べる。横書きの行は横縞を作る。
+    """
+    from PIL import ImageFilter
+    small = img.convert("L")
+    small.thumbnail((1000, 1000))
+    g = np.asarray(small).astype(float)
+    bg = np.asarray(small.filter(ImageFilter.BoxBlur(15))).astype(float)
+    h, w = g.shape
+    m = (g < bg - 25)[int(h * .15):int(h * .85), int(w * .15):int(w * .85)]
+    return stripe(m.mean(axis=0)) > stripe(m.mean(axis=1)) * 1.2
+
+
+def upright(img, rotate="auto"):
+    """横倒しの画像を、本文の行が横になる向きに直す。(画像, 回した角度) を返す。
+
+    auto は行が縦に走っていれば反時計回りに 90° 回す。上下 (90° か 270° か) は
+    見分けられないので、逆さになったら --rotate 270 のように角度を指定する。
+    """
+    from PIL import ImageOps
+    img = ImageOps.exif_transpose(img).convert("RGB")
+    if rotate == "auto":
+        angle = 90 if lines_are_vertical(img) else 0
+    else:
+        angle = int(rotate)
+    if angle:
+        img = img.rotate(angle, expand=True)
+    return img, angle
+
+
+# ---------------------------------------------------------------- 参照 PDF との差
+def load_cv2():
+    try:
+        import cv2
+        return cv2
+    except ImportError:
+        sys.exit("--ref には OpenCV が要ります: pip install opencv-python")
+
+
+def text_mask(img):
+    """彩度の低い濃い画素 (本文の黒) だけ。色の朱書きは入らない。"""
+    hsv = np.asarray(img.convert("HSV")).astype(int)
+    return (hsv[..., 2] < 110) & (hsv[..., 1] < 90)
+
+
+def align_ref(img, ref_pdf, ref_no):
+    """参照 PDF のページを、スキャンに重なるように描画する。(画像, 本文の重なり) を返す。
+
+    ORB の特徴点 + RANSAC で相似変換を求め、ECC (アフィン) で詰める。
+    """
+    cv2 = load_cv2()
+    doc = pdfium.PdfDocument(str(ref_pdf))
+    try:
+        if not 1 <= ref_no <= len(doc):
+            return None, 0.0
+        page = doc[ref_no - 1]
+        scale = img.width / page.get_width()          # 用紙の幅に合わせて刷ったとみなす
+        ref = page.render(scale=scale).to_pil().convert("RGB")
+    finally:
+        doc.close()
+    g1 = np.where(text_mask(img), 0, 255).astype(np.uint8)
+    g2 = np.where(text_mask(ref), 0, 255).astype(np.uint8)
+    orb = cv2.ORB_create(8000)
+    k1, d1 = orb.detectAndCompute(g1, None)
+    k2, d2 = orb.detectAndCompute(g2, None)
+    if d1 is None or d2 is None:
+        return None, 0.0
+    mt = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True).match(d2, d1)
+    if len(mt) < 10:
+        return None, 0.0
+    src = np.float32([k2[m.queryIdx].pt for m in mt])
+    dst = np.float32([k1[m.trainIdx].pt for m in mt])
+    M, _ = cv2.estimateAffinePartial2D(src, dst, method=cv2.RANSAC, ransacReprojThreshold=3)
+    if M is None:
+        return None, 0.0
+    # ECC の行列は スキャン(template) 座標 → 参照(input) 座標 の向き
+    W = cv2.invertAffineTransform(M).astype(np.float32)
+    b1 = cv2.GaussianBlur(255 - g1, (0, 0), 2).astype(np.float32)
+    b2 = cv2.GaussianBlur(255 - g2, (0, 0), 2).astype(np.float32)
+    try:
+        _, W = cv2.findTransformECC(b1, b2, W, cv2.MOTION_AFFINE,
+                                    (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 200, 1e-6),
+                                    None, 5)
+    except cv2.error:
+        pass
+    warped = cv2.warpAffine(np.asarray(ref), W, img.size,
+                            flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
+                            borderValue=(255, 255, 255))
+    warped = Image.fromarray(warped)
+    rm = cv2.dilate(text_mask(warped).astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+    sm = text_mask(img)
+    return warped, float((sm & rm).sum()) / max(1, int(sm.sum()))
+
+
+def diff_mask(img, refimg, px):
+    """スキャンにあって参照に無いもの。参照の何かがある所 (1pt 膨らませる) と紙の端は外す。"""
+    cv2 = load_cv2()
+    a = np.asarray(img).astype(int)
+    hsv = np.asarray(img.convert("HSV")).astype(int)
+    ink = (a.min(2) < 170) | ((hsv[..., 1] > 70) & (hsv[..., 2] > 60))
+    r = max(1, int(round(px)))
+    refm = (np.asarray(refimg).min(2) < 235).astype(np.uint8)
+    refm = cv2.dilate(refm, np.ones((2 * r + 1, 2 * r + 1), np.uint8)) > 0
+    m = ink & ~refm
+    e = int(12 * px)                                    # 紙の端 12pt (スキャナの影)
+    m[:e] = False; m[-e:] = False; m[:, :e] = False; m[:, -e:] = False
+    return m
+
+
 def run_images(files, args):
+    """画像ファイルから探す。"""
+    pages = []
+    for f in files:
+        raw = Image.open(f)
+        photo = is_photo(raw)
+        dpi = image_dpi(raw, args.dpi)
+        img, angle = upright(raw, args.rotate)
+        if angle and args.rotate == "auto":
+            print("%s: 横倒しなので反時計回りに 90° 回して読む (逆さなら --rotate 270)"
+                  % Path(f).name)
+        pages.append((Path(f).stem, img, dpi, photo))
+    run_pages(pages, Path(files[0]).resolve().parent / "marks", args, "画像")
+
+
+def ref_page_numbers(args, n, default):
+    """画像・ページの順に対応する参照 PDF のページ番号。"""
+    if not args.ref_pages:
+        return default
+    nums = sorted(parse_pages(args.ref_pages))
+    if len(nums) != n:
+        sys.exit("--ref-pages の数 (%d) が画像・ページの数 (%d) と合わない" % (len(nums), n))
+    return nums
+
+
+def run_pages(pages, outdir, args, unit, ref_nums=None):
+    """(名前, 画像, dpi, 写真か) の並びから朱書きを探して帯を切り出す。
+
+    既定は色で探す。--ref があれば参照 PDF との差で探す。
+    """
     if np is None:
         sys.exit("画像から探すには numpy が要ります: pip install numpy")
     hue = parse_hue(args.color)
-    outdir = Path(files[0]).resolve().parent / "marks"
     outdir.mkdir(exist_ok=True)
-    if args.clean == "always":
-        print("注意: 画像では朱書きの下の字を戻せないので、_clean は作らない")
+    if args.ref:
+        load_cv2()
+        ref_nums = ref_page_numbers(args, len(pages),
+                                    ref_nums or list(range(1, len(pages) + 1)))
+    elif args.clean == "always":
+        print("注意: 画像では朱書きの下の字を戻せないので、_clean は作らない (--ref なら作れる)")
     rows = []
-    for f in files:
-        img = Image.open(f).convert("RGB")
-        dpi = image_dpi(img, args.dpi)
+    by_color = by_ref = 0
+    for idx, (stem, img, dpi, photo) in enumerate(pages):
         px = dpi / 72                                   # 1pt あたりの画素
-        mask = color_mask(img, hue, args.hue_tol, args.min_sat)
+        refimg = None
+        if args.ref:
+            refimg, ov = align_ref(img, args.ref, ref_nums[idx])
+            if refimg is None or ov < 0.8:
+                print("注意: %s は参照 PDF の p.%d と位置が合わない (本文の重なり %.0f%%)。色で探す"
+                      % (stem, ref_nums[idx], 100 * ov))
+                refimg = None
+        if refimg is not None:
+            mask = diff_mask(img, refimg, px)
+            by_ref += 1
+        else:
+            min_sat = args.min_sat if args.min_sat is not None else (0.30 if photo else 0.40)
+            mask = color_mask(img, hue, args.hue_tol, min_sat)
+            by_color += 1
         bands = mask_bands(mask, pad=int(args.pad * px), gap=int(args.pad * px),
                            min_pixels=args.min_pixels)
-        stem = Path(f).stem
         for k, (top, bot, n) in enumerate(bands, start=1):
             name = "%s_b%d" % (stem, k)
             rows.append((stem, k, top, bot, n, name, ""))
@@ -263,7 +452,9 @@ def run_images(files, args):
                 continue
             band = img.crop((0, top, img.width, bot))
             band.save(outdir / (name + ".png"))
-            if args.ink == "always":
+            if refimg is not None and args.clean != "never":
+                refimg.crop((0, top, img.width, bot)).save(outdir / (name + "_clean.png"))
+            if args.ink == "always" or (refimg is not None and args.ink == "auto"):
                 m = mask[top:bot]
                 a = np.asarray(band)
                 only = np.full_like(a, 255)
@@ -285,13 +476,55 @@ def run_images(files, args):
         for r in rows:
             fh.write("\t".join(str(x) for x in r) + "\n")
 
-    hit = [Path(f).stem for f in files if any(r[0] == Path(f).stem for r in rows)]
-    print("朱書きのある画像: %d / %d" % (len(hit), len(files)))
+    names = [p[0] for p in pages]
+    hit = [n for n in names if any(r[0] == n for r in rows)]
+    print("朱書きのある%s: %d / %d" % (unit, len(hit), len(names)))
     print("帯: %d 本" % len(rows))
-    blank = [Path(f).stem for f in files if Path(f).stem not in hit]
+    blank = [n for n in names if n not in hit]
     print("朱書き無し: %s" % (",".join(blank) if blank else "なし"))
-    print("注意: 色で探したので、図の中の同じ色も帯になる。帯を見て外す")
+    if by_ref:
+        print("参照 PDF との差で探した: %d / %d" % (by_ref, len(names)))
+    if by_color:
+        print("注意: 色で探したので、図の中の同じ色も帯になる。帯を見て外す")
     print("manifest: %s" % man)
+
+
+# ---------------------------------------------------------------- スキャンした PDF
+def is_scanned(page):
+    """注釈が無く、文字も無く、画像があるページ (紙をスキャンしたもの) か。"""
+    if ink_rects(page):
+        return False
+    try:
+        if (page.extract_text() or "").strip():
+            return False
+    except Exception:
+        return False
+    try:
+        return len(page.images) > 0
+    except Exception:
+        return False
+
+
+def scan_dpi(page, fallback):
+    """ページに貼られた一番大きな画像の解像度 (dpi)。取れなければ fallback。"""
+    try:
+        w = max(im.image.width for im in page.images)
+    except Exception:
+        return fallback
+    pw = float(page.mediabox.width)
+    return w / pw * 72 if pw > 0 and w > 0 else fallback
+
+
+def run_scanned_pdf(pdf, reader, want, args):
+    """スキャンした PDF の各ページを元の解像度で描画し、画像と同じく色で探す。"""
+    pages, nums = [], []
+    for i, page in enumerate(reader.pages, start=1):
+        if want and i not in want:
+            continue
+        dpi = scan_dpi(page, args.dpi)
+        pages.append(("p%03d" % i, render(pdf, i, dpi), dpi, False))
+        nums.append(i)
+    run_pages(pages, pdf.parent / "marks", args, "ページ", nums)
 
 
 # ---------------------------------------------------------------- 本体
@@ -330,10 +563,17 @@ def main():
                     help="画像のみ: 朱書きの色。red/orange/green/blue か #rrggbb")
     ap.add_argument("--hue-tol", type=float, default=25.0,
                     help="画像のみ: 色相の許容幅(度)")
-    ap.add_argument("--min-sat", type=float, default=0.40,
-                    help="画像のみ: 彩度の下限(0-1)。薄い色の図を外したいときは上げる")
+    ap.add_argument("--min-sat", type=float, default=None,
+                    help="画像のみ: 彩度の下限(0-1)。既定はスキャン 0.40・写真 0.30。"
+                         "薄い色の図を外したいときは上げる")
     ap.add_argument("--min-pixels", type=int, default=30,
                     help="画像のみ: これより画素の少ない帯は捨てる(にじみ・ごみ)")
+    ap.add_argument("--rotate", choices=["auto", "0", "90", "180", "270"], default="auto",
+                    help="画像のみ: 反時計回りに回す角度。auto は横倒しなら 90")
+    ap.add_argument("--ref", type=Path,
+                    help="画像・スキャンのみ: もとの原稿の PDF。色ではなく差で探す (OpenCV が要る)")
+    ap.add_argument("--ref-pages",
+                    help="--ref の対応ページ (画像・ページの順)。既定はスキャンと同じ番号、画像は 1 から")
     args = ap.parse_args()
 
     images = [s for s in args.src if Path(s).suffix.lower() in IMAGE_EXT]
@@ -353,6 +593,14 @@ def main():
     need_clean = args.clean != "never" or args.ink != "never"
 
     reader = pypdf.PdfReader(str(pdf))
+    targets = [p for i, p in enumerate(reader.pages, start=1) if not want or i in want]
+    if targets and not any(ink_rects(p) for p in targets):
+        if all(is_scanned(p) for p in targets):
+            how = ("参照 PDF との差で探す" if args.ref
+                   else "色で探す (--color %s)" % args.color)
+            print("注釈が無く、ページが画像だけなので、スキャンとみなして%s" % how)
+            return run_scanned_pdf(pdf, reader, want, args)
+        print("注意: Ink 注釈がありません。紙のスキャンなら、ページを画像にして渡す")
     rows = []
     for i, page in enumerate(reader.pages, start=1):
         if want and i not in want:
