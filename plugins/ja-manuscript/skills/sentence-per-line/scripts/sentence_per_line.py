@@ -42,6 +42,36 @@ CAPTION_RE = re.compile(r"^(図．|表．|図：|表：)")
 # 「図．」「表．」の "．" は図表の参照記法であって文末ではない
 # (本文中の "(図．fig_xxx)" や行頭の "表．…" を誤分割しないための保護)
 CAPTION_MARK_CHARS = "図表"
+# 水平線・YAML ヘッダーの区切り(---)は1行として扱う
+RULE_RE = re.compile(r"^(-{3,}|\*{3,}|_{3,})$")
+# 「意図．」「代表．」のように漢字の語末にある「図」「表」は参照記法ではない
+KANJI_RE = re.compile(r"[一-龥々〆]")
+
+
+def is_caption_mark(text: str, i: int) -> bool:
+    """text[i] ("．") が「図．fig_xxx」「表．1」のような図表の参照記法の一部か
+
+    直前が「図」「表」で，直後が ASCII の英数字か "_" のときだけ保護する．
+    その「図」「表」の前が漢字なら語末 (意図・代表・公表など) なので保護しない．
+    """
+    if i == 0 or text[i - 1] not in CAPTION_MARK_CHARS:
+        return False
+    nxt = text[i + 1:i + 2]
+    if not (nxt and nxt.isascii() and (nxt.isalnum() or nxt == "_")):
+        return False
+    before = text[i - 2:i - 1]
+    return not (before and KANJI_RE.match(before))
+
+
+def join_lines(parts: list[str]) -> str:
+    """折り返された行をつなぐ．和文どうしは空白なし，両側が ASCII のときだけ空白を入れる"""
+    out = parts[0]
+    for p in parts[1:]:
+        if out and p and out[-1].isascii() and p[0].isascii() and not out[-1].isspace():
+            out += " " + p
+        else:
+            out += p
+    return out
 # 引用行から "> " をちょうど1つだけ外す(残りの空白・入れ子はそのまま保つ)
 QUOTE_MARK_RE = re.compile(r"^(\s*>)( ?)(.*)$")
 
@@ -77,7 +107,7 @@ def split_sentences(text: str) -> list[str]:
             continue
         if protected[i] in SENTENCE_END_CHARS:
             # 「図．」「表．」は図表の参照記法なので文末として扱わない
-            if protected[i] == "．" and i > 0 and protected[i - 1] in CAPTION_MARK_CHARS:
+            if protected[i] == "．" and is_caption_mark(protected, i):
                 i += 1
                 continue
             j = i
@@ -116,6 +146,8 @@ def is_special_line(line: str) -> bool:
     # (隣り合う行と連結して "::: figpair![...]" のように壊すのを防ぐ)
     if s.startswith(":::") or s.startswith("!["):
         return True
+    if RULE_RE.match(s):
+        return True
     # 図題・表題は 1 行として扱う("図．05_01_R：…" の "．" で切らない)
     if CAPTION_RE.match(s):
         return True
@@ -128,6 +160,15 @@ def process(text: str) -> str:
     lines = text.split("\n")
     out: list[str] = []
     i, n = 0, len(lines)
+
+    # 先頭の YAML ヘッダー(--- から --- まで)はそのまま素通しする
+    if n and lines[0].strip() == "---":
+        j = 1
+        while j < n and lines[j].strip() not in ("---", "..."):
+            j += 1
+        if j < n:
+            out.extend(lines[:j + 1])
+            i = j + 1
 
     while i < n:
         line = lines[i]
@@ -201,7 +242,7 @@ def process(text: str) -> str:
         while i < n and lines[i].strip() and not is_special_line(lines[i]) and not lines[i].lstrip().startswith(">"):
             buf.append(lines[i].strip())
             i += 1
-        out.extend(split_sentences("".join(buf)))
+        out.extend(split_sentences(join_lines(buf)))
 
     result = "\n".join(out)
     return result.strip("\n") + "\n"

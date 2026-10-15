@@ -56,6 +56,36 @@ class TestProcess(unittest.TestCase):
         self.assertEqual(process(once), once)
 
 
+class TestEdgeCases(unittest.TestCase):
+    def test_yaml_front_matter_untouched(self):
+        # 要旨・スライドのスキルが使う YAML ヘッダー．1行に連結してはいけない
+        src = "---\ntitle: テスト\nauthor: 某\n---\n\n本文です．次です．\n"
+        self.assertEqual(process(src), "---\ntitle: テスト\nauthor: 某\n---\n\n本文です．\n次です．\n")
+
+    def test_horizontal_rule_not_joined(self):
+        src = "前です．\n\n---\n\n後です．\n"
+        self.assertEqual(process(src), src)
+
+    def test_noun_ending_with_zu_or_hyou_is_split(self):
+        # 「意図」「代表」「公表」などの語末の「図」「表」は図表の記法ではない
+        self.assertEqual(process("これは意図．以上です．\n"), "これは意図．\n以上です．\n")
+        self.assertEqual(process("結果を公表．次の文です．\n"), "結果を公表．\n次の文です．\n")
+
+    def test_figure_reference_not_split(self):
+        src = "詳しくは(図．fig_sample)を見てください．\n"
+        self.assertEqual(process(src), src)
+
+    def test_english_wrapped_lines_get_a_space(self):
+        self.assertEqual(process("This is\na pen.\n"), "This is a pen.\n")
+
+    def test_japanese_wrapped_lines_get_no_space(self):
+        self.assertEqual(process("途中で\n折り返す．\n"), "途中で折り返す．\n")
+
+    def test_japanese_then_ascii_get_no_space(self):
+        # 片側が和文なら，これまでどおり空白を入れない
+        self.assertEqual(process("結果は\nR で出す．\n"), "結果はR で出す．\n")
+
+
 class TestCli(unittest.TestCase):
     def run_cli(self, args, stdin=None):
         return subprocess.run([sys.executable, SCRIPT] + args, input=stdin,
