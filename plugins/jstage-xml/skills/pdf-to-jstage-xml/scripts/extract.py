@@ -1567,6 +1567,12 @@ def fill_meta(path, pm):
         REPORT.append("meta.yaml が無い: fetch_jstage.py を先に動かすか，meta.pdf.yaml をもとに書く")
         return
     text = path.read_text(encoding="utf-8")
+    # 末尾の「登録ずみの書誌」の節 (merge_backup.py が書く．コメントと本体) はそのまま残す．
+    # safe_dump で書き直すと，コメントが先頭に集まり，次の merge_backup.py が見つけられなくなる
+    marks = [i for i in (text.find("\n# J-STAGE の登録ずみの書誌 (merge_backup.py"), text.find("\nregistered:"))
+             if i >= 0]
+    cut = min(marks) if marks else len(text)
+    text, tail = text[:cut], text[cut:]
     head = "".join(l for l in text.splitlines(True) if l.startswith("#"))
     m = yaml.safe_load(text)
     if str(m.get("article_type", "")).startswith("要確認") and pm["article_type"]:
@@ -1583,7 +1589,8 @@ def fill_meta(path, pm):
         web = (m.get("history") or {}).get(k)
         if pm["history"][k] and web != pm["history"][k]:
             REPORT.append(f"書誌の食い違い {k}: ウェブ {web} / PDF {pm['history'][k]}")
-    path.write_text(head + yaml.safe_dump(m, allow_unicode=True, sort_keys=False, width=1000), encoding="utf-8")
+    path.write_text(head + yaml.safe_dump(m, allow_unicode=True, sort_keys=False, width=1000) + tail,
+                    encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -420,6 +420,52 @@ class TestWebRefComparison(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_YAML and importlib.util.find_spec("pymupdf"), "PyYAML と PyMuPDF が要る")
+class TestFillMeta(unittest.TestCase):
+    META = ("# 書誌 (fetch_jstage.py が J-STAGE の記事ページから取ったもの)．\n"
+            "# 原稿種別は PDF の1ページ目で埋める．\n"
+            "article_type: 要確認 (PDF から)\n"
+            "category: {ja: 要確認, en: 要確認}\n"
+            "volume: '1'\nissue: '2'\nfpage: '3'\nlpage: '9'\n"
+            "authors:\n- name: {ja: [山田, 太郎], en: [Yamada, Taro]}\n  corresp: false\n  email: null\n"
+            "history: {received: '2026-01-10', accepted: '2026-05-20'}\n"
+            "\n# J-STAGE の登録ずみの書誌 (merge_backup.py が控え x.zip から書いた．build.py が XML に出す)\n"
+            "registered:\n  license: CC-BY\n  manuscript: M-1\n")
+
+    def test_registered_block_and_comments_survive(self):
+        ex = load("extract")
+        pm = {"article_type": "original-article", "category": {"ja": "原著", "en": "Original"},
+              "corresp_index": [0], "email": "a@example.org", "volume": "1", "issue": "2",
+              "fpage": "3", "lpage": "9", "history": {"received": "2026-01-10", "accepted": "2026-05-20"}}
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "meta.yaml"
+            path.write_text(self.META, encoding="utf-8")
+            ex.REPORT.clear()
+            ex.fill_meta(path, pm)
+            out = path.read_text(encoding="utf-8")
+            m = yaml.safe_load(out)
+            self.assertEqual(m["article_type"], "original-article")
+            self.assertTrue(m["authors"][0]["corresp"])
+            self.assertEqual(m["registered"], {"license": "CC-BY", "manuscript": "M-1"})
+            # 登録ずみの節のコメントが先頭に集まらず，節の直前に残る
+            lines = out.splitlines()
+            i = lines.index("registered:")
+            self.assertTrue(lines[i - 1].startswith("# J-STAGE の登録ずみの書誌 (merge_backup.py"), lines[i - 3:i])
+            self.assertFalse(any(l.startswith("# J-STAGE の登録ずみの書誌") for l in lines[:3]))
+
+    def test_missing_history_does_not_crash(self):
+        ex = load("extract")
+        pm = {"article_type": "", "category": {}, "corresp_index": [], "email": None, "volume": "",
+              "issue": "", "fpage": "", "lpage": "",
+              "history": {"received": "2026-01-10", "accepted": None}}
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "meta.yaml"
+            path.write_text("article_type: x\nauthors: []\n", encoding="utf-8")
+            ex.REPORT.clear()
+            ex.fill_meta(path, pm)
+            self.assertTrue([r for r in ex.REPORT if "received" in r])
+
+
+@unittest.skipUnless(HAVE_YAML and importlib.util.find_spec("pymupdf"), "PyYAML と PyMuPDF が要る")
 class TestApplyBackup(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
