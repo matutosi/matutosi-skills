@@ -426,6 +426,14 @@ def ref_page_numbers(args, n, default):
     return nums
 
 
+def write_manifest(path, header, rows):
+    """帯の一覧 (manifest.tsv) を書く．header はタブ区切りの見出しの 1 行 (改行なし)．"""
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(header + "\n")
+        for r in rows:
+            fh.write("\t".join(str(x) for x in r) + "\n")
+
+
 def prepare_outdir(default, source, args):
     """出力先 (--out か，ソースのあるフォルダの marks/) を作って返す．
 
@@ -505,10 +513,7 @@ def run_pages(pages, outdir, args, unit, ref_nums=None):
                 img.crop((l, t, r, b)).save(outdir / ("%s_z%d.png" % (stem, j)))
 
     man = outdir / "manifest.tsv"
-    with open(man, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write("image\tband\ttop\tbot\tpixels\tname\toverlap\n")
-        for r in rows:
-            fh.write("\t".join(str(x) for x in r) + "\n")
+    write_manifest(man, "image\tband\ttop\tbot\tpixels\tname\toverlap", rows)
 
     names = [p[0] for p in pages]
     hit = [n for n in names if any(r[0] == n for r in rows)]
@@ -697,10 +702,7 @@ def main():
                 big.crop((l, t, rr, b)).save(outdir / ("p%03d_z%d.png" % (i, j)))
 
     man = outdir / "manifest.tsv"
-    with open(man, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write("page\tband\ty0\ty1\tstrokes\tname\toverlap\n")
-        for r in rows:
-            fh.write("\t".join(str(x) for x in r) + "\n")
+    write_manifest(man, "page\tband\ty0\ty1\tstrokes\tname\toverlap", rows)
 
     pages = sorted({r[0] for r in rows})
     print("朱書きのあるページ: %d" % len(pages))

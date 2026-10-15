@@ -48,10 +48,16 @@ def load_config():
     return cfg
 
 
+def read_text(path):
+    """原稿を UTF-8 (BOM は読み飛ばす) で読む．ファイルは読んだらすぐ閉じる．"""
+    with io.open(path, encoding="utf-8-sig") as fh:
+        return fh.read()
+
+
 def body_lines(path):
     """コードブロックの外の行だけを (行番号, 行) で返す。"""
     fence = False
-    for i, ln in enumerate(io.open(path, encoding="utf-8-sig"), 1):
+    for i, ln in enumerate(read_text(path).split("\n"), 1):
         if ln.lstrip().startswith("```"):
             fence = not fence
             continue
@@ -112,7 +118,7 @@ def t_donoun(files, cfg):
 def t_terms(files, cfg):
     """用語のゆれ。config の terms を足せる。"""
     pairs = DEFAULT_TERMS + [tuple(x) for x in cfg.get("terms", [])]
-    texts = {f: io.open(f, encoding="utf-8-sig").read() for f in files}
+    texts = {f: read_text(f) for f in files}
     allt = "".join(texts.values())
     hits = []
     for good, bad in pairs:
@@ -154,7 +160,7 @@ def t_selfref(files, cfg):
     """自分の章を指す参照。"""
     hits = []
     for f in files:
-        txt = io.open(f, encoding="utf-8-sig").read()
+        txt = read_text(f)
         m = re.search(r"^# .*\{#([" + r"\w-" + r"]+)\}", txt, re.M)
         if not m:
             continue
@@ -168,7 +174,7 @@ def t_exercises(files, cfg):
     """練習問題の数と解答の数。"""
     hits = []
     for f in files:
-        txt = io.open(f, encoding="utf-8-sig").read()
+        txt = read_text(f)
         q = re.search(r"## [\d.]+ 練習問題 \{[^}]*\}(.*?)(?=\n## )", txt, re.S)
         a = re.search(r"## [\d.]+ 練習問題の解答例 \{[^}]*\}(.*)", txt, re.S)
         if not q or not a:
@@ -186,7 +192,7 @@ def t_axis(files, cfg):
     hits = []
     for f in files:
         fence = None
-        for i, ln in enumerate(io.open(f, encoding="utf-8-sig"), 1):
+        for i, ln in enumerate(read_text(f).split("\n"), 1):
             s = ln.strip()
             if s.startswith("```"):
                 fence = None if fence is not None else s[3:]
@@ -208,7 +214,7 @@ def t_lablang(files, cfg):
     LAB = re.compile(r"(?:labs|set_xlabel|set_ylabel|xlab|ylab)\s*\(([^\n]*)")
     hits = []
     for f in files:
-        txt = io.open(f, encoding="utf-8-sig").read()
+        txt = read_text(f)
         blocks = re.findall(r"```(?:r|python)\n# (code_\d+_\d+_(?:R|py))\n(.*?)```", txt, re.S)
         d = {}
         for cid, code in blocks:
@@ -241,12 +247,12 @@ def t_figleaf(files, cfg):
     srcs = cfg.get("figure_sources", [])
     if not srcs:
         return []
-    body = re.sub(r"\s", "", "".join(io.open(f, encoding="utf-8-sig").read() for f in files))
+    body = re.sub(r"\s", "", "".join(read_text(f) for f in files))
     hits, seen = [], set()
     for src in srcs:
         if not os.path.exists(src):
             continue
-        text = io.open(src, encoding="utf-8-sig").read()
+        text = read_text(src)
         for path in re.findall(r"c\((.*?)\)\)?,?\n", text):
             items = re.findall(r'"([^"]*)"', path)
             if not items:
