@@ -68,6 +68,49 @@ class TestApplyFixes(Base):
         self.assertIn("誤字", text)
         self.assertIn("統合", text)
 
+    def test_overlapping_before_stops_and_writes_nothing(self):
+        # 2 件目の before が，1 件目で書き換わった所にかかるときは，当てられないものとして止める
+        write(self.p("chapter_02.md"), "AAA BBB CCC\n")
+        f = self.fixes([{"file": "chapter_02.md", "before": "AAA BBB", "after": "X"},
+                        {"file": "chapter_02.md", "before": "BBB CCC", "after": "Y"}])
+        code, out, err = run("apply_fixes.py", [f, "--apply"], self.d)
+        self.assertEqual(code, 1)
+        self.assertIn("当てられない", out)
+        self.assertEqual(read(self.p("chapter_02.md")), "AAA BBB CCC\n")
+
+    def test_mixed_line_endings_are_kept_byte_for_byte(self):
+        with open(self.p("chapter_03.md"), "wb") as fh:
+            fh.write("一行目です．\r\n二行目です．\n三行目です．\r\n".encode("utf-8"))
+        f = self.fixes([{"file": "chapter_03.md", "before": "二行目です", "after": "二行目でした"}])
+        code, out, err = run("apply_fixes.py", [f, "--apply"], self.d)
+        self.assertEqual(code, 0, err)
+        with open(self.p("chapter_03.md"), "rb") as fh:
+            self.assertEqual(fh.read(),
+                             "一行目です．\r\n二行目でした．\n三行目です．\r\n".encode("utf-8"))
+
+    def test_kind_classifies_characters(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("apply_fixes", os.path.join(SCRIPTS, "apply_fixes.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.assertEqual(mod.kind("語"), "漢字")
+        self.assertEqual(mod.kind("々"), "漢字")
+        self.assertEqual(mod.kind("あ"), "ひらがな")
+        self.assertEqual(mod.kind("ア"), "カタカナ")
+        self.assertEqual(mod.kind("ｱ"), "カタカナ")        # 半角カナ
+        self.assertEqual(mod.kind("a"), "英数字")
+        self.assertEqual(mod.kind("Ａ"), "英数字")          # 全角英数
+        self.assertEqual(mod.kind("７"), "英数字")
+        self.assertIsNone(mod.kind("，"))
+
+    def test_quiet_and_context_zero(self):
+        f = self.fixes([{"file": "chapter_01.md", "before": "誤時", "after": "誤字"}])
+        code, out, err = run("apply_fixes.py", [f, "--quiet"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("前:", out)
+        code, out, err = run("apply_fixes.py", [f, "--context", "0"], self.d)
+        self.assertEqual(code, 0, err)
+
     def test_post_runs_the_check_command_from_config(self):
         f = self.fixes([{"file": "chapter_01.md", "before": "誤時", "after": "誤字"}])
         write(self.p("_polish", "config.json"), json.dumps(
