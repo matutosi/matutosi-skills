@@ -25,7 +25,6 @@ import argparse
 import json
 import os
 import re
-import statistics
 import sys
 import urllib.request
 from collections import Counter

@@ -1,0 +1,16 @@
+山田太郎・鈴木花子 2001. 植生の調査法. 植生学会誌 18: 1-10.
+木村一郎 1945a. 熱帯の森林. 架空生態学雑誌 3: 11-20.
+岡田三郎 1974. 植物生態学論考. 東海大学出版会, 東京.
+川口四郎 1977. 植生の分類. 岡田三郎(編), 植物生態学講座, pp. 10-20. 朝倉書店, 東京.
+川口四郎(編) 1980. 日本植生誌 九州. 至文堂, 東京.
+Smith-Jones, J. 1964. Plant Sociology. Example Press, Wien.
+Wilson, R.H. 1956. Example Vegetation Journaln of the Example Mountains. Example Monographs 26: 1-80.
+Gray, J.P. 1979. Plant strategies. In: Smith, A. (ed.) Ecology, pp. 1-20. Wiley, London.
+Eller, H. & Muller-Dumas, D. 1967. Tentative physiognomic-ecological classification of plant formations. Example Journal of Botany 37: 21-55.
+R Core Team. 2015. R: A language and environment for statistical computing. R Foundation for Statistical Computing, Vienna.
+環境省 2020. 自然環境保全基礎調査報告書. https://www.env.go.jp/a/b.html (accessed on 2020-01-01)
+*木村一郎 1948. 熱帯林. 京都大学出版会, 京都.
+木村一郎\*1948. 熱帯林の研究. 内部資料.
+年のない文献です
+山田 2001. 内部資料
+Tohara, M. et Mochizuki, Y. 1978. Example Vegetation Journaln of the mountains. Example Vegetation Journal 35: 1-10.

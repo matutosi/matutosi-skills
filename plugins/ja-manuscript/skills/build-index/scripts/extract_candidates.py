@@ -41,7 +41,6 @@ RE_FIGLINK = re.compile(r"^\s*!\[|^\s*図[．.]|^\s*表[．.:：]|^\s*:::")
 # 索引の見出しにしない定型の節見出し
 RE_SKIP_HEAD = re.compile(r"練習問題|解答|まとめ|使い分け|コラム|参考文献|考察")
 RE_PAREN = re.compile(r"[(（][^)）]*[)）]?")
-RE_TRIM = re.compile(r"^[「『（(\[\s]+|[」』）)\]\s，．:：]+$")
 
 
 def clean(word: str) -> str:

@@ -1,0 +1,169 @@
+{
+ "1": {
+  "text": "山田太郎・鈴木花子 2001. 植生の調査法. 植生学会誌 18: 1-10.",
+  "kind": "journal",
+  "year": "2001",
+  "names": [
+   "山田太郎",
+   "鈴木花子"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><string-name name-style=\"eastern\" xml:lang=\"ja\"><surname>山田太郎</surname></string-name>・<string-name name-style=\"eastern\" xml:lang=\"ja\"><surname>鈴木花子</surname></string-name></person-group> <year>2001</year>. <article-title xml:lang=\"ja\">植生の調査法</article-title>. <source xml:lang=\"ja\">植生学会誌</source> <volume>18</volume>: <fpage>1</fpage>-<lpage>10</lpage>.",
+  "report": []
+ },
+ "2": {
+  "text": "木村一郎 1945a. 熱帯の森林. 架空生態学雑誌 3: 11-20.",
+  "kind": "journal",
+  "year": "1945a",
+  "names": [
+   "木村一郎"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><string-name name-style=\"eastern\" xml:lang=\"ja\"><surname>木村一郎</surname></string-name></person-group> <year>1945a</year>. <article-title xml:lang=\"ja\">熱帯の森林</article-title>. <source xml:lang=\"ja\">架空生態学雑誌</source> <volume>3</volume>: <fpage>11</fpage>-<lpage>20</lpage>.",
+  "report": []
+ },
+ "3": {
+  "text": "岡田三郎 1974. 植物生態学論考. 東海大学出版会, 東京.",
+  "kind": "book",
+  "year": "1974",
+  "names": [
+   "岡田三郎"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><string-name name-style=\"eastern\" xml:lang=\"ja\"><surname>岡田三郎</surname></string-name></person-group> <year>1974</year>. <source xml:lang=\"ja\">植物生態学論考</source>. <publisher-name>東海大学出版会</publisher-name>, <publisher-loc>東京</publisher-loc>.",
+  "report": []
+ },
+ "4": {
+  "text": "川口四郎 1977. 植生の分類. 岡田三郎(編), 植物生態学講座, pp. 10-20. 朝倉書店, 東京.",
+  "kind": "book",
+  "year": "1977",
+  "names": [
+   "川口四郎"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><string-name name-style=\"eastern\" xml:lang=\"ja\"><surname>川口四郎</surname></string-name></person-group> <year>1977</year>. <article-title xml:lang=\"ja\">植生の分類</article-title>. <source xml:lang=\"ja\">岡田三郎(編), 植物生態学講座</source>, pp. <fpage>10</fpage>-<lpage>20</lpage>. <publisher-name>朝倉書店</publisher-name>, <publisher-loc>東京</publisher-loc>.",
+  "report": []
+ },
+ "5": {
+  "text": "川口四郎(編) 1980. 日本植生誌 九州. 至文堂, 東京.",
+  "kind": "book",
+  "year": "1980",
+  "names": [
+   "川口四郎(編)"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><string-name name-style=\"eastern\" xml:lang=\"ja\"><surname>川口四郎</surname></string-name>(編)</person-group> <year>1980</year>. <source xml:lang=\"ja\">日本植生誌 九州</source>. <publisher-name>至文堂</publisher-name>, <publisher-loc>東京</publisher-loc>.",
+  "report": []
+ },
+ "6": {
+  "text": "Smith-Jones, J. 1964. Plant Sociology. Example Press, Wien.",
+  "kind": "book",
+  "year": "1964",
+  "names": [
+   "Smith-Jones"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><string-name name-style=\"western\" xml:lang=\"en\"><surname>Smith-Jones</surname>, <given-names>J.</given-names></string-name></person-group> <year>1964</year>. <source xml:lang=\"en\">Plant Sociology</source>. <publisher-name>Example Press</publisher-name>, <publisher-loc>Wien</publisher-loc>.",
+  "report": []
+ },
+ "7": {
+  "text": "Wilson, R.H. 1956. Example Vegetation Journaln of the Example Mountains. Example Monographs 26: 1-80.",
+  "kind": "journal",
+  "year": "1956",
+  "names": [
+   "Wilson"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><string-name name-style=\"western\" xml:lang=\"en\"><surname>Wilson</surname>, <given-names>R.H.</given-names></string-name></person-group> <year>1956</year>. <article-title xml:lang=\"en\">Example Vegetation Journaln of the Example Mountains</article-title>. <source xml:lang=\"en\">Example Monographs</source> <volume>26</volume>: <fpage>1</fpage>-<lpage>80</lpage>.",
+  "report": []
+ },
+ "8": {
+  "text": "Gray, J.P. 1979. Plant strategies. In: Smith, A. (ed.) Ecology, pp. 1-20. Wiley, London.",
+  "kind": "book",
+  "year": "1979",
+  "names": [
+   "Gray"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><string-name name-style=\"western\" xml:lang=\"en\"><surname>Gray</surname>, <given-names>J.P.</given-names></string-name></person-group> <year>1979</year>. <article-title xml:lang=\"en\">Plant strategies</article-title>. In: <person-group person-group-type=\"editor\"><string-name name-style=\"western\" xml:lang=\"en\"><surname>Smith</surname>, <given-names>A.</given-names></string-name></person-group> (ed.) <source xml:lang=\"en\">Ecology</source>, pp. <fpage>1</fpage>-<lpage>20</lpage>. <publisher-name>Wiley, London.</publisher-name>",
+  "report": []
+ },
+ "9": {
+  "text": "Eller, H. & Muller-Dumas, D. 1967. Tentative physiognomic-ecological classification of plant formations. Example Journal of Botany 37: 21-55.",
+  "kind": "journal",
+  "year": "1967",
+  "names": [
+   "Eller",
+   "Muller-Dumas"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><string-name name-style=\"western\" xml:lang=\"en\"><surname>Eller</surname>, <given-names>H.</given-names></string-name> &amp; <string-name name-style=\"western\" xml:lang=\"en\"><surname>Muller-Dumas</surname>, <given-names>D.</given-names></string-name></person-group> <year>1967</year>. <article-title xml:lang=\"en\">Tentative physiognomic-ecological classification of plant formations</article-title>. <source xml:lang=\"en\">Example Journal of Botany</source> <volume>37</volume>: <fpage>21</fpage>-<lpage>55</lpage>.",
+  "report": []
+ },
+ "10": {
+  "text": "R Core Team. 2015. R: A language and environment for statistical computing. R Foundation for Statistical Computing, Vienna.",
+  "kind": "book",
+  "year": "2015",
+  "names": [
+   "R Core Team"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><collab>R Core Team</collab>.</person-group> <year>2015</year>. <source xml:lang=\"en\">R: A language and environment for statistical computing</source>. <publisher-name>R Foundation for Statistical Computing</publisher-name>, <publisher-loc>Vienna</publisher-loc>.",
+  "report": []
+ },
+ "11": {
+  "text": "環境省 2020. 自然環境保全基礎調査報告書. https://www.env.go.jp/a/b.html (accessed on 2020-01-01)",
+  "kind": "other",
+  "year": "2020",
+  "names": [
+   "環境省"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><collab xml:lang=\"ja\">環境省</collab></person-group> <year>2020</year>. 自然環境保全基礎調査報告書. <ext-link ext-link-type=\"uri\" xlink:href=\"https://www.env.go.jp/a/b.html\">https://www.env.go.jp/a/b.html</ext-link> (accessed on 2020-01-01)",
+  "report": [
+   "文献の後半を分解できない (著者・年だけタグ付け): B11 環境省 2020. 自然環境保全基礎調査報告書. https://www.env.go.jp/a/b.html (accessed on 2"
+  ]
+ },
+ "12": {
+  "text": "*木村一郎 1948. 熱帯林. 京都大学出版会, 京都.",
+  "kind": "book",
+  "year": "1948",
+  "names": [
+   "木村一郎"
+  ],
+  "xml": "*<person-group person-group-type=\"author\"><string-name name-style=\"eastern\" xml:lang=\"ja\"><surname>木村一郎</surname></string-name></person-group> <year>1948</year>. <source xml:lang=\"ja\">熱帯林</source>. <publisher-name>京都大学出版会</publisher-name>, <publisher-loc>京都</publisher-loc>.",
+  "report": []
+ },
+ "13": {
+  "text": "木村一郎\\*1948. 熱帯林の研究. 内部資料.",
+  "kind": "book",
+  "year": "1948",
+  "names": [
+   "木村一郎*"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><string-name name-style=\"eastern\" xml:lang=\"ja\"><surname>木村一郎*</surname></string-name></person-group><year>1948</year>. <source xml:lang=\"ja\">熱帯林の研究</source>. <publisher-name>内部資料</publisher-name>.",
+  "report": []
+ },
+ "14": {
+  "text": "年のない文献です",
+  "kind": "other",
+  "year": null,
+  "names": [],
+  "xml": "年のない文献です",
+  "report": [
+   "文献を分解できない (平文のまま): 年のない文献です"
+  ]
+ },
+ "15": {
+  "text": "山田 2001. 内部資料",
+  "kind": "other",
+  "year": "2001",
+  "names": [
+   "山田"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><string-name name-style=\"eastern\" xml:lang=\"ja\"><surname>山田</surname></string-name></person-group> <year>2001</year>. 内部資料",
+  "report": [
+   "文献の後半を分解できない (著者・年だけタグ付け): B15 山田 2001. 内部資料"
+  ]
+ },
+ "16": {
+  "text": "Tohara, M. et Mochizuki, Y. 1978. Example Vegetation Journaln of the mountains. Example Vegetation Journal 35: 1-10.",
+  "kind": "journal",
+  "year": "1978",
+  "names": [
+   "Tohara",
+   "et Mochizuki"
+  ],
+  "xml": "<person-group person-group-type=\"author\"><string-name name-style=\"western\" xml:lang=\"en\"><surname>Tohara</surname>, <given-names>M.</given-names></string-name> <string-name name-style=\"western\" xml:lang=\"en\"><surname>et Mochizuki</surname>, <given-names>Y.</given-names></string-name></person-group> <year>1978</year>. <article-title xml:lang=\"en\">Example Vegetation Journaln of the mountains</article-title>. <source xml:lang=\"en\">Example Vegetation Journal</source> <volume>35</volume>: <fpage>1</fpage>-<lpage>10</lpage>.",
+  "report": []
+ }
+}

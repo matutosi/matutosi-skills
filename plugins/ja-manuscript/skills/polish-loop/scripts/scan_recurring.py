@@ -20,7 +20,6 @@
       ヒアドキュメント経由で書くと `\\\\` が潰れて空振りする。
 """
 import argparse
-import collections
 import glob as globmod
 import io
 import json

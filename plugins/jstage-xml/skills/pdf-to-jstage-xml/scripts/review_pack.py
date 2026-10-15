@@ -13,7 +13,6 @@
 作った側の判断に引きずられないようにするため．
 """
 import argparse
-import re
 from pathlib import Path
 
 from lxml import etree

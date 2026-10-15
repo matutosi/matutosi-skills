@@ -541,6 +541,10 @@ def in_url(text, pos):
     return any(m.start() < pos < m.end() for m in re.finditer(r"https?://\S+", text))
 
 
+# 編者・ページの語を含む形は書籍の出版社・所在地の切れ目として扱わない
+NOT_A_BOOK = re.compile(r"(In\s*:|編「|（編）|pp\.)")
+
+
 class Ref:
     def __init__(self, idx, text):
         self.id = f"B{idx}"
@@ -571,6 +575,49 @@ class Ref:
         if mm:
             mark, auth = mm.group(0), auth[mm.end():]
         self.auth = auth          # 著者の部分そのまま (手で指定するリンクの照合に使う)
+        tagged, names = self._tag_authors(auth)
+        self.names = names
+        head = esc(mark) + f'<person-group person-group-type="author">{tagged}</person-group>'
+        year_part = t[m.end("auth"):m.start("rest")]
+        year_xml = esc(year_part).replace(self.year, f"<year>{self.year}</year>", 1)
+        rest = m.group("rest")
+        jm = JOURNAL_TAIL.search(rest)
+        bm = BOOK_TAIL.search(rest)
+        # 出版社・所在地を URL の途中から切り出さない
+        # (「URL; https://CRAN.R-project.org (accessed on …)」の org 以降を出版社にしていた．37(2):101)
+        if bm and in_url(rest, bm.start("pub")):
+            bm = None
+        cm = self._chapter_match(rest)
+        pm = BOOK_PUB.search(rest)
+        if cm:
+            self.kind = "book"
+            body = self.chapter_xml(rest, cm)
+        elif jm and jm.group("src").strip():
+            self.kind = "journal"
+            title = rest[:jm.start("src")]
+            body = self.title_xml(title) + self.tail_journal(rest, jm)
+        # 出版社の候補に閉じ括弧だけが入るのは切れ目の取り違え
+        # (「…（付着色植生図　4，付表），横浜．」．植生学会誌 14(2) の B6)
+        elif (bm and not NOT_A_BOOK.search(rest)
+              # 発行地の位置に数字だけが来るのは，ページを発行地と取り違えた形
+              # (「…第106回日本林学会講演要旨集, 540」．18(2):75 の B24)
+              and not re.fullmatch(r"[\d\s　]+|[\dA-Za-z]*[\s　]*\d+[\s　]*[-–−~〜～][\s　]*\d+",
+                                  bm.group("loc").strip())
+              and bm.group("pub").count("）") <= bm.group("pub").count("（")
+              and bm.group("pub").count(")") <= bm.group("pub").count("(")):
+            self.kind = "book"
+            body = self._book_tail_xml(rest, bm)
+        elif (pm and not in_url(rest, pm.start("pub")) and not NOT_A_BOOK.search(rest)
+              and not NOT_PUB.search(pm.group("pub").strip())):
+            self.kind = "book"
+            body = self._book_pub_xml(rest, pm)
+        else:
+            REPORT.append(f"文献の後半を分解できない (著者・年だけタグ付け): {self.id} {t[:70]}")
+            body = inline(esc(rest))
+        self.xml = head + year_xml + body
+
+    def _tag_authors(self, auth):
+        """著者の部分にタグを付ける．(タグ付きの XML, 検索用の名前の並び)"""
         if self.lang == "en":
             tagged, names = tag_en_authors(auth)
             if tagged is None:  # 団体名など
@@ -591,66 +638,42 @@ class Ref:
                 pos = b
             parts.append(esc(auth[pos:]))
             tagged = "".join(parts)
-        self.names = names
-        head = esc(mark) + f'<person-group person-group-type="author">{tagged}</person-group>'
-        year_part = t[m.end("auth"):m.start("rest")]
-        year_xml = esc(year_part).replace(self.year, f"<year>{self.year}</year>", 1)
-        rest = m.group("rest")
-        jm = JOURNAL_TAIL.search(rest)
-        bm = BOOK_TAIL.search(rest)
-        # 出版社・所在地を URL の途中から切り出さない
-        # (「URL; https://CRAN.R-project.org (accessed on …)」の org 以降を出版社にしていた．37(2):101)
-        if bm and in_url(rest, bm.start("pub")):
-            bm = None
-        cm = ((CHAPTER_JA.match(rest) or CHAPTER_JA2.match(rest) or ja3(rest))
-              if self.lang == "ja"
-              # 編者を括弧で後置する形を先に見る (CHAPTER_EN だと編者と書名が入れ替わるため)
-              else (CHAPTER_EN2_IN.match(rest) or CHAPTER_EN_IN.match(rest)
-                    or CHAPTER_EN2.match(rest) or CHAPTER_EN.match(rest)
-                    or CHAPTER_EN3.match(rest) or CHAPTER_EN4.match(rest)
-                    or CHAPTER_EN5.match(rest)))
-        if cm:
-            self.kind = "book"
-            body = self.chapter_xml(rest, cm)
-        elif jm and jm.group("src").strip():
-            self.kind = "journal"
-            title = rest[:jm.start("src")]
-            body = (self.title_xml(title) + inline(esc(rest[jm.start("src"):jm.start("src")])) +
-                    self.tail_journal(rest, jm))
-        # 出版社の候補に閉じ括弧だけが入るのは切れ目の取り違え
-        # (「…（付着色植生図　4，付表），横浜．」．植生学会誌 14(2) の B6)
-        elif (bm and not re.search(r"(In\s*:|編「|（編）|pp\.)", rest)
-              # 発行地の位置に数字だけが来るのは，ページを発行地と取り違えた形
-              # (「…第106回日本林学会講演要旨集, 540」．18(2):75 の B24)
-              and not re.fullmatch(r"[\d\s　]+|[\dA-Za-z]*[\s　]*\d+[\s　]*[-–−~〜～][\s　]*\d+",
-                                  bm.group("loc").strip())
-              and bm.group("pub").count("）") <= bm.group("pub").count("（")
-              and bm.group("pub").count(")") <= bm.group("pub").count("(")):
-            self.kind = "book"
-            title = rest[:bm.start("pub")]
-            t2 = title.rstrip()
-            # 書名のあとが読点の書き方もある (「Saline Agriculture, National Academy Press, …」)
-            end = re.search(r"[.．,，]\s*$", t2)
-            main = t2[: end.start()] if end else t2
-            # タグで囲まない部分にも *斜体* の印が残ることがあるので inline を通す
-            body = (f'<source xml:lang="{self.lang}">{inline(esc(main.strip()))}</source>'
-                    + inline(esc(t2[len(main):])) + inline(esc(title[len(t2):]))
-                    + f"<publisher-name>{plain_inline(esc(bm.group('pub')))}</publisher-name>"
-                    + inline(esc(rest[bm.end("pub"):bm.start("loc")]))
-                    + f"<publisher-loc>{plain_inline(esc(bm.group('loc')))}</publisher-loc>"
-                    + inline(esc(rest[bm.end("loc"):])))
-        elif BOOK_PUB.search(rest) and not in_url(rest, BOOK_PUB.search(rest).start("pub")) and not re.search(r"(In\s*:|編「|（編）|pp\.)", rest)                 and not NOT_PUB.search(BOOK_PUB.search(rest).group("pub").strip()):
-            pm = BOOK_PUB.search(rest)
-            self.kind = "book"
-            main = rest[:pm.start()]
-            body = (f'<source xml:lang="{self.lang}">{inline(esc(main))}</source>'
-                    + inline(esc(rest[pm.start():pm.start("pub")]))
-                    + f"<publisher-name>{plain_inline(esc(pm.group('pub')))}</publisher-name>"
-                    + inline(esc(rest[pm.end("pub"):])))
-        else:
-            REPORT.append(f"文献の後半を分解できない (著者・年だけタグ付け): {self.id} {t[:70]}")
-            body = inline(esc(rest))
-        self.xml = head + year_xml + body
+        return tagged, names
+
+    def _chapter_match(self, rest):
+        """編著の 1 章の書き方に当たるものがあればその match を返す．"""
+        if self.lang == "ja":
+            return CHAPTER_JA.match(rest) or CHAPTER_JA2.match(rest) or ja3(rest)
+        # 編者を括弧で後置する形を先に見る (CHAPTER_EN だと編者と書名が入れ替わるため)
+        for pat in (CHAPTER_EN2_IN, CHAPTER_EN_IN, CHAPTER_EN2, CHAPTER_EN,
+                    CHAPTER_EN3, CHAPTER_EN4, CHAPTER_EN5):
+            m = pat.match(rest)
+            if m:
+                return m
+        return None
+
+    def _book_tail_xml(self, rest, bm):
+        """書名・出版社・所在地の形の書籍 (BOOK_TAIL に当たったもの)．"""
+        title = rest[:bm.start("pub")]
+        t2 = title.rstrip()
+        # 書名のあとが読点の書き方もある (「Saline Agriculture, National Academy Press, …」)
+        end = re.search(r"[.．,，]\s*$", t2)
+        main = t2[: end.start()] if end else t2
+        # タグで囲まない部分にも *斜体* の印が残ることがあるので inline を通す
+        return (f'<source xml:lang="{self.lang}">{inline(esc(main.strip()))}</source>'
+                + inline(esc(t2[len(main):])) + inline(esc(title[len(t2):]))
+                + f"<publisher-name>{plain_inline(esc(bm.group('pub')))}</publisher-name>"
+                + inline(esc(rest[bm.end("pub"):bm.start("loc")]))
+                + f"<publisher-loc>{plain_inline(esc(bm.group('loc')))}</publisher-loc>"
+                + inline(esc(rest[bm.end("loc"):])))
+
+    def _book_pub_xml(self, rest, pm):
+        """出版社の候補だけで終わる書籍 (BOOK_PUB に当たったもの)．"""
+        main = rest[:pm.start()]
+        return (f'<source xml:lang="{self.lang}">{inline(esc(main))}</source>'
+                + inline(esc(rest[pm.start():pm.start("pub")]))
+                + f"<publisher-name>{plain_inline(esc(pm.group('pub')))}</publisher-name>"
+                + inline(esc(rest[pm.end("pub"):])))
 
     def chapter_xml(self, rest, m):
         """編著の1章．どの書き方でも，見つけた部分 (章題・編者・書名・ページ・出版社・所在地) を
@@ -720,9 +743,7 @@ class Ref:
                 # <volume> は #PCDATA なので <bold> を入れると DTD 違反になる (20(2):71)．
                 # 太さは体裁で，文字は変わらないので印だけ外す
                 pre, pos = pre[:-2], pos + 2
-                s += esc(pre) + f"<volume>{g('vol')}</volume>"
-            else:
-                s += esc(pre) + f"<volume>{g('vol')}</volume>"
+            s += esc(pre) + f"<volume>{g('vol')}</volume>"
         else:                       # 巻が無く号だけの雑誌
             pos = m.end("src")
         if iss:
@@ -873,7 +894,6 @@ def auto_citations(text, refs, where):
         year = m.group(1) + m.group(2)
         between = text[last_end:m.start()] if last_end is not None else None
         cands = by_year.get(year, [])
-        hit = None
         raw_window = re.sub(r"[（(]\s*$", "", text[max(0, m.start() - 60):m.start()])
         # 斜体の印 (*et al*.) は表示の飾りなので，照合では外す
         raw_window = raw_window.replace("*", "")
@@ -882,13 +902,13 @@ def auto_citations(text, refs, where):
         if between is not None and re.fullmatch(r"\s*[,，]\s*", between) and last_window:
             window = last_window  # 「北川ほか2004, 2005」の 2005 は直前の著者表記を引き継ぐ
             raw_window = last_raw  # 空白を残したほうも引き継ぐ (「Li (1989, 1993)」の 1993)
-        if hit is None:
-            ok = [r for r in cands if author_matches(window, r, raw_window)]
-            if len(ok) == 1:
-                hit = ok[0]
-            elif len(ok) > 1:
-                REPORT.append(f"引用が複数の文献に当たる ({where}): …{text[max(0, m.start() - 20):m.end()]} → "
-                              + ", ".join(r.id for r in ok))
+        ok = [r for r in cands if author_matches(window, r, raw_window)]
+        hit = None
+        if len(ok) == 1:
+            hit = ok[0]
+        elif len(ok) > 1:
+            REPORT.append(f"引用が複数の文献に当たる ({where}): …{text[max(0, m.start() - 20):m.end()]} → "
+                          + ", ".join(r.id for r in ok))
         if hit is None:
             ctx = text[max(0, m.start() - 20):m.end() + 3]
             if re.search(r"[（(;；]|et al|ほか|・", text[max(0, m.start() - 25):m.start()]):
@@ -1059,6 +1079,25 @@ def put_nolink(text, held):
     return re.sub("\x06([-])", lambda m: held[ord(m.group(1)) - 0xE000], text)
 
 
+# 本文の中の参照の印．リンクの対象を探す段階で付け，XML にするとき <xref> にする．
+#   \x01 文献 (B1)・\x04 図と表 (F1・FA1・T1・TA1)・\x05 式 (E1)．\x02 は表記の始め，\x03 は終わり
+XREF_RULES = (
+    ("bibr", "\x01", r"B\d+", "bibr"),
+    ("fig", "\x04", r"F[A-Z]?\d+", "fig"),          # 付図の枠 (FA1) も図として引く
+    ("table", "\x04", r"T[A-Z]?\d+", "table"),      # 付表の枠 (TA1) も表として引く (28(1):49)
+    ("formula", "\x05", r"E\d+", "disp-formula"),
+)
+
+
+def markers_to_xref(s, kinds=("bibr", "fig", "table", "formula")):
+    """リンクの印 (「\x01B1\x02表記\x03」など) を <xref> に置き換える．kinds で引く種類を絞れる．"""
+    for key, mark, pat, ref_type in XREF_RULES:
+        if key in kinds:
+            s = re.sub(mark + "(" + pat + ")\x02(.*?)\x03",
+                       '<xref ref-type="' + ref_type + r'" rid="\1">\2</xref>', s)
+    return s
+
+
 def title_xml(text, floats):
     """見出しの中の図表の参照だけをリンクにする (「(2) …群落（Table 1-(B)）…」の Table 1)．
 
@@ -1069,11 +1108,8 @@ def title_xml(text, floats):
     t = link_floats(t, floats)
     t = link_appendix(t, floats)
     t = put_nolink(t, held)
-    s = inline(esc(t))
-    s = re.sub(r"\x04(F[A-Z]?\d+)\x02(.*?)\x03", r'<xref ref-type="fig" rid="\1">\2</xref>', s)
-    # 付表の枠 (TA1) も表として引く (T\d+ だけだと制御文字が残り XML が壊れた．28(1):49)
-    s = re.sub(r"\x04(T[A-Z]?\d+)\x02(.*?)\x03", r'<xref ref-type="table" rid="\1">\2</xref>', s)
-    return s
+    # 見出しでは文献と式は引かない
+    return markers_to_xref(inline(esc(t)), kinds=("fig", "table"))
 
 
 def para_xml(text, refs, floats, where):
@@ -1083,13 +1119,7 @@ def para_xml(text, refs, floats, where):
     t = link_appendix(t, floats)
     t = link_formulas(t, floats)
     t = put_nolink(t, held)
-    s = inline(esc(t))
-    s = re.sub(r"\x01(B\d+)\x02(.*?)\x03", r'<xref ref-type="bibr" rid="\1">\2</xref>', s)
-    # 付図の枠 (FA1) も図として引く (F\d+ だけだと制御文字が XML に残った)
-    s = re.sub(r"\x04(F[A-Z]?\d+)\x02(.*?)\x03", r'<xref ref-type="fig" rid="\1">\2</xref>', s)
-    s = re.sub(r"\x04(T[A-Z]?\d+)\x02(.*?)\x03", r'<xref ref-type="table" rid="\1">\2</xref>', s)
-    s = re.sub(r"\x05(E\d+)\x02(.*?)\x03", r'<xref ref-type="disp-formula" rid="\1">\2</xref>', s)
-    return s
+    return markers_to_xref(inline(esc(t)))
 
 
 # ================================================================ body.md の読み取り
@@ -1157,20 +1187,12 @@ def check_article_id(meta):
     return str(art_id or f"{meta['volume']}_{meta['fpage']}")
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("work")
-    ap.add_argument("--pdf")
-    args = ap.parse_args()
-    work = Path(args.work)
-    meta = yaml.safe_load((work / "meta.yaml").read_text(encoding="utf-8"))
-    prof = yaml.safe_load((SKILL_DIR / "journals" / f"{meta['journal']}.yaml").read_text(encoding="utf-8"))
-    # 節の見出しは号によって言い方が違う (「引用文献」と「文献」)．設定は文字列か，その並びで書ける
-    sec_names = {k: ([v] if isinstance(v, str) else list(v)) for k, v in prof["sections"].items()}
-    titles = {k: v[0] for k, v in sec_names.items()}   # XML に出す見出しは，原稿にあった文言を使う
-    blocks = parse_body(work / "body.md")
+def split_sections(blocks, sec_names, titles):
+    """本文の並び (parse_body の結果) から，要旨・謝辞・引用文献の節を切り出す．
 
-    # 特別な節を切り出す
+    (和文の要旨の段落, 謝辞の段落, 引用文献の行, 引用文献の注記の行, 残りの本文のブロック) を返す．
+    原稿にあった節の見出しの文言は titles に書き戻す (XML にその文言を出すため)．
+    """
     abstract_ja, ack, ref_lines, ref_notes, main_blocks = [], [], [], [], []
     mode = "body"
     for b in blocks:
@@ -1202,6 +1224,24 @@ def main():
                 ref_lines.append(b[1])
         elif mode == "body":
             main_blocks.append(b)
+    return abstract_ja, ack, ref_lines, ref_notes, main_blocks
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("work")
+    ap.add_argument("--pdf")
+    args = ap.parse_args()
+    work = Path(args.work)
+    meta = yaml.safe_load((work / "meta.yaml").read_text(encoding="utf-8"))
+    prof = yaml.safe_load((SKILL_DIR / "journals" / f"{meta['journal']}.yaml").read_text(encoding="utf-8"))
+    # 節の見出しは号によって言い方が違う (「引用文献」と「文献」)．設定は文字列か，その並びで書ける
+    sec_names = {k: ([v] if isinstance(v, str) else list(v)) for k, v in prof["sections"].items()}
+    titles = {k: v[0] for k, v in sec_names.items()}   # XML に出す見出しは，原稿にあった文言を使う
+    blocks = parse_body(work / "body.md")
+
+    # 特別な節を切り出す
+    abstract_ja, ack, ref_lines, ref_notes, main_blocks = split_sections(blocks, sec_names, titles)
 
     load_known_ja(work)
     refs = [Ref(i + 1, t) for i, t in enumerate(ref_lines)]
@@ -1217,7 +1257,7 @@ def main():
 
     names = GraphicNames(art_id)
     body_xml = build_body(main_blocks, refs, floats, work, names)
-    front = build_front(meta, prof, abstract_ja, refs, floats)
+    front = build_front(meta, prof, abstract_ja)
     back = build_back(ack, refs, titles, ref_notes)
     lang = meta.get("lang", "ja")
     xml = (
@@ -1264,10 +1304,9 @@ def compare_web_refs(work, refs):
     path = work / "refs_web.txt"
     if not path.exists():
         return None
-    import unicodedata
     web = [l for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
     pdf = [r.text.replace("*", "") for r in refs]
-    norm = lambda t: re.sub(r"[\s　．.，,]", "", unicodedata.normalize("NFKC", t))
+    norm = norm_ref
     if len(web) != len(pdf):
         REPORT.append(f"引用文献の件数がウェブ版と違う: PDF {len(pdf)} 件 / ウェブ {len(web)} 件．並びもずれている恐れがある")
     pair, _ = pair_web_refs(web, pdf)
@@ -1290,8 +1329,7 @@ def pair_web_refs(web, pdf):
     旧号ではウェブ版と PDF で並びが全く違うことがある (19(2):113 では 36 件すべてが
     添字のずれで「違う」と出ていた)．著者の先頭と年で組にし，残りは順に当てる．
     """
-    import unicodedata
-    norm = lambda t: re.sub(r"[\s　．.，,]", "", unicodedata.normalize("NFKC", t))
+    norm = norm_ref
 
     def key(t):
         # ウェブ版は「1) BRADFIELD G. E. 題名. 誌名. (1984) vol.55, p.105-114.」の形で，
@@ -1332,18 +1370,32 @@ def pair_web_refs(web, pdf):
         best, score = None, 0.0
         for j in rest:
             a = ref_words(web[j])
-            s = sum((a & b).values()) / max(1, min(sum(a.values()), sum(b.values())))
+            s = word_overlap(a, b)
             if s > score:
                 best, score = j, s
-        if best is not None and score >= 0.4:
+        if best is not None and score >= PAIR_MIN_OVERLAP:
             pair[i] = best
             rest.remove(best)
     return pair, keyed
 
 
+# 文献どうしを同じものとみなす語の重なりの下限
+PAIR_MIN_OVERLAP = 0.4   # 並びのずれたウェブ版と PDF 版を組にする
+DOI_MIN_OVERLAP = 0.6    # 登録ずみの DOI を付ける文献の照合 (年が誤っているときも)
+
+
+def norm_ref(t):
+    """文献の文字列を比べるための形 (全角を半角に・空白と句読点を除く)．"""
+    return re.sub(r"[\s　．.，,]", "", unicodedata.normalize("NFKC", t))
+
+
+def word_overlap(a, b):
+    """語の多重集合 a・b の重なり (少ない方の語数に対する共通部分の割合)．"""
+    return sum((a & b).values()) / max(1, min(sum(a.values()), sum(b.values())))
+
+
 def ref_words(t):
     """文献の語の多重集合 (ウェブ版の番号・DOI・組み方で出入りする語・イニシャルを除く)．"""
-    import unicodedata
     from collections import Counter
     n = unicodedata.normalize("NFKC", t).casefold()
     # アクセントをならす (登録版は「Dufrene」，紙面は「Dufrêne」．24(1):41)．かなの濁点は残す
@@ -1408,17 +1460,17 @@ def attach_web_dois(work, refs):
                 if not vp_hit:
                     continue
                 b = ref_words(p)
-                if sum((a & b).values()) / max(1, min(sum(a.values()), sum(b.values()))) < 0.6:
+                if word_overlap(a, b) < DOI_MIN_OVERLAP:
                     continue
                 s = 0.9
             elif vp_hit:
                 s = 1.0
             else:
                 b = ref_words(p)
-                s = sum((a & b).values()) / max(1, min(sum(a.values()), sum(b.values())))
+                s = word_overlap(a, b)
             if s > score:
                 best, score = i, s
-        if best is None or score < 0.6:
+        if best is None or score < DOI_MIN_OVERLAP:
             REPORT.append(f"DOI を付けなかった (合う文献が無い．重なり {score:.0%}): {w[:70]}")
             continue
         refs[best].doi = doi
@@ -1432,7 +1484,6 @@ def attach_web_dois(work, refs):
 def compare_pairs(web, pdf, pair, structured, norm):
     """組にした文献を1件ずつ比べ，(PDF の件数, ウェブの件数, 中身の違い, 表記だけの違い) を返す．"""
     import difflib
-    words = ref_words
     content, form = 0, 0
     for k in range(len(pdf)):
         if k not in pair:
@@ -1448,7 +1499,7 @@ def compare_pairs(web, pdf, pair, structured, norm):
             # (年や巻の位置が違う)．語の多重集合で比べ，片方にしかない語だけを出す
             # 登録版は筆頭著者だけ・発行地なし・和文の書誌の足し書きなどで，PDF にだけある語は常に出る．
             # 違いとして数えるのは，登録版にだけある語 (綴りや数字の食い違い) だけにする
-            miss = words(w) - words(p)
+            miss = ref_words(w) - ref_words(p)
             # 登録版は著者の名を略さず書く (「Komiyama Akira .」) が，紙面は頭文字 (「A.」) のことが多い．
             # 登録版の著者の欄 (最初の「 . 」の前) にある欧字の語で，頭の字が紙面の頭文字と同じものは違いにしない (24(1))
             inits = {c.casefold() for c in re.findall(r"(?<![A-Za-z])([A-Z])\.", unicodedata.normalize("NFKC", p))}
@@ -1639,7 +1690,7 @@ def date_xml(tag, attrs, ymd):
     return f"<{tag} {attrs}>{d}{m}<year>{y}</year></{tag}>"
 
 
-def build_front(meta, prof, abstract_ja, refs, floats):
+def build_front(meta, prof, abstract_ja):
     lang = meta.get("lang", "ja")
     other = "en" if lang == "ja" else "ja"
     o = ["<front>", "<journal-meta>",

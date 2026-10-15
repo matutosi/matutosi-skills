@@ -217,6 +217,72 @@ class TestBuildGolden(unittest.TestCase):
             self.assertIn("全文 PDF が無い", report[0])
 
 
+@unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
+class TestRefGolden(unittest.TestCase):
+    """引用文献 1 件の分解 (Ref.parse) の結果を固定する．整理の前後で変わらないことを見る．
+
+    入力は tests/golden/refs_inputs.txt (1 行 1 件)，期待は refs.json．
+    意図して変えたときは UPDATE_GOLDEN=1 で組み直す．
+    """
+
+    def test_references_match_golden(self):
+        import json
+        b = load("build")
+        lines = (HERE / "golden" / "refs_inputs.txt").read_text(encoding="utf-8").splitlines()
+        got = {}
+        for i, line in enumerate(lines, 1):
+            b.REPORT.clear()
+            r = b.Ref(i, line)
+            got[str(i)] = {"text": line, "kind": r.kind, "year": r.year, "names": r.names,
+                           "xml": r.xml, "report": list(b.REPORT)}
+        path = HERE / "golden" / "refs.json"
+        if os.environ.get("UPDATE_GOLDEN"):
+            path.write_text(json.dumps(got, ensure_ascii=False, indent=1) + "\n",
+                            encoding="utf-8", newline="\n")
+        want = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(got), sorted(want))
+        for k in want:
+            with self.subTest(ref=want[k]["text"][:30]):
+                self.assertEqual(got[k], want[k])
+
+
+@unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
+class TestWebRefComparison(unittest.TestCase):
+    """J-STAGE 登録ずみの引用文献 (refs_web.txt) との照合．"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b = load("build")
+
+    def run_cmp(self, pdf_lines, web_lines):
+        with tempfile.TemporaryDirectory() as d:
+            work = Path(d)
+            (work / "refs_web.txt").write_text("\n".join(web_lines) + "\n", encoding="utf-8")
+            refs = [self.b.Ref(i + 1, t) for i, t in enumerate(pdf_lines)]
+            self.b.REPORT.clear()
+            res = self.b.compare_web_refs(work, refs)
+            return res, list(self.b.REPORT)
+
+    def test_identical_references_have_no_differences(self):
+        lines = ["山田太郎 2001. 植生の調査法. 植生学会誌 18: 1-10."]
+        res, report = self.run_cmp(lines, lines)
+        self.assertEqual(res[2], 0)          # 中身の違い
+        self.assertEqual(report, [])
+
+    def test_a_dropped_character_is_a_content_difference(self):
+        pdf = ["山田太郎 2001. 植生の調査法. 植生学会誌 18: 1-10."]
+        web = ["山田太郎 2001. 植生の調査. 植生学会誌 18: 1-10."]
+        res, report = self.run_cmp(pdf, web)
+        self.assertEqual(res[2], 1)
+        self.assertTrue([r for r in report if "違い" in r or "食い違" in r or "植生" in r], report)
+
+    def test_word_overlap_helper(self):
+        from collections import Counter
+        a, b = Counter("abcd"), Counter("abxy")
+        self.assertAlmostEqual(self.b.word_overlap(a, b), 0.5)
+        self.assertEqual(self.b.word_overlap(Counter(), b), 0.0)
+
+
 @unittest.skipUnless(HAVE_YAML and importlib.util.find_spec("pymupdf"), "PyYAML と PyMuPDF が要る")
 class TestApplyBackup(unittest.TestCase):
     @classmethod
