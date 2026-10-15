@@ -4,7 +4,7 @@ Claude Code のプラグインのマーケットプレイスです．
 日本語の Markdown 原稿を整形・推敲するスキル，JPEG 写真のコメントを CSV で読み書きするスキル，
 学会誌の論文 PDF から J-STAGE の全文 XML を作るスキルを収めています．
 
-A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts and for the Exif UserComment of JPEG files.
+A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts, for the Exif UserComment of JPEG files, and for building J-STAGE full-text XML from journal PDFs.
 
 <a id="install"></a>
 
@@ -76,8 +76,8 @@ Only the Python standard library is required.
 「この論文 PDF を J-STAGE の全文 XML にして」のように頼むと使われます．手順は [SKILL.md](plugins/jstage-xml/skills/pdf-to-jstage-xml/SKILL.md) にあります．
 
 - 雑誌ごとの設定は `journals/<資料コード>.yaml` に置きます．ひな形 (`_template`) と，作例として植生学会誌 (`vegsci`) の設定と記録が入っています．
-- 作業ディレクトリ・控え・記事識別子の対応表は，任意のフォルダ (作業の根) に置きます．環境変数 `JSTAGE_ROOT` か `--root` で渡します．
-- 必要な道具: Python 3.11 以降と `pip install pymupdf lxml pyyaml`．スキャンの号は，PDF に入っている OCR の文字をそのまま使います．
+- 作業ディレクトリ・控え・記事識別子の対応表は，任意のフォルダ (作業の根) に置きます．環境変数 `JSTAGE_ROOT` で渡します (`from_backup.py` と `fix_ja_names.py` は `--root` でも渡せます)．
+- 必要な道具: Python 3.11 以降と `pip install pymupdf lxml pyyaml`．スキャンの号は，PDF に入っている OCR の文字をそのまま使います．論文一覧の取得 (`list_articles.py toc`) には `beautifulsoup4` も要ります．
 - 論文一覧の取得 (`scripts/list_articles.py`) と，登載前に見た目を確かめる手元のプレビュー (`scripts/preview_tool/`) も入っています．
 - 控えの取り方と調査のまとめは，[support-ac](https://github.com/matutosi/support-ac) の `jstage/` を見てください．
 

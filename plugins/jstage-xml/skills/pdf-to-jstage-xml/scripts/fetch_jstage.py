@@ -69,7 +69,7 @@ def split_ja(name):
 
 
 def split_en(name):
-    """「Toshikazu MATSUMURA」→ [MATSUMURA, Toshikazu]．大文字だけの語を姓とみなす．"""
+    """「Taro YAMADA」→ [YAMADA, Taro]．大文字だけの語を姓とみなす．"""
     words = name.split()
     sur = [w for w in words if len(w) > 1 and w.upper() == w and re.search(r"[A-Z]", w)]
     if not sur:
