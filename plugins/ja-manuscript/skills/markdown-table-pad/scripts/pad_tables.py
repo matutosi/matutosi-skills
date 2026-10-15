@@ -36,13 +36,46 @@ def is_table_line(line: str) -> bool:
     return bool(stripped) and stripped[0] == '|' and stripped[-1] == '|'
 
 
+def split_cells(s: str) -> list:
+    """`|` で列を切る．バックスラッシュでエスケープした `|` とコードスパンの中では切らない"""
+    cells, cur, i, n = [], [], 0, len(s)
+    while i < n:
+        ch = s[i]
+        if ch == '\\' and i + 1 < n:
+            cur.append(s[i:i + 2])
+            i += 2
+        elif ch == '`':
+            j = i
+            while j < n and s[j] == '`':
+                j += 1
+            run = s[i:j]
+            k = s.find(run, j)
+            while k != -1 and k + len(run) < n and s[k + len(run)] == '`':
+                k = s.find(run, k + 1)   # 閉じが，より長い `` の一部なら探し直す
+            if k == -1:
+                cur.append(run)
+                i = j
+            else:
+                cur.append(s[i:k + len(run)])
+                i = k + len(run)
+        elif ch == '|':
+            cells.append(''.join(cur))
+            cur = []
+            i += 1
+        else:
+            cur.append(ch)
+            i += 1
+    cells.append(''.join(cur))
+    return cells
+
+
 def parse_row(line: str) -> list:
     line = line.strip()
     if line.startswith('|'):
         line = line[1:]
-    if line.endswith('|'):
+    if line.endswith('|') and not line.endswith('\\|'):
         line = line[:-1]
-    return [cell.strip() for cell in line.split('|')]
+    return [cell.strip() for cell in split_cells(line)]
 
 
 def is_separator_row(cells: list) -> bool:
@@ -86,18 +119,46 @@ def format_table(table_lines: list) -> list:
     return result
 
 
+RE_FENCE = re.compile(r'^\s*(`{3,}|~{3,})')
+
+
+def _split_cr(line: str):
+    """行末の CR を分ける．(本体, CR か空文字)"""
+    if line.endswith('\r'):
+        return line[:-1], '\r'
+    return line, ''
+
+
 def pad_tables(content: str) -> str:
+    """表だけを整形する．字下げと各行の改行コード (CRLF/LF) は保ち，コードブロックの中は触らない"""
     lines = content.split('\n')
     result = []
+    fence = None   # 開いているコードブロックの囲み (``` や ~~~)
     i = 0
     while i < len(lines):
-        if is_table_line(lines[i]):
+        raw = lines[i]
+        core, _ = _split_cr(raw)
+        m = RE_FENCE.match(core)
+        if fence is not None:
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+                fence = None
+            result.append(raw)
+            i += 1
+        elif m:
+            fence = m.group(1)
+            result.append(raw)
+            i += 1
+        elif is_table_line(core):
             start = i
-            while i < len(lines) and is_table_line(lines[i]):
+            while i < len(lines) and is_table_line(_split_cr(lines[i])[0]):
                 i += 1
-            result.extend(format_table(lines[start:i]))
+            block = [_split_cr(b) for b in lines[start:i]]
+            cores = [b[0] for b in block]
+            indent = cores[0][:len(cores[0]) - len(cores[0].lstrip())]
+            for text, (_, cr) in zip(format_table(cores), block):
+                result.append(indent + text + cr)
         else:
-            result.append(lines[i])
+            result.append(raw)
             i += 1
     return '\n'.join(result)
 
@@ -113,12 +174,15 @@ def main():
         return
 
     for path in args:
-        with open(path, 'r', encoding='utf-8') as f:
-            original = f.read()
+        # バイトで読み書きし，BOM と改行コード (CRLF/LF) を元のまま保つ
+        with open(path, 'rb') as f:
+            data = f.read().decode('utf-8')
+        bom = data.startswith('﻿')
+        original = data[1:] if bom else data
         formatted = pad_tables(original)
         if formatted != original:
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(formatted)
+            with open(path, 'wb') as f:
+                f.write((('﻿' if bom else '') + formatted).encode('utf-8'))
             print(f'Padded: {path}')
         else:
             print(f'No change: {path}')

@@ -54,6 +54,30 @@ class TestPad(unittest.TestCase):
         self.assertEqual(pad_tables(once), once)
 
 
+class TestEdgeCases(unittest.TestCase):
+    def test_escaped_pipe_in_cell_is_not_a_column_break(self):
+        out = pad_tables("| a \\| b | c |\n|---|---|\n| 1 | 2 |\n")
+        self.assertIn("a \\| b", out)
+        self.assertEqual(out.splitlines()[0].count(" | "), 1)
+
+    def test_pipe_in_code_span_is_not_a_column_break(self):
+        out = pad_tables("| `x|y` | z |\n|---|---|\n| 1 | 2 |\n")
+        self.assertIn("`x|y`", out)
+        self.assertEqual(out.splitlines()[0].count(" | "), 1)
+
+    def test_indented_table_keeps_indent(self):
+        out = pad_tables("  | a | b |\n  |---|---|\n  | 1 | 2 |\n")
+        self.assertTrue(all(line.startswith("  | ") for line in out.splitlines()))
+
+    def test_table_in_code_block_untouched(self):
+        src = "```\n|cmd|x|\n|--|--|\n|a|b|\n```\n"
+        self.assertEqual(pad_tables(src), src)
+
+    def test_tilde_fence_untouched(self):
+        src = "~~~\n|cmd|x|\n|--|--|\n~~~\n"
+        self.assertEqual(pad_tables(src), src)
+
+
 class TestCli(unittest.TestCase):
     def run_cli(self, args, stdin=None):
         return subprocess.run([sys.executable, SCRIPT] + args, input=stdin, capture_output=True)
@@ -73,6 +97,32 @@ class TestCli(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr.decode("utf-8", "replace"))
             with open(p, encoding="utf-8") as fh:
                 self.assertEqual(fh.read().splitlines()[2], "| cc  | d   |")
+
+    def _roundtrip(self, raw):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "a.md")
+            with open(p, "wb") as fh:
+                fh.write(raw)
+            r = self.run_cli([p])
+            self.assertEqual(r.returncode, 0, r.stderr.decode("utf-8", "replace"))
+            with open(p, "rb") as fh:
+                return fh.read()
+
+    def test_lf_stays_lf(self):
+        out = self._roundtrip(b"| a | bbb |\n|---|---|\n| cc | d |\n")
+        self.assertNotIn(b"\r", out)
+        self.assertIn(b"| cc  | d   |", out)
+
+    def test_crlf_stays_crlf(self):
+        out = self._roundtrip(b"| a | bbb |\r\n|---|---|\r\n| cc | d |\r\n")
+        self.assertEqual(out.count(b"\r\n"), 3)
+        self.assertEqual(out.count(b"\n"), 3)
+
+    def test_bom_kept_and_first_line_table_padded(self):
+        raw = "﻿| a | 長い列 |\n|---|---|\n| 全角あ | b |\n".encode("utf-8")
+        out = self._roundtrip(raw)
+        self.assertTrue(out.startswith("﻿".encode("utf-8")))
+        self.assertIn("| a      | 長い列 |".encode("utf-8"), out)
 
 
 if __name__ == "__main__":
