@@ -27,6 +27,7 @@ AI の指摘はその巡の開始時点なので、ここがずれると照合�
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -143,18 +144,22 @@ def main():
         if len(ai_bad) + len(human_bad) > 10:
             print(f"  ... 他 {len(ai_bad) + len(human_bad) - 10} 件")
 
+    def cell(text, n):
+        """TSV の 1 つの欄にする (改行・タブは空白にし，n 文字までにする)．"""
+        return re.sub(r"[\r\n\t]+", " ", text)[:n]
+
     out = Path(args.tsv) if args.tsv else Path("_polish/calibration.tsv")
     out.parent.mkdir(parents=True, exist_ok=True)
     lines = ["分類\tfile\t位置\t対象\t備考"]
     for h, found in hits:
-        lines.append(f"拾えた\t{h['file']}\t{h['start']}\t{h['target'][:60]}\t"
+        lines.append(f"拾えた\t{h['file']}\t{h['start']}\t{cell(h['target'], 60)}\t"
                      f"AI {len(found)} 件が同じ箇所")
     for h in misses:
-        lines.append(f"見逃し\t{h['file']}\t{h['start']}\t{h['target'][:60]}\t")
+        lines.append(f"見逃し\t{h['file']}\t{h['start']}\t{cell(h['target'], 60)}\t")
     for a in false_alarms:
-        lines.append(f"空振り\t{a['file']}\t{a['start']}\t{a['target'][:60]}\t{a['why'][:60]}")
+        lines.append(f"空振り\t{a['file']}\t{a['start']}\t{cell(a['target'], 60)}\t{cell(a['why'], 60)}")
     for fx in ai_bad + human_bad:
-        lines.append(f"照合不能\t{fx['file']}\t-\t{fx['target'][:60]}\t{fx['reason']}")
+        lines.append(f"照合不能\t{fx['file']}\t-\t{cell(fx['target'], 60)}\t{fx['reason']}")
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print()
     print(f"明細: {out}")

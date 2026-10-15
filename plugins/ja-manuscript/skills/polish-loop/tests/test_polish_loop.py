@@ -332,7 +332,117 @@ class TestScanRecurring(Base):
         self.assertIn("a.md:1", out)
 
 
+class TestScanTypes(Base):
+    """scan_recurring.py の型ごとの照合 (検出するものと，しないもの)．"""
+
+    def scan(self, key, text, config=None, name="chapter_01.md"):
+        write(self.p(name), text)
+        if config is not None:
+            write(self.p("_polish", "config.json"), json.dumps(config, ensure_ascii=False))
+        code, out, err = run("scan_recurring.py", ["--type", key], self.d)
+        self.assertEqual(code, 0, err)
+        return out
+
+    def test_next(self):
+        out = self.scan("next", "次の3つを示す．\n次の図を見る．\n")
+        self.assertIn("ch01.md:1", out)
+        self.assertNotIn("ch01.md:2", out)
+
+    def test_plain_style(self):
+        out = self.scan("plain", "これは結果である．\nこれは結果です．\n- 箇条書きである．\n")
+        self.assertIn("ch01.md:1", out)
+        self.assertNotIn("ch01.md:2", out)
+        self.assertNotIn("ch01.md:3", out)      # 箇条書きの行は見ない
+
+    def test_becomes(self):
+        out = self.scan("becomes", "結果になります．\n便利になります．\n")
+        self.assertIn("ch01.md:1", out)
+        self.assertNotIn("ch01.md:2", out)
+
+    def test_donoun(self):
+        out = self.scan("donoun", "検討を行う．\n確認します．\n")
+        self.assertIn("ch01.md:1", out)
+        self.assertNotIn("ch01.md:2", out)
+
+    def test_terms_do_not_match_a_longer_word(self):
+        # 「目盛」を誤とするとき，正の「目盛り」の中の「目盛」は数えない
+        out = self.scan("terms", "目盛りを付ける．目盛を付ける．\n",
+                        config={"terms": [["目盛り", "目盛"]]})
+        self.assertIn("「目盛」1 件", out)
+
+    def test_heading_number_space(self):
+        out = self.scan("heading", "## 1.2見出し\n## 1.2 見出し\n## 4組は\n")
+        self.assertIn("ch01.md:1", out)
+        self.assertNotIn("ch01.md:2", out)
+        self.assertNotIn("ch01.md:3", out)      # 「4組」は節番号ではない
+
+    def test_selfref(self):
+        text = "# 第1章 はじめに {#ch-intro}\n本文は \\@ref(ch-intro) を指す．\n他は \\@ref(ch-other) を指す．\n"
+        out = self.scan("selfref", text)
+        self.assertIn("ch01.md:2", out)
+        self.assertNotIn("ch01.md:3", out)
+
+    def test_exercises_count_mismatch(self):
+        text = ("## 1.5 練習問題 {#ex}\n\n1. 問1\n2. 問2\n\n"
+                "## 1.6 練習問題の解答例 {#ans}\n\n### 解答 1\n答え\n")
+        out = self.scan("exercises", text)
+        self.assertIn("問 2 / 解答 1", out)
+
+    def test_axis_internal_name(self):
+        text = "本文\n\n```r\nggplot(d) + labs(x = reorder(Var1, n))\nggplot(d) + labs(x = \"密度\")\n```\n"
+        out = self.scan("axis", text)
+        self.assertIn("ch01.md:4", out)
+        self.assertNotIn("ch01.md:5", out)
+
+    def test_lablang_mismatch(self):
+        text = ("```r\n# code_01_01_R\nggplot(d) + labs(x = \"密度\")\n```\n\n"
+                "```python\n# code_01_01_py\nax.set_xlabel(\"density\")\n```\n")
+        out = self.scan("lablang", text)
+        self.assertIn("code_01_01", out)
+
+    def test_clean_manuscript_has_no_hits(self):
+        text = "# 第1章 はじめに {#ch-intro}\n\nこれは結果です．次に進みます．\n"
+        out = self.scan("next", text)
+        self.assertIn("0 件", out)
+
+
 class TestCalibrate(Base):
+    def test_target_with_newline_keeps_one_row_per_item(self):
+        # 対象に改行を含む指摘でも，明細 (TSV) の行が割れない
+        write(self.p("chapter_01.md"), "1行目です．\n2行目です．\n3行目です．\n")
+        ai = [{"file": "chapter_01.md", "before": "1行目です．\n2行目", "after": "x"}]   # 空振りになる
+        human = [{"file": "chapter_01.md", "old": "3行目です", "new": "y"}]            # 見逃しになる
+        write(self.p("ai.json"), json.dumps(ai, ensure_ascii=False))
+        write(self.p("human.json"), json.dumps(human, ensure_ascii=False))
+        code, out, err = run("calibrate.py", ["--ai", "ai.json", "--human", "human.json"], self.d)
+        self.assertEqual(code, 0, err)
+        rows = read(self.p("_polish", "calibration.tsv")).splitlines()
+        self.assertEqual(len(rows), 1 + 2)         # 見出し + 「見逃し」1 件 + 「空振り」1 件
+        self.assertTrue(all(r.count("\t") == 4 for r in rows), rows)
+
+    def test_unlocatable_target_is_reported(self):
+        write(self.p("chapter_01.md"), "これは本文です．\n")
+        ai = [{"file": "chapter_01.md", "before": "ない文字列", "after": "x"}]
+        human = [{"file": "chapter_01.md", "old": "本文", "new": "y"}]
+        write(self.p("ai.json"), json.dumps(ai, ensure_ascii=False))
+        write(self.p("human.json"), json.dumps(human, ensure_ascii=False))
+        code, out, err = run("calibrate.py", ["--ai", "ai.json", "--human", "human.json"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertIn("不能 1", out)
+        self.assertIn("baseline に 0 回", out)
+
+    def test_slack_matches_neighbours(self):
+        write(self.p("chapter_01.md"), "AAAAABBBBB\n")
+        ai = [{"file": "chapter_01.md", "before": "AAAAA", "after": "x"}]
+        human = [{"file": "chapter_01.md", "old": "BBBBB", "new": "y"}]
+        write(self.p("ai.json"), json.dumps(ai))
+        write(self.p("human.json"), json.dumps(human))
+        code, out, err = run("calibrate.py", ["--ai", "ai.json", "--human", "human.json"], self.d)
+        self.assertIn("拾えた   : 0", out)           # 隣り合うだけでは重ならない
+        code, out, err = run("calibrate.py", ["--ai", "ai.json", "--human", "human.json",
+                                              "--slack", "1"], self.d)
+        self.assertIn("拾えた   : 1", out)
+
     def test_fixes_with_bom(self):
         write(self.p("chapter_01.md"), "これは誤時です．\n")
         ai = [{"file": "chapter_01.md", "before": "誤時", "after": "誤字"}]
