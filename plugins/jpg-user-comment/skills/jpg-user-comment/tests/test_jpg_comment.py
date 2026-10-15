@@ -145,6 +145,71 @@ class TestReadWrite(Base):
         self.assertRaises(jc.JpegError, jc.read_comment, path)
 
 
+class TestMakerNote(Base):
+    """MakerNote (0x927C) の中身は, TIFF 先頭からの位置を持つ機種がある.
+    位置が動くと壊れるので, 書き戻しても元の位置に残ること."""
+
+    TAG_MAKERNOTE = 0x927C
+
+    def make_jpeg_with_makernote(self, byte_order=">"):
+        ex = jc.Exif(byte_order)
+        ex.ifd0[0x010F] = (2, 5, b"Make\x00")
+        ex.ifd0[0x0110] = (2, 6, b"Model\x00")
+        ex.exif[jc.TAG_EXIF_VERSION] = (7, 4, b"0230")
+        ex.exif[0x9003] = (2, 20, b"2026:10:16 10:00:00\x00")
+        note = b"MAKERNOTE-SENTINEL" + bytes(range(60))
+        ex.exif[self.TAG_MAKERNOTE] = (7, len(note), note)
+        tiff = ex.to_bytes()
+        segments, tail = jc.split_segments(PLAIN_JPEG)
+        segments.insert(0, (0xE1, jc.EXIF_HEADER + tiff))
+        return jc.join_segments(segments, tail), tiff, note
+
+    def makernote_offset(self, tiff):
+        order = ">" if tiff[:2] == b"MM" else "<"
+        (ifd0_offset,) = struct.unpack(order + "I", tiff[4:8])
+        ifd0, _next = jc.parse_ifd(tiff, ifd0_offset, order)
+        exif_offset = jc._pointer(ifd0, jc.TAG_EXIF_IFD, order)
+        offsets = {}
+        jc.parse_ifd(tiff, exif_offset, order, offsets)
+        return offsets.get(self.TAG_MAKERNOTE)
+
+    def test_makernote_keeps_its_original_offset(self):
+        for order in (">", "<"):
+            data, tiff, note = self.make_jpeg_with_makernote(order)
+            before = self.makernote_offset(tiff)
+            self.assertIsNotNone(before)
+            path = self.path("m.jpg", data)
+            jc.write_comment(path, "桜の花")
+            with open(path, "rb") as handle:
+                segments, _tail = jc.split_segments(handle.read())
+            _index, new_tiff = jc.find_exif(segments)
+            self.assertEqual(self.makernote_offset(new_tiff), before)
+            self.assertEqual(new_tiff[before:before + len(note)], note)
+            self.assertEqual(jc.read_comment(path), "桜の花")
+
+    def test_other_tags_survive_with_makernote(self):
+        data, _tiff, note = self.make_jpeg_with_makernote()
+        path = self.path("m.jpg", data)
+        jc.write_comment(path, "x")
+        with open(path, "rb") as handle:
+            segments, _tail = jc.split_segments(handle.read())
+        _index, new_tiff = jc.find_exif(segments)
+        parsed = jc.Exif.parse(new_tiff)
+        self.assertEqual(parsed.ifd0[0x010F][2], b"Make\x00")
+        self.assertEqual(parsed.exif[self.TAG_MAKERNOTE][2], note)
+        self.assertEqual(parsed.exif[0x9003][2], b"2026:10:16 10:00:00\x00")
+
+    def test_repeated_writes_do_not_grow_without_bound(self):
+        data, _tiff, _note = self.make_jpeg_with_makernote()
+        path = self.path("m.jpg", data)
+        jc.write_comment(path, "1回目")
+        size1 = os.path.getsize(path)
+        for n in range(5):
+            jc.write_comment(path, "%d回目" % n)
+        # 追記方式でも，書くたびに古い Exif を積み増さない
+        self.assertLessEqual(os.path.getsize(path), size1 + 64)
+
+
 class TestExifPreservation(Base):
     def tags(self, path):
         with open(path, "rb") as handle:
@@ -263,6 +328,64 @@ class TestCsv(Base):
         with open(out, encoding="utf-8-sig") as handle:
             self.assertIn("sub/d.jpg", handle.read().replace("\\", "/"))
 
+
+    def test_relative_export_then_import_round_trips(self):
+        # export photos/ --relative -o c.csv のあと import c.csv で，同じファイルに当たること
+        # (相対パスの基準が，import の既定 (CSV のある場所) と食い違ってはいけない)
+        photos = os.path.join(self.dir, "photos")
+        os.makedirs(os.path.join(photos, "sub"))
+        a = self.path(os.path.join("photos", "a.jpg"))
+        d = self.path(os.path.join("photos", "sub", "d.jpg"))
+        jc.write_comment(a, "A")
+        jc.write_comment(d, "D")
+        out = os.path.join(self.dir, "c.csv")
+        self.run_cli(["export", photos, "-r", "--relative", "-o", out])
+        for path in (a, d):
+            jc.write_comment(path, "")
+        self.run_cli(["import", out])
+        self.assertEqual(jc.read_comment(a), "A")
+        self.assertEqual(jc.read_comment(d), "D")
+
+    def test_relative_csv_points_at_the_files(self):
+        photos = os.path.join(self.dir, "photos")
+        os.makedirs(photos)
+        a = self.path(os.path.join("photos", "a.jpg"))
+        jc.write_comment(a, "元のコメント")
+        out = os.path.join(self.dir, "c.csv")
+        self.run_cli(["export", photos, "--relative", "-o", out])
+        with open(out, encoding="utf-8-sig") as handle:
+            text = handle.read().replace("\\", "/")
+        # CSV のある場所からの相対パスで書く
+        self.assertIn("photos/a.jpg,元のコメント", text)
+        jc.write_comment(a, "")
+        with open(out, "w", encoding="utf-8-sig", newline="") as handle:
+            handle.write("filename,comment\nphotos/a.jpg,取り込む\n")
+        self.run_cli(["import", out])
+        self.assertEqual(jc.read_comment(a), "取り込む")
+
+    def test_outdir_keeps_subfolders_and_does_not_collide(self):
+        os.makedirs(os.path.join(self.dir, "x"))
+        os.makedirs(os.path.join(self.dir, "y"))
+        x = self.path(os.path.join("x", "same.jpg"))
+        y = self.path(os.path.join("y", "same.jpg"))
+        csv_path = os.path.join(self.dir, "c.csv")
+        with open(csv_path, "w", encoding="utf-8", newline="") as handle:
+            handle.write("filename,comment\nx/same.jpg,Xのコメント\ny/same.jpg,Yのコメント\n")
+        outdir = os.path.join(self.dir, "out")
+        self.run_cli(["import", csv_path, "--outdir", outdir])
+        self.assertEqual(jc.read_comment(os.path.join(outdir, "x", "same.jpg")), "Xのコメント")
+        self.assertEqual(jc.read_comment(os.path.join(outdir, "y", "same.jpg")), "Yのコメント")
+        self.assertEqual(jc.read_comment(x), "")   # 元は変わらない
+        self.assertEqual(jc.read_comment(y), "")
+
+    def test_dry_run_does_not_create_outdir(self):
+        self.path("a.jpg")
+        csv_path = os.path.join(self.dir, "c.csv")
+        with open(csv_path, "w", encoding="utf-8", newline="") as handle:
+            handle.write("filename,comment\na.jpg,書かない\n")
+        outdir = os.path.join(self.dir, "out")
+        self.run_cli(["import", csv_path, "--outdir", outdir, "-n"])
+        self.assertFalse(os.path.exists(outdir))
 
     def test_export_uses_absolute_path_by_default(self):
         path = self.path("a.jpg")

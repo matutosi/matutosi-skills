@@ -23,6 +23,7 @@ TAG_EXIF_IFD = 0x8769
 TAG_GPS_IFD = 0x8825
 TAG_INTEROP_IFD = 0xA005
 TAG_USER_COMMENT = 0x9286
+TAG_MAKERNOTE = 0x927C
 TAG_EXIF_VERSION = 0x9000
 TAG_THUMB_OFFSET = 0x0201
 TAG_THUMB_LENGTH = 0x0202
@@ -112,8 +113,11 @@ def _unpack(byte_order, fmt, buf, offset):
     return struct.unpack_from(byte_order + fmt, buf, offset)
 
 
-def parse_ifd(tiff, offset, byte_order):
-    """IFD を {tag: (type, count, raw_value_bytes)} と次 IFD の offset に分解する."""
+def parse_ifd(tiff, offset, byte_order, value_offsets=None):
+    """IFD を {tag: (type, count, raw_value_bytes)} と次 IFD の offset に分解する.
+
+    value_offsets に dict を渡すと, 値が IFD の外 (4 バイトを超える) にあるタグの
+    TIFF 先頭からの位置を {tag: offset} で入れる."""
     (count,) = _unpack(byte_order, "H", tiff, offset)
     entries = {}
     pos = offset + 2
@@ -131,6 +135,8 @@ def parse_ifd(tiff, offset, byte_order):
             if value_offset + size > len(tiff):
                 continue  # 壊れたエントリは捨てる
             value = tiff[value_offset:value_offset + size]
+            if value_offsets is not None:
+                value_offsets[tag] = value_offset
         entries[tag] = (typ, num, value)
     next_offset = 0
     if pos + 4 <= len(tiff):
@@ -162,6 +168,11 @@ class Exif(object):
         self.interop = None
         self.ifd1 = None
         self.thumbnail = b""
+        # MakerNote は中に TIFF 先頭からの位置を持つ機種 (Canon・Sony など) があり,
+        # 動かすと読めなくなる. 読み込み元の TIFF と MakerNote の位置を覚えておき,
+        # 書き出すときは元の TIFF の末尾に新しい IFD を足して MakerNote を動かさない
+        self.raw = None
+        self.makernote_offset = None
 
     # ---- 読み込み
     @classmethod
@@ -180,7 +191,11 @@ class Exif(object):
 
         exif_offset = _pointer(self.ifd0, TAG_EXIF_IFD, byte_order)
         if exif_offset:
-            self.exif, _ = parse_ifd(tiff, exif_offset, byte_order)
+            exif_value_offsets = {}
+            self.exif, _ = parse_ifd(tiff, exif_offset, byte_order, exif_value_offsets)
+            if TAG_MAKERNOTE in exif_value_offsets:
+                self.raw = bytes(tiff)
+                self.makernote_offset = exif_value_offsets[TAG_MAKERNOTE]
         gps_offset = _pointer(self.ifd0, TAG_GPS_IFD, byte_order)
         if gps_offset:
             self.gps, _ = parse_ifd(tiff, gps_offset, byte_order)
@@ -225,6 +240,24 @@ class Exif(object):
 
     # ---- 書き出し
     def to_bytes(self):
+        if self.makernote_offset is not None and TAG_MAKERNOTE in self.exif:
+            # MakerNote を元の位置に残す: 元の TIFF を MakerNote の終わりまで残し,
+            # その後ろに新しい IFD とサムネイルを足す (先頭の IFD0 の位置だけ書き換える).
+            # 古い IFD は読まれないごみになるが, MakerNote が指す位置は変わらない
+            end = self.makernote_offset + len(self.exif[TAG_MAKERNOTE][2])
+            prefix = self.raw[:end]
+            if len(prefix) % 2:
+                prefix += b"\x00"
+            return self._build(len(prefix), prefix,
+                               {TAG_MAKERNOTE: self.makernote_offset})
+        return self._build(8, b"", None)
+
+    def _build(self, start, prefix, external):
+        """start から IFD を並べた TIFF を作る.
+
+        prefix: 先頭 start バイトに置く元のバイト列 (空なら新しいヘッダを作る).
+        external: {タグ: 位置} 値を IFD の外の既存の位置に置いたままにするタグ (exif IFD のみ).
+        """
         byte_order = self.byte_order
         ifd0 = dict(self.ifd0)
         exif = dict(self.exif)
@@ -255,14 +288,15 @@ class Exif(object):
 
         # ポインタ値は 4 バイトに収まるため, 先に全ブロックのサイズを確定できる
         blocks = [ifd0, exif, interop, gps, ifd1]
+        externals = [None, external, None, None, None]
         offsets = []
-        pos = 8
-        for entries in blocks:
+        pos = start
+        for entries, ext in zip(blocks, externals):
             if entries is None:
                 offsets.append(None)
                 continue
             offsets.append(pos)
-            pos += ifd_size(entries) + data_size(entries)
+            pos += ifd_size(entries) + data_size(entries, ext)
         thumb_offset = pos
 
         def long_value(number):
@@ -277,14 +311,16 @@ class Exif(object):
         if ifd1 is not None and self.thumbnail:
             ifd1[TAG_THUMB_OFFSET] = long_value(thumb_offset)
 
-        out = [b"II" if byte_order == "<" else b"MM",
-               struct.pack(byte_order + "HI", 42, offsets[0])]
+        header = (b"II" if byte_order == "<" else b"MM") + struct.pack(
+            byte_order + "HI", 42, offsets[0])
+        out = [header + prefix[8:] if prefix else header]
         for index, entries in enumerate(blocks):
             if entries is None:
                 continue
             is_ifd0 = index == 0
             next_offset = offsets[4] if (is_ifd0 and ifd1 is not None) else 0
-            out.append(serialize_ifd(entries, offsets[index], next_offset, byte_order))
+            out.append(serialize_ifd(entries, offsets[index], next_offset, byte_order,
+                                     externals[index]))
         out.append(self.thumbnail)
         return b"".join(out)
 
@@ -293,22 +329,26 @@ def ifd_size(entries):
     return 2 + 12 * len(entries) + 4
 
 
-def data_size(entries):
+def data_size(entries, external=None):
     total = 0
-    for _typ, _num, value in entries.values():
+    for tag, (_typ, _num, value) in entries.items():
+        if external and tag in external:
+            continue  # 値は既存の位置に置いたまま
         if len(value) > 4:
             total += len(value) + len(value) % 2  # 偶数境界に揃える
     return total
 
 
-def serialize_ifd(entries, ifd_offset, next_offset, byte_order):
+def serialize_ifd(entries, ifd_offset, next_offset, byte_order, external=None):
     head = [struct.pack(byte_order + "H", len(entries))]
     data = []
     data_offset = ifd_offset + ifd_size(entries)
     cursor = 0
     for tag in sorted(entries):
         typ, num, value = entries[tag]
-        if len(value) <= 4:
+        if external and tag in external:
+            field = struct.pack(byte_order + "I", external[tag])
+        elif len(value) <= 4:
             field = value + b"\x00" * (4 - len(value))
         else:
             field = struct.pack(byte_order + "I", data_offset + cursor)
@@ -474,7 +514,15 @@ def cmd_export(args):
     files = collect_jpegs(args.paths, args.recursive)
     if not files:
         sys.exit("JPEG ファイルが見つかりません")
-    base = args.base or (args.paths[0] if os.path.isdir(args.paths[0]) else ".")
+    # 相対パスの基準: --base があればそれ. 無ければ CSV を書く場所
+    # (import の既定の基準 = CSV のある場所と同じにして, 書き出した CSV がそのまま読めるようにする).
+    # 標準出力へ出すときは, 指定した最初のディレクトリ
+    if args.base:
+        base = args.base
+    elif args.output:
+        base = os.path.dirname(os.path.abspath(args.output))
+    else:
+        base = args.paths[0] if os.path.isdir(args.paths[0]) else "."
     rows = []
     errors = 0
     for path in files:
@@ -534,6 +582,7 @@ def cmd_import(args):
     if [c.strip().lower() for c in rows[0][:2]] == CSV_HEADER:
         rows = rows[1:]
     base = args.base or os.path.dirname(os.path.abspath(args.csv))
+    written = set()   # --outdir で書き出す先 (重なりの検出)
     updated = 0
     skipped = 0
     errors = 0
@@ -545,8 +594,20 @@ def cmd_import(args):
         path = name if os.path.isabs(name) else os.path.join(base, name)
         out_path = None
         if args.outdir:
-            out_path = os.path.join(args.outdir, os.path.basename(name))
-            os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+            # 基準の下にあるファイルは，サブフォルダの構成を保って書き出す
+            # (ファイル名だけにすると，別のフォルダの同名ファイルが上書きし合う).
+            # 基準の外にあるファイルだけ，ファイル名にする
+            rel = os.path.relpath(path, base)
+            if rel.startswith("..") or os.path.isabs(rel):
+                rel = os.path.basename(path)
+            out_path = os.path.join(args.outdir, rel)
+            key = os.path.normcase(os.path.abspath(out_path))
+            if key in written:
+                errors += 1
+                print("line %d: skip %s (出力先 %s が他の行と重なる)" % (number, path, out_path),
+                      file=sys.stderr)
+                continue
+            written.add(key)
         try:
             existing = "" if args.mode == "overwrite-all" else read_comment(path)
             value = resolve_comment(existing, comment, args.mode, args.separator)
@@ -556,6 +617,8 @@ def cmd_import(args):
             if args.dry_run:
                 print("%s <- %s" % (path, value))
             else:
+                if out_path:
+                    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
                 write_comment(path, value, out_path)
             updated += 1
         except (JpegError, OSError) as error:
