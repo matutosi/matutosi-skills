@@ -166,6 +166,56 @@ class TestBuildFigures(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
+class TestBuildGolden(unittest.TestCase):
+    """最小の meta.yaml・body.md から build.py が組む XML を，固定した結果と比べる．
+
+    build.py の中身を整理・分割するときに，出力が変わっていないことを確かめるためのもの．
+    意図して出力を変えたときは，UPDATE_GOLDEN=1 で組み直して tests/golden/minimal.xml を更新する．
+    """
+
+    GOLD = HERE / "golden"
+
+    def build(self, d):
+        import subprocess
+        work = Path(d)
+        (work / "figs").mkdir()
+        (work / "figs" / "fig1.png").write_bytes(b"x")
+        (work / "figs" / "fa1.jpg").write_bytes(b"x")
+        (work / "meta.yaml").write_bytes((self.GOLD / "minimal_meta.yaml").read_bytes())
+        (work / "body.md").write_bytes((self.GOLD / "minimal_body.md").read_bytes())
+        r = subprocess.run([sys.executable, str(SCRIPTS / "build.py"), str(work)],
+                           capture_output=True, cwd=d)
+        self.assertEqual(r.returncode, 0, r.stderr.decode("utf-8", "replace"))
+        return work
+
+    def test_minimal_article_matches_golden(self):
+        with tempfile.TemporaryDirectory() as d:
+            work = self.build(d)
+            xml = (work / "out" / "99_001.xml").read_bytes().replace(b"\r\n", b"\n")
+            golden = self.GOLD / "minimal.xml"
+            if os.environ.get("UPDATE_GOLDEN"):
+                golden.write_bytes(xml)
+            self.assertEqual(xml.decode("utf-8"), golden.read_bytes().decode("utf-8"))
+
+    def test_zip_has_xml_and_graphics(self):
+        import zipfile
+        with tempfile.TemporaryDirectory() as d:
+            work = self.build(d)
+            with zipfile.ZipFile(work / "99_001.zip") as z:
+                names = z.namelist()
+            self.assertTrue(any(n.endswith("99_001.xml") for n in names), names)
+            self.assertTrue(any(n.endswith("99_001_01.png") for n in names), names)
+            self.assertTrue(any(n.endswith("99_001_02.jpg") for n in names), names)
+
+    def test_report_lists_only_the_missing_pdf(self):
+        with tempfile.TemporaryDirectory() as d:
+            work = self.build(d)
+            report = (work / "build_report.txt").read_text(encoding="utf-8").strip().splitlines()
+            self.assertEqual(len(report), 1, report)
+            self.assertIn("全文 PDF が無い", report[0])
+
+
+@unittest.skipUnless(HAVE_YAML and importlib.util.find_spec("pymupdf"), "PyYAML と PyMuPDF が要る")
 class TestApplyBackup(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

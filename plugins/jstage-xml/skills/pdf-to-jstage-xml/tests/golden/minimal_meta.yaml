@@ -1,0 +1,24 @@
+journal: vegsci
+article_id: '99_001'
+article_type: research-article
+category: {ja: 原著, en: Original Article}
+lang: ja
+doi: 10.7213/jjvs.99.001
+volume: '99'
+issue: '1'
+fpage: '1'
+lpage: '9'
+pub_date: {ppub: '2026-10-01', epub: '2026-10-15'}
+history: {received: '2026-01-10', accepted: '2026-05-20'}
+title: {ja: 植生調査の方法, en: Vegetation survey methods}
+authors:
+- name: {ja: [山田, 太郎], en: [Yamada, Taro]}
+  aff: [1]
+  corresp: true
+  email: taro@example.org
+affiliations:
+- {id: 1, ja: 架空大学, en: Example University, country: JP}
+keywords: {en: [vegetation, survey], ja: [植生, 調査]}
+abstract: {ja: null, en: We describe survey methods.}
+copyright: {statement: {ja: null, en: null}, holder: {ja: 植生学会, en: The Phytosociological Society of Japan}}
+issn: {ppub: 1342-2448, epub: 2189-4809}
