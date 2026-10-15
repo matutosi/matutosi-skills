@@ -420,6 +420,52 @@ class TestWebRefComparison(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_YAML and importlib.util.find_spec("pymupdf"), "PyYAML と PyMuPDF が要る")
+class TestExtractOutputs(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ex = load("extract")
+
+    def test_fresh_output_uses_figs_and_tables(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "w"
+            self.ex.REPORT.clear()
+            protect, img = self.ex.prepare_outputs(out, force=False)
+            self.assertFalse(protect)
+            self.assertEqual(img, {"figs": "figs", "tables": "tables"})
+            for sub in ("pages", "figs", "tables"):
+                self.assertTrue((out / sub).is_dir())
+
+    def test_existing_body_md_is_protected(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "w"
+            (out / "figs").mkdir(parents=True)
+            (out / "figs" / "fig1.png").write_bytes(b"x")       # 手で切り出した図
+            (out / "body.md").write_text("手で直した本文\n", encoding="utf-8")
+            self.ex.REPORT.clear()
+            protect, img = self.ex.prepare_outputs(out, force=False)
+            self.assertTrue(protect)
+            self.assertEqual(img, {"figs": "figs.new", "tables": "tables.new"})
+            self.assertTrue((out / "figs" / "fig1.png").exists())    # 触らない
+            self.assertTrue([r for r in self.ex.REPORT if "figs.new" in r])
+
+    def test_force_clears_old_images(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "w"
+            (out / "figs").mkdir(parents=True)
+            (out / "figs" / "old.png").write_bytes(b"x")
+            (out / "body.md").write_text("本文\n", encoding="utf-8")
+            protect, img = self.ex.prepare_outputs(out, force=True)
+            self.assertFalse(protect)
+            self.assertFalse((out / "figs" / "old.png").exists())
+
+    def test_check_era_without_meta_is_silent(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.ex.REPORT.clear()
+            self.ex.check_era({}, "x.pdf", d)
+            self.assertEqual(self.ex.REPORT, [])
+
+
+@unittest.skipUnless(HAVE_YAML and importlib.util.find_spec("pymupdf"), "PyYAML と PyMuPDF が要る")
 class TestFillMeta(unittest.TestCase):
     META = ("# 書誌 (fetch_jstage.py が J-STAGE の記事ページから取ったもの)．\n"
             "# 原稿種別は PDF の1ページ目で埋める．\n"

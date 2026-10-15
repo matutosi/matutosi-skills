@@ -1147,6 +1147,40 @@ def foot_paras(foot, size, lay):
 
 # ---------------------------------------------------------------- 本体
 
+def prepare_outputs(out, force):
+    """出力先を用意する．(body.md を守るか, 図表の画像の置き場 {"figs": …, "tables": …}) を返す．
+
+    body.md が既にある (AI が手を入れた) ときは，手で切り出した図表の画像を消さないよう，
+    画像も body.new.md と同じく別の場所 (figs.new/・tables.new/) に書く (force のときは作り直す)．
+    """
+    out = Path(out)
+    protect = (out / "body.md").exists() and not force
+    img = {"figs": "figs.new" if protect else "figs", "tables": "tables.new" if protect else "tables"}
+    for sub in ("pages", img["figs"], img["tables"]):
+        (out / sub).mkdir(parents=True, exist_ok=True)
+        if sub != "pages":
+            # 前回の画像を消す (図表の数や続きのページが変わったとき，古い画像を build.py が拾わないように)
+            for old in (out / sub).glob("*.png"):
+                old.unlink()
+    if protect:
+        REPORT.append("body.md が既にあるので，図表の画像は figs.new/・tables.new/ に書いた (figs/・tables/ は触っていない)")
+    return protect, img
+
+
+def check_era(prof, pdf, out):
+    """巻号が分かっていれば，設定の eras が言う体裁と食い違わないかを確かめ，REPORT に足す．"""
+    mp = Path(out) / "meta.yaml"
+    if not mp.exists():
+        return
+    meta_now = yaml.safe_load(mp.read_text(encoding="utf-8")) or {}
+    warns, _kind, era = layout.check(prof, pdf, meta_now.get("volume"), meta_now.get("issue"))
+    REPORT.extend(warns)
+    if era and era.get("refs_head"):
+        REPORT.append(f"この巻号の引用文献の見出しは「{era['refs_head']}」のはず (設定の eras より)")
+    if era and era.get("category"):
+        REPORT.append(f"この巻号の原稿種別の印字は「{era['category']}」のはず (設定の eras より)")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pdf")
@@ -1166,28 +1200,8 @@ def main():
     out = Path(args.out)
     # body.md が既にある (AI が手を入れた) ときは，手で切り出した図表の画像を消さないよう，
     # 画像も body.new.md と同じく別の場所 (figs.new/・tables.new/) に書く (--force のときは figs/・tables/ を作り直す)
-    protect = (out / "body.md").exists() and not args.force
-    IMG = {"figs": "figs.new" if protect else "figs", "tables": "tables.new" if protect else "tables"}
-    for sub in ("pages", IMG["figs"], IMG["tables"]):
-        (out / sub).mkdir(parents=True, exist_ok=True)
-        if sub != "pages":
-            # 前回の画像を消す (図表の数や続きのページが変わったとき，古い画像を build.py が拾わないように)
-            for old in (out / sub).glob("*.png"):
-                old.unlink()
-    if protect:
-        REPORT.append("body.md が既にあるので，図表の画像は figs.new/・tables.new/ に書いた (figs/・tables/ は触っていない)")
-
-
-    # 巻号が分かっていれば，設定の eras が言う体裁と食い違わないかを確かめる
-    mp = out / "meta.yaml"
-    if mp.exists():
-        meta_now = yaml.safe_load(mp.read_text(encoding="utf-8")) or {}
-        warns, _kind, era = layout.check(prof, args.pdf, meta_now.get("volume"), meta_now.get("issue"))
-        REPORT.extend(warns)
-        if era and era.get("refs_head"):
-            REPORT.append(f"この巻号の引用文献の見出しは「{era['refs_head']}」のはず (設定の eras より)")
-        if era and era.get("category"):
-            REPORT.append(f"この巻号の原稿種別の印字は「{era['category']}」のはず (設定の eras より)")
+    protect, IMG = prepare_outputs(out, args.force)
+    check_era(prof, args.pdf, out)
 
     doc = pymupdf.open(args.pdf)
     lay = auto_layout(doc, lay, as_list(prof["sections"]["refs"]))
