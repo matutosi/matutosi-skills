@@ -21,6 +21,8 @@ from pathlib import Path
 
 import yaml
 
+from journal_profile import load_profile
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -111,7 +113,7 @@ def main():
     en = metas(fetch(base + "en", out / "web" / "article_en.html", args.refresh))
     s_ja = (out / "web" / "article_ja.html").read_text(encoding="utf-8")
 
-    prof = yaml.safe_load((SKILL_DIR / "journals" / f"{journal}.yaml").read_text(encoding="utf-8"))
+    prof = load_profile(journal)
 
     # 著者と所属 (日英は同じ並びで載っている)
     a_ja, a_en = authors_with_affs(ja), authors_with_affs(en)

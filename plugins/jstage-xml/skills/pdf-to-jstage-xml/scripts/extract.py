@@ -45,14 +45,7 @@ def hand_over(module, args, band=None):
     return module.main()
 
 
-def as_list(v):
-    """設定の節の見出しは，文字列でも並びでも書ける (「引用文献」と「文献」)．"""
-    return [v] if isinstance(v, str) else list(v)
-
-
-def load_profile(name):
-    path = SKILL_DIR / "journals" / f"{name}.yaml"
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+from journal_profile import as_list, load_profile  # noqa: E402  (誌の設定の読み込みは共通)
 
 
 # ---------------------------------------------------------------- 行の取り出し

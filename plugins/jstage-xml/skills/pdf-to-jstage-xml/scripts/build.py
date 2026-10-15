@@ -28,6 +28,7 @@ from pathlib import Path
 import yaml
 
 import manifest
+from journal_profile import as_list, load_profile
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -1234,9 +1235,9 @@ def main():
     args = ap.parse_args()
     work = Path(args.work)
     meta = yaml.safe_load((work / "meta.yaml").read_text(encoding="utf-8"))
-    prof = yaml.safe_load((SKILL_DIR / "journals" / f"{meta['journal']}.yaml").read_text(encoding="utf-8"))
+    prof = load_profile(meta["journal"])
     # 節の見出しは号によって言い方が違う (「引用文献」と「文献」)．設定は文字列か，その並びで書ける
-    sec_names = {k: ([v] if isinstance(v, str) else list(v)) for k, v in prof["sections"].items()}
+    sec_names = {k: as_list(v) for k, v in prof["sections"].items()}
     titles = {k: v[0] for k, v in sec_names.items()}   # XML に出す見出しは，原稿にあった文言を使う
     blocks = parse_body(work / "body.md")
 

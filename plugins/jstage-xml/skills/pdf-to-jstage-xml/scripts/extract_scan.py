@@ -61,8 +61,7 @@ SUSPECT = re.compile(r"(crn|CIn|rn[のに]|至|孟|墨|正|齠|繝|【|】|工�
                      r"[A-Za-z][，．][A-Za-z]|[A-Za-z]{2,}[ぁ-んァ-ヶ])")
 
 
-def load_profile(name):
-    return yaml.safe_load((SKILL_DIR / "journals" / f"{name}.yaml").read_text(encoding="utf-8"))
+from journal_profile import load_profile  # noqa: E402  (誌の設定の読み込みは共通．apply_backup も es.load_profile で使う)
 
 
 # ---------------------------------------------------------------- 行の取り出し

@@ -524,6 +524,23 @@ class TestArticleIds(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
+class TestJournalProfile(unittest.TestCase):
+    def test_load_profile_and_as_list(self):
+        jp = load("journal_profile")
+        prof = jp.load_profile("vegsci")
+        self.assertEqual(prof["journal_id"], "vegsci")
+        self.assertEqual(jp.as_list("引用文献"), ["引用文献"])
+        self.assertEqual(jp.as_list(("a", "b")), ["a", "b"])
+
+    def test_every_script_uses_the_shared_loader(self):
+        # 設定を読む場所を 1 つにしておく (journals/ を直接読む書き方を増やさない)
+        for name in ("build", "extract", "extract_scan", "fetch_jstage", "from_backup"):
+            text = (SCRIPTS / f"{name}.py").read_text(encoding="utf-8")
+            self.assertIn("journal_profile", text, name)
+            self.assertNotIn('/ "journals" /', text, name)
+
+
+@unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
 class TestJournals(unittest.TestCase):
     def test_journal_settings_have_required_keys(self):
         for p in sorted((SKILL / "journals").glob("*.yaml")):

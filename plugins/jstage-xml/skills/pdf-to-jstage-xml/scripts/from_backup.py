@@ -38,6 +38,7 @@ import yaml
 from lxml import etree
 
 import merge_backup
+from journal_profile import load_profile
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -184,7 +185,7 @@ def one(zpath, out, force, work_root=None):
         print(f"{art}: 控えに本文 (<body>) がある．全文 XML は登載ずみなので飛ばす (--force で続ける)")
         return
     journal = xn.split("/")[0]
-    prof = yaml.safe_load((SKILL_DIR / "journals" / f"{journal}.yaml").read_text(encoding="utf-8"))
+    prof = load_profile(journal)
     # 控えがリポジトリの外 (作業の根を外に置いたとき) なら絶対パスで書く (apply_backup.py が source から開く)
     rel = zpath.resolve().as_posix()
     meta = build_meta(root, prof, rel)
