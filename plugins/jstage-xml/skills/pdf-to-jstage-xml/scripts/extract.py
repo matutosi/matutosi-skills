@@ -1587,8 +1587,9 @@ def fill_meta(path, pm):
         if pm[k] and str(m.get(k)) != str(pm[k]):
             REPORT.append(f"書誌の食い違い {k}: ウェブ {m.get(k)} / PDF {pm[k]}")
     for k in ("received", "accepted"):
-        if pm["history"][k] and m.get("history", {}).get(k) != pm["history"][k]:
-            REPORT.append(f"書誌の食い違い {k}: ウェブ {m['history'].get(k)} / PDF {pm['history'][k]}")
+        web = (m.get("history") or {}).get(k)
+        if pm["history"][k] and web != pm["history"][k]:
+            REPORT.append(f"書誌の食い違い {k}: ウェブ {web} / PDF {pm['history'][k]}")
     path.write_text(head + yaml.safe_dump(m, allow_unicode=True, sort_keys=False, width=1000), encoding="utf-8")
 
 

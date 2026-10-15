@@ -239,8 +239,11 @@ def fix_chars(o, r, log, notes):
     return o
 
 
-def section_span(md, names, stop):
+def section_span(md, names, stop, strict_next=False):
     """body.md の「# 見出し」の節の範囲 (見出しの行, 終わりの行)．
+
+    strict_next=True なら，節の終わりは次の「# 」の見出しにする (偽の見出しを読み飛ばさない)．
+    英文要旨の節を外すときに使う: 次の本物の節 (INTRODUCTION など) が stop に無くても，本文まで消さない．
 
     手順 1 の下書きは，引用文献の本文をファイルの末尾にまとめて置き，その間に同じページの表の文字が
     偽の見出し (「# 53.78」「# E」) になって挟まることがある (24(1):41)．そこで節の終わりは，
@@ -250,8 +253,11 @@ def section_span(md, names, stop):
     idx = next((i for i, ln in enumerate(lines) if ln.startswith("# ") and ln[2:].strip() in names), None)
     if idx is None:
         return None
-    end = next((i for i in range(idx + 1, len(lines)) if lines[i].startswith("# ") and lines[i][2:].strip() in stop),
-               len(lines))
+    if strict_next:
+        end = next((i for i in range(idx + 1, len(lines)) if lines[i].startswith("# ")), len(lines))
+    else:
+        end = next((i for i in range(idx + 1, len(lines))
+                    if lines[i].startswith("# ") and lines[i][2:].strip() in stop), len(lines))
     return idx, end
 
 
@@ -377,7 +383,7 @@ def main():
             rep.append(f"要旨: 控えの和文要旨 ({ab.count(chr(10)) + 1} 段落) に差し替えた")
         else:
             rep.append("要旨: body.md に和文の要旨の節が無いので差し替えない (build.py は meta.yaml の要旨を使う)")
-    sp = section_span(md, names_en, all_names)
+    sp = section_span(md, names_en, all_names, strict_next=True)
     if sp is not None:
         lines = md.split("\n")
         md = "\n".join(lines[:sp[0]] + lines[sp[1]:])

@@ -5,7 +5,7 @@
     python fetch_jstage.py --journal vegsci --volume 31 --issue 2 --fpage 193 --out <作業ディレクトリ>
 
 記事ページを日本語版・英語版で1回ずつ読むだけにする (J-STAGE に負荷をかけない)．
-読んだページは <作業ディレクトリ>/web/ に保存し，2回目からはそれを使う (--refresh で取り直す)．
+読んだページは <作業ディレクトリ>/web/ に保存し，2回目からはそれを使う (--refresh で取り直す．meta.yaml が既にあるときは meta.web.yaml に書き，--overwrite-meta で上書きする)．
 
 出力:
     meta.yaml       書誌 (題名・著者・所属・巻号・日付・DOI・キーワード・英文要旨・著作権)
@@ -90,7 +90,9 @@ def main():
     ap.add_argument("--issue")
     ap.add_argument("--fpage")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--refresh", action="store_true")
+    ap.add_argument("--refresh", action="store_true", help="保存した web/ のページを取り直す")
+    ap.add_argument("--overwrite-meta", action="store_true",
+                    help="meta.yaml が既にあっても上書きする (手で直した分が消える．既定は meta.web.yaml に書く)")
     args = ap.parse_args()
 
     if args.url:
@@ -176,7 +178,7 @@ def main():
             "# 原稿種別 (article_type・category) と連絡著者 (corresp・email) は PDF の1ページ目で埋める．\n"
             "# abstract.ja は段落の区切りが失われているので，body.md の「# 摘要」があればそちらを使う．\n")
     path = out / "meta.yaml"
-    if path.exists() and not args.refresh:
+    if path.exists() and not args.overwrite_meta:
         path = out / "meta.web.yaml"
         print("meta.yaml は既にあるので上書きしない (meta.web.yaml に書いた)")
     path.write_text(head + yaml.safe_dump(meta, allow_unicode=True, sort_keys=False, width=1000),

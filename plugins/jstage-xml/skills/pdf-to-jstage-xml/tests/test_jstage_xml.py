@@ -166,6 +166,48 @@ class TestBuildFigures(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
+class TestApplyBackup(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ab = load("apply_backup")
+
+    MD = "# ABSTRACT\nEnglish abstract.\n\n# INTRODUCTION\nBody text.\n\n# 謝辞\nthanks\n"
+
+    def test_abstract_removal_stops_at_the_next_heading(self):
+        # 英文要旨の節の終わりは次の見出し．次の本物の節 (INTRODUCTION) まで消してはいけない
+        lines = self.MD.split("\n")
+        start, end = self.ab.section_span(self.MD, ["ABSTRACT"], {"謝辞"}, strict_next=True)
+        self.assertEqual(lines[start], "# ABSTRACT")
+        self.assertEqual(lines[end], "# INTRODUCTION")
+
+    def test_default_span_still_skips_fake_headings(self):
+        # 引用文献などでは，偽の見出し (「# 53.78」) を読み飛ばして次の本物の節まで
+        md = "# 引用文献\nA 1999.\n# 53.78\nB 2000.\n\n# 謝辞\nthanks\n"
+        lines = md.split("\n")
+        start, end = self.ab.section_span(md, ["引用文献"], {"謝辞"})
+        self.assertEqual(lines[end], "# 謝辞")
+
+
+@unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
+class TestArticleIds(unittest.TestCase):
+    def test_non_numeric_start_page_does_not_crash_the_sort(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.environ["JSTAGE_ROOT"] = d
+            try:
+                mod = load("article_ids")
+            finally:
+                del os.environ["JSTAGE_ROOT"]
+            rows = {
+                "13_e1": {"short": "13_e1", "article_id": "13_e1", "volume": "13", "issue": "1",
+                          "fpage": "e1", "lpage": "e3", "url": "", "title": "電子論文"},
+                "13_5": {"short": "13_5", "article_id": "13_5", "volume": "13", "issue": "1",
+                         "fpage": "5", "lpage": "9", "url": "", "title": "通常"},
+            }
+            mod.save(rows)          # 開始ページが数でなくても落ちない
+            self.assertEqual(sorted(mod.load()), ["13_5", "13_e1"])
+
+
+@unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
 class TestJournals(unittest.TestCase):
     def test_journal_settings_have_required_keys(self):
         for p in sorted((SKILL / "journals").glob("*.yaml")):

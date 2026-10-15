@@ -90,7 +90,7 @@ def compare(ours_html, js_html, show=5):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("zip", help="記事ダウンロードの zip (<記事識別子>.html を含むもの)")
-    ap.add_argument("--out", default=str(preview.HERE / "out" / "_compare"), help="プレビューの出力先")
+    ap.add_argument("--out", default=str(preview.WORK / "_preview" / "_compare"), help="プレビューの出力先")
     args = ap.parse_args()
     out = Path(args.out)
     base_css = (preview.HERE / "preview.css").read_text(encoding="utf-8")

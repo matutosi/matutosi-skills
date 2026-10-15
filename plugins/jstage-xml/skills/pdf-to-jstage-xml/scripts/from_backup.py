@@ -190,8 +190,13 @@ def one(zpath, out, force, work_root=None):
     meta = build_meta(root, prof, rel)
     meta["article_id"] = art
     if out is None:
+        fpage = str(meta.get("fpage") or "")
+        if not fpage.isdigit():
+            print(f"{art}: 開始ページ (fpage) が数でない ({fpage!r}) ので，作業ディレクトリを決められない "
+                  f"(--out で渡す)．飛ばす")
+            return
         base = Path(work_root or os.environ.get("JSTAGE_ROOT", ".")).resolve()
-        out = base / str(meta["volume"]) / f"{int(meta['fpage']):03d}"
+        out = base / str(meta["volume"]) / f"{int(fpage):03d}"
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
 

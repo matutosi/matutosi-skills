@@ -61,11 +61,18 @@ def load():
         return {r["article_id"]: r for r in csv.DictReader(f)}
 
 
+def _page_key(r):
+    """巻・開始ページの並べ替えの鍵．数でない開始ページ (e1 など) は 0 として落ちないようにする．"""
+    def num(x):
+        return int(x) if str(x or "").isdigit() else 0
+    return (num(r["volume"]), num(r["fpage"]), str(r["fpage"] or ""))
+
+
 def save(rows):
     with CSV.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, COLS)
         w.writeheader()
-        w.writerows(sorted(rows.values(), key=lambda r: (int(r["volume"] or 0), int(r["fpage"] or 0))))
+        w.writerows(sorted(rows.values(), key=_page_key))
 
 
 def update(issn, vol):
@@ -92,7 +99,7 @@ def get(key):
 
 
 def show(vol):
-    for r in sorted(load().values(), key=lambda r: (int(r["volume"] or 0), int(r["fpage"] or 0))):
+    for r in sorted(load().values(), key=_page_key):
         if vol and r["volume"] != str(vol):
             continue
         print(f"{r['short']:>10s}  {r['article_id']:<20s} {r['volume']}({r['issue']}): "
