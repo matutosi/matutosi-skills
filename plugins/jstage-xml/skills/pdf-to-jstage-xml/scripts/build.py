@@ -64,6 +64,18 @@ def inline(s):
     """
     s = s.replace("\\*", "\x00")          # 印にしない「*」をいったん外す
     s = s.replace("\\~", "\x0e")          # 印にしない「~」も同じ (\x01〜\x06 はリンクの印に使っている)
+    # URL は他の印 (~ 下付き・^ 上付き・* 斜体・__ 下線) より先に取り出しておき，最後にリンクにする
+    # (「http://a.jp/~x/」の「~」が下付きの印と取り違えられ，URL が壊れていた)．
+    # 引用の区切りの「;」(「…/rdb.html; 岐阜県」) は URL に入れない．後ろが空白か行末の「;」で終わりにする (36(1):1)．
+    # 山括弧で囲んだ URL (<http://…>) は esc で「&gt;」になるので，「&lt;」「&gt;」「&quot;」の手前で終わりにする
+    urls = []
+
+    def stash_url(m):
+        urls.append(m.group(1))
+        return "\x0f%d\x0f" % (len(urls) - 1)
+
+    s = re.sub(r"(https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+;=%-]+?)"
+               r"(?=[，,。．、）)\s]|[^\x00-\x7f]|$|[.;](?:\s|$)|&(?:lt|gt|quot);)", stash_url, s)
     # 下線 __d__ (紙面が下線で示すもの．23(1):13 の表題の「(d̲)」，外来種の印など)．斜体の印より先に見る (__*d*__)
     s = re.sub(r"(?<![A-Za-z0-9_])__(?!\s)(.+?)(?<!\s)__(?![A-Za-z0-9_])", r"<underline>\1</underline>", s)
     # 太字の斜体 ***TPQ*** (22(1):25)．太字の印より先に見る
@@ -92,9 +104,9 @@ def inline(s):
     s = re.sub(r"(?<=[0-9])\*([A-Za-z]{1,2})\*(?![A-Za-z0-9_*])", r"<italic>\1</italic>", s)
     s = re.sub(r"\^([^^\s][^^]*?)\^", r"<sup>\1</sup>", s)
     s = re.sub(r"(?<![~〜])~([^~\s][^~]*?)~(?!~)", r"<sub>\1</sub>", s)
-    # 引用の区切りの「;」(「…/rdb.html; 岐阜県」) は URL に入れない．後ろが空白か行末の「;」で終わりにする (36(1):1)
-    s = re.sub(r"(https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+;=%-]+?)(?=[，,。．、）)\s]|[^\x00-\x7f]|$|[.;](?:\s|$))",
-               lambda m: f'<ext-link ext-link-type="uri" xlink:href="{m.group(1)}">{m.group(1)}</ext-link>', s)
+    s = re.sub("\x0f(\\d+)\x0f",
+               lambda m: f'<ext-link ext-link-type="uri" xlink:href="{urls[int(m.group(1))]}">'
+                         f'{urls[int(m.group(1))]}</ext-link>', s)
     return s.replace("\x00", "*").replace("\x0e", "~")
 
 
@@ -1058,7 +1070,7 @@ def title_xml(text, floats):
     t = link_appendix(t, floats)
     t = put_nolink(t, held)
     s = inline(esc(t))
-    s = re.sub(r"\x04(F\d+)\x02(.*?)\x03", r'<xref ref-type="fig" rid="\1">\2</xref>', s)
+    s = re.sub(r"\x04(F[A-Z]?\d+)\x02(.*?)\x03", r'<xref ref-type="fig" rid="\1">\2</xref>', s)
     # 付表の枠 (TA1) も表として引く (T\d+ だけだと制御文字が残り XML が壊れた．28(1):49)
     s = re.sub(r"\x04(T[A-Z]?\d+)\x02(.*?)\x03", r'<xref ref-type="table" rid="\1">\2</xref>', s)
     return s
@@ -1073,7 +1085,8 @@ def para_xml(text, refs, floats, where):
     t = put_nolink(t, held)
     s = inline(esc(t))
     s = re.sub(r"\x01(B\d+)\x02(.*?)\x03", r'<xref ref-type="bibr" rid="\1">\2</xref>', s)
-    s = re.sub(r"\x04(F\d+)\x02(.*?)\x03", r'<xref ref-type="fig" rid="\1">\2</xref>', s)
+    # 付図の枠 (FA1) も図として引く (F\d+ だけだと制御文字が XML に残った)
+    s = re.sub(r"\x04(F[A-Z]?\d+)\x02(.*?)\x03", r'<xref ref-type="fig" rid="\1">\2</xref>', s)
     s = re.sub(r"\x04(T[A-Z]?\d+)\x02(.*?)\x03", r'<xref ref-type="table" rid="\1">\2</xref>', s)
     s = re.sub(r"\x05(E\d+)\x02(.*?)\x03", r'<xref ref-type="disp-formula" rid="\1">\2</xref>', s)
     return s
@@ -1105,9 +1118,8 @@ def parse_body(path):
             if mf:
                 file = mf.group(1)
                 label = label[: len(label) - len(file)].strip()
-            if kind != "formula" and label is None:
+            if kind != "formula" and not label:
                 REPORT.append(f"{kind} {fid} に番号 (図1・表1) が書かれていない")
-            label = label or ""
             j = i + 1
             content = []
             while j < len(lines) and lines[j].strip() != ":::":
@@ -1492,11 +1504,11 @@ class GraphicNames:
         return name
 
 
-def continued(dir_, stem):
-    """figN.png と，その続きの figN_2.png, figN_3.png … を順に返す．"""
-    first = dir_ / f"{stem}.png"
+def continued(dir_, stem, suffix=".png"):
+    """figN.png と，その続きの figN_2.png, figN_3.png … を順に返す．suffix は拡張子 (既定 .png)．"""
+    first = dir_ / f"{stem}{suffix}"
     # 続きの部分は「table2_2.png」のように番号を付ける．番号でないものは確かめ用の切り出しとみて外す
-    rest = sorted((p for p in dir_.glob(f"{stem}_*.png") if p.stem.split("_")[-1].isdigit()),
+    rest = sorted((p for p in dir_.glob(f"{stem}_*{suffix}") if p.stem.split("_")[-1].isdigit()),
                   key=lambda p: int(p.stem.split("_")[-1]))
     return [p for p in [first] + rest if p.exists()]
 
@@ -1531,9 +1543,12 @@ def build_body(blocks, refs, floats, work, names):
         elif b[0] in ("fig", "table"):
             kind, fid, label, file, content = b
             if kind == "fig":
-                srcs = continued(work / "figs", Path(file).stem)
+                # 枠にファイル名が無いときは fig<番号>.png (F1 なら fig1.png) を探す
+                fig_no = re.sub(r"\D", "", fid)
+                fname = file or "fig" + fig_no + ".png"
+                srcs = continued(work / "figs", Path(fname).stem, Path(fname).suffix.lower() or ".png")
                 if not srcs:
-                    REPORT.append(f"図の画像が無い: figs/{file}")
+                    REPORT.append(f"図の画像が無い: figs/{fname}")
                 graphics = "".join(f'<graphic xlink:href="{names.add(p)}"/>' for p in srcs)
                 cap = " ".join(c for c in content if not c.strip().startswith("<!--"))
                 out.append(f'<fig id="{fid}"><label>{esc(label)}</label><caption><p>{para_xml(cap, refs, floats, fid)}'

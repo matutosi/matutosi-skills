@@ -78,6 +78,94 @@ class TestWorkRoot(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
+class TestBuildInline(unittest.TestCase):
+    """build.py の文中の印・図表の参照が，整形式の XML になること．"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b = load("build")
+
+    def wellformed(self, fragment):
+        import xml.etree.ElementTree as ET
+        ET.fromstring('<p xmlns:xlink="http://www.w3.org/1999/xlink">' + fragment + "</p>")
+
+    def test_angle_bracket_url_is_wellformed(self):
+        s = self.b.inline(self.b.esc("詳しくは <http://example.org> を見る．"))
+        self.wellformed(s)
+        self.assertIn('xlink:href="http://example.org"', s)
+        self.assertNotIn('&gt"', s)
+
+    def test_tilde_inside_url_is_not_subscript(self):
+        text = "http://a.jp/~x/ と http://b.jp/~y/ を見る．"
+        s = self.b.inline(self.b.esc(text))
+        self.wellformed(s)
+        self.assertNotIn("<sub>", s)
+        self.assertIn("http://a.jp/~x/", s)
+        self.assertIn("http://b.jp/~y/", s)
+
+    def test_url_with_ampersand_query(self):
+        s = self.b.inline(self.b.esc("http://a.jp/?x=1&y=2 を見る"))
+        self.wellformed(s)
+        self.assertIn("http://a.jp/?x=1&amp;y=2", s)
+
+    def test_appendix_figure_reference_has_no_control_chars(self):
+        # 付図 (FA1) の参照が，制御文字のまま残って XML を壊してはいけない
+        s = self.b.para_xml("付図1 を見よ．", [], {"FA1": "付図1"}, "body")
+        self.assertFalse(any(ord(c) < 32 for c in s), repr(s))
+        self.assertIn('ref-type="fig" rid="FA1"', s)
+
+    def test_appendix_figure_reference_in_title(self):
+        s = self.b.title_xml("付図1 の説明", {"FA1": "付図1"})
+        self.assertFalse(any(ord(c) < 32 for c in s), repr(s))
+
+
+@unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
+class TestBuildFigures(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.b = load("build")
+
+    def test_continued_follows_the_extension(self):
+        with tempfile.TemporaryDirectory() as d:
+            dd = Path(d)
+            for n in ("fig1.jpg", "fig1_2.jpg", "fig1.png"):
+                (dd / n).write_bytes(b"x")
+            self.assertEqual([p.name for p in self.b.continued(dd, "fig1", ".jpg")],
+                             ["fig1.jpg", "fig1_2.jpg"])
+            self.assertEqual([p.name for p in self.b.continued(dd, "fig1")], ["fig1.png"])
+
+    def test_jpg_figure_gets_a_graphic(self):
+        with tempfile.TemporaryDirectory() as d:
+            work = Path(d)
+            (work / "figs").mkdir()
+            (work / "figs" / "fig1.jpg").write_bytes(b"x")
+            names = self.b.GraphicNames("1_1")
+            blocks = [("fig", "F1", "図1", "fig1.jpg", ["説明です．"])]
+            self.b.REPORT.clear()
+            out = self.b.build_body(blocks, [], {"F1": "図1"}, work, names)
+            self.assertIn("<graphic ", out)
+            self.assertEqual([r for r in self.b.REPORT if "画像が無い" in r], [])
+
+    def test_fig_without_file_name_does_not_crash(self):
+        with tempfile.TemporaryDirectory() as d:
+            work = Path(d)
+            (work / "figs").mkdir()
+            (work / "figs" / "fig1.png").write_bytes(b"x")
+            names = self.b.GraphicNames("1_1")
+            blocks = [("fig", "F1", "図1", None, ["説明です．"])]
+            out = self.b.build_body(blocks, [], {"F1": "図1"}, work, names)
+            self.assertIn("<graphic ", out)
+
+    def test_missing_figure_number_is_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "body.md"
+            path.write_text(":::fig F1 fig1.png\n説明\n:::\n", encoding="utf-8")
+            self.b.REPORT.clear()
+            self.b.parse_body(path)
+            self.assertTrue([r for r in self.b.REPORT if "番号" in r], self.b.REPORT)
+
+
+@unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
 class TestJournals(unittest.TestCase):
     def test_journal_settings_have_required_keys(self):
         for p in sorted((SKILL / "journals").glob("*.yaml")):
