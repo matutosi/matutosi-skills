@@ -120,6 +120,60 @@ class TestBuildInline(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
+class TestBuildFront(unittest.TestCase):
+    """<front> の組み立て (誌・著者・所属・脚注・日付・著作権・認証・要旨・キーワード)．"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b = load("build")
+        cls.prof = yaml.safe_load((SKILL / "journals" / "vegsci.yaml").read_text(encoding="utf-8"))
+
+    def front(self, **extra):
+        meta = {
+            "title": {"ja": "題", "en": "Title"},
+            "authors": [{"name": {"ja": ["山田", "太郎"], "en": ["Yamada", "Taro"]}, "aff": [1],
+                         "ids": [{"type": "orcid", "value": "0000-0001"}], "email": "a@example.org",
+                         "corresp": True}],
+            "affiliations": [{"id": 1, "ja": "架空大学", "en": "Example University", "country": "JP",
+                              "addr": {"ja": "架空市", "en": "Example City"}}],
+            "volume": "1", "issue": "2", "fpage": "3",
+            "author_notes": [{"type": "present-address", "ja": "現所属: 別大学", "en": "Present address: X"}],
+            "registered": {"license": "CC-BY", "approved": "", "kana": [["ヤマダ", "タロウ"]]},
+            "copyright": {"statement": {"ja": "© 2026 植生学会", "en": "© 2026 Society"},
+                          "holder": {"ja": "植生学会", "en": "Society"}},
+            "keywords": {"ja": ["植生"], "en": ["vegetation"]},
+            "abstract": {"ja": None, "en": "English abstract."},
+        }
+        meta.update(extra)
+        return self.b.build_front(meta, self.prof, ["和文の要旨．"])
+
+    def test_front_is_wellformed_and_complete(self):
+        import xml.etree.ElementTree as ET
+        s = self.front()
+        ET.fromstring('<r xmlns:xlink="http://www.w3.org/1999/xlink">' + s.replace("<?xml", "<x") + "</r>")
+        for piece in ('<contrib-id contrib-id-type="orcid">0000-0001</contrib-id>',
+                      'xml:lang="ja-Kana"><surname>ヤマダ</surname>',
+                      "<addr-line>架空市</addr-line>",
+                      "<author-notes>", '<fn fn-type="present-address">',
+                      '<license license-type="CC-BY">',
+                      "<copyright-year>2026</copyright-year>",
+                      '<date date-type="approved"><day></day>',
+                      '<abstract xml:lang="ja"><p>和文の要旨．</p></abstract>',
+                      '<trans-abstract xml:lang="en"><p>English abstract.</p></trans-abstract>',
+                      '<kwd-group kwd-group-type="author" xml:lang="ja">'):
+            self.assertIn(piece, s)
+        self.assertIn("<lpage>3</lpage>", s)            # lpage が無いときは fpage と同じ
+
+    def test_no_contrib_group_without_authors(self):
+        s = self.front(authors=[], affiliations=[])
+        self.assertNotIn("<contrib-group>", s)
+
+    def test_no_permissions_without_copyright_or_license(self):
+        s = self.front(copyright={}, registered={})
+        self.assertNotIn("<permissions>", s)
+
+
+@unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
 class TestBuildFigures(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

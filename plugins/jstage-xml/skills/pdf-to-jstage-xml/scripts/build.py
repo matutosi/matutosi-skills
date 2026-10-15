@@ -1690,9 +1690,8 @@ def date_xml(tag, attrs, ymd):
     return f"<{tag} {attrs}>{d}{m}<year>{y}</year></{tag}>"
 
 
-def build_front(meta, prof, abstract_ja):
-    lang = meta.get("lang", "ja")
-    other = "en" if lang == "ja" else "ja"
+def _journal_meta_lines(prof):
+    """<front> の始めから <article-meta> の始めまで (誌の情報)．"""
     o = ["<front>", "<journal-meta>",
          f'<journal-id journal-id-type="j-stage">{esc(prof["journal_id"])}</journal-id>',
          "<journal-title-group>",
@@ -1705,27 +1704,12 @@ def build_front(meta, prof, abstract_ja):
          f'<publisher-name xml:lang="ja">{esc(prof["publisher"]["ja"])}</publisher-name>',
          f'<publisher-name xml:lang="en">{esc(prof["publisher"]["en"])}</publisher-name>',
          "</publisher>", "</journal-meta>", "<article-meta>"]
-    # J-STAGE の登録ずみの書誌 (merge_backup.py が控えから meta.yaml に書いたもの)
-    reg = meta.get("registered") or {}
-    if meta.get("doi"):
-        o.append(f'<article-id pub-id-type="doi">{esc(meta["doi"])}</article-id>')
-    if reg.get("manuscript"):
-        o.append(f'<article-id pub-id-type="manuscript">{esc(reg["manuscript"])}</article-id>')
-    # 原稿種別は控えの値を正とする (2026-09-28 ユーザ確定)
-    cat = reg.get("category") or meta.get("category") or {}
-    if cat.get("ja") or cat.get("en"):
-        o.append("<article-categories>")
-        for lg in ("ja", "en"):
-            if cat.get(lg):
-                o.append(f'<subj-group subj-group-type="article" xml:lang="{lg}"><subject>{esc(cat[lg])}</subject></subj-group>')
-        o.append("</article-categories>")
-    t = meta["title"]
-    o.append("<title-group>")
-    o.append(f'<article-title xml:lang="{lang}">{inline(esc(t[lang]))}</article-title>')
-    if t.get(other):
-        o.append(f'<trans-title-group xml:lang="{other}"><trans-title>{inline(esc(t[other]))}</trans-title></trans-title-group>')
-    o.append("</title-group>")
+    return o
 
+
+def _contrib_group_lines(meta, reg):
+    """<contrib-group> (著者・所属) の部分．"""
+    o = []
     # 訂正記事のように著者の無い記事では contrib-group を出さない (空だと DTD に合わない)
     has_contrib = bool(meta["authors"]) or bool(meta["affiliations"])
     if has_contrib:
@@ -1772,6 +1756,89 @@ def build_front(meta, prof, abstract_ja):
         o.append("</aff-alternatives>")
     if has_contrib:
         o.append("</contrib-group>")
+    return o
+
+
+def _permissions_lines(meta, reg):
+    """<permissions> (著作権・認証)．無ければ空の並び．"""
+    o = []
+    cp = meta.get("copyright") or {}
+    st, ho = cp.get("statement") or {}, cp.get("holder") or {}
+    has_cp = bool(st.get("ja") and st.get("en"))
+    if has_cp or reg.get("license"):
+        o.append("<permissions>")
+    if has_cp:
+        year = re.search(r"\d{4}", st["ja"])
+        o.append(f'<copyright-statement xml:lang="ja">{esc(st["ja"])}</copyright-statement>')
+        o.append(f'<copyright-statement xml:lang="en">{esc(st["en"])}</copyright-statement>')
+        if year:
+            o.append(f"<copyright-year>{year.group(0)}</copyright-year>")
+        if ho.get("ja") and ho.get("en"):
+            o.append(f'<copyright-holder xml:lang="ja">{esc(ho["ja"])}</copyright-holder>')
+            o.append(f'<copyright-holder xml:lang="en">{esc(ho["en"])}</copyright-holder>')
+    # 認証の状態 (ガイドライン 3.1.31．書かなければ資料の設定を引き継ぐ)
+    if reg.get("license"):
+        o.append(f'<license license-type="{attr(reg["license"])}"><license-p/></license>')
+    if has_cp or reg.get("license"):
+        o.append("</permissions>")
+    return o
+
+
+def _abstract_kwd_lines(meta, abstract_ja, lang, other):
+    """要旨 (<abstract>・<trans-abstract>) とキーワード．"""
+    o = []
+    ab = meta.get("abstract") or {}
+    # meta.yaml の要旨は，改行で段落に分ける (紙面が段落を分けている要旨があるため．16(1):1)．
+    # 和文は body.md の「# 摘要」があればそちらを使う (段落がそのまま残っているので)
+    def ab_paras(lg):
+        return [x.strip() for x in re.split(r"\n\s*", ab.get(lg) or "") if x.strip()]
+
+    def paras_of(lg):
+        # 和文の摘要は body.md にあればそちらを使う．英文の論文でも同じ
+        # (それまでは英文の論文だと J-STAGE 登録版の1段落が使われていた．16(1):1)
+        return abstract_ja if lg == "ja" and abstract_ja else ab_paras(lg)
+
+    paras = paras_of(lang)
+    if paras:
+        o.append(f'<abstract xml:lang="{lang}">' + "".join(f"<p>{inline(esc(p))}</p>" for p in paras) + "</abstract>")
+    op = paras_of(other)
+    if op:
+        o.append(f'<trans-abstract xml:lang="{other}">'
+                 + "".join(f"<p>{inline(esc(x))}</p>" for x in op) + "</trans-abstract>")
+    for lg in ("ja", "en"):
+        kws = (meta.get("keywords") or {}).get(lg) or []
+        if kws:
+            o.append(f'<kwd-group kwd-group-type="author" xml:lang="{lg}">'
+                     + "".join(f"<kwd>{inline(esc(k))}</kwd>" for k in kws) + "</kwd-group>")
+    return o
+
+
+def build_front(meta, prof, abstract_ja):
+    lang = meta.get("lang", "ja")
+    other = "en" if lang == "ja" else "ja"
+    o = _journal_meta_lines(prof)
+    # J-STAGE の登録ずみの書誌 (merge_backup.py が控えから meta.yaml に書いたもの)
+    reg = meta.get("registered") or {}
+    if meta.get("doi"):
+        o.append(f'<article-id pub-id-type="doi">{esc(meta["doi"])}</article-id>')
+    if reg.get("manuscript"):
+        o.append(f'<article-id pub-id-type="manuscript">{esc(reg["manuscript"])}</article-id>')
+    # 原稿種別は控えの値を正とする (2026-09-28 ユーザ確定)
+    cat = reg.get("category") or meta.get("category") or {}
+    if cat.get("ja") or cat.get("en"):
+        o.append("<article-categories>")
+        for lg in ("ja", "en"):
+            if cat.get(lg):
+                o.append(f'<subj-group subj-group-type="article" xml:lang="{lg}"><subject>{esc(cat[lg])}</subject></subj-group>')
+        o.append("</article-categories>")
+    t = meta["title"]
+    o.append("<title-group>")
+    o.append(f'<article-title xml:lang="{lang}">{inline(esc(t[lang]))}</article-title>')
+    if t.get(other):
+        o.append(f'<trans-title-group xml:lang="{other}"><trans-title>{inline(esc(t[other]))}</trans-title></trans-title-group>')
+    o.append("</title-group>")
+
+    o += _contrib_group_lines(meta, reg)
 
     # 著者の脚注 (「現所属」「Present address」など)．meta.yaml の author_notes に書く
     notes = meta.get("author_notes") or []
@@ -1807,49 +1874,9 @@ def build_front(meta, prof, abstract_ja):
             o.append(date_xml("date", 'date-type="approved"', reg["approved"]) if reg["approved"]
                      else '<date date-type="approved"><day></day><month></month><year></year></date>')
         o.append("</history>")
-    cp = meta.get("copyright") or {}
-    st, ho = cp.get("statement") or {}, cp.get("holder") or {}
-    has_cp = bool(st.get("ja") and st.get("en"))
-    if has_cp or reg.get("license"):
-        o.append("<permissions>")
-    if has_cp:
-        year = re.search(r"\d{4}", st["ja"])
-        o.append(f'<copyright-statement xml:lang="ja">{esc(st["ja"])}</copyright-statement>')
-        o.append(f'<copyright-statement xml:lang="en">{esc(st["en"])}</copyright-statement>')
-        if year:
-            o.append(f"<copyright-year>{year.group(0)}</copyright-year>")
-        if ho.get("ja") and ho.get("en"):
-            o.append(f'<copyright-holder xml:lang="ja">{esc(ho["ja"])}</copyright-holder>')
-            o.append(f'<copyright-holder xml:lang="en">{esc(ho["en"])}</copyright-holder>')
-    # 認証の状態 (ガイドライン 3.1.31．書かなければ資料の設定を引き継ぐ)
-    if reg.get("license"):
-        o.append(f'<license license-type="{attr(reg["license"])}"><license-p/></license>')
-    if has_cp or reg.get("license"):
-        o.append("</permissions>")
+    o += _permissions_lines(meta, reg)
 
-    ab = meta.get("abstract") or {}
-    # meta.yaml の要旨は，改行で段落に分ける (紙面が段落を分けている要旨があるため．16(1):1)．
-    # 和文は body.md の「# 摘要」があればそちらを使う (段落がそのまま残っているので)
-    def ab_paras(lg):
-        return [x.strip() for x in re.split(r"\n\s*", ab.get(lg) or "") if x.strip()]
-
-    def paras_of(lg):
-        # 和文の摘要は body.md にあればそちらを使う．英文の論文でも同じ
-        # (それまでは英文の論文だと J-STAGE 登録版の1段落が使われていた．16(1):1)
-        return abstract_ja if lg == "ja" and abstract_ja else ab_paras(lg)
-
-    paras = paras_of(lang)
-    if paras:
-        o.append(f'<abstract xml:lang="{lang}">' + "".join(f"<p>{inline(esc(p))}</p>" for p in paras) + "</abstract>")
-    op = paras_of(other)
-    if op:
-        o.append(f'<trans-abstract xml:lang="{other}">'
-                 + "".join(f"<p>{inline(esc(x))}</p>" for x in op) + "</trans-abstract>")
-    for lg in ("ja", "en"):
-        kws = (meta.get("keywords") or {}).get(lg) or []
-        if kws:
-            o.append(f'<kwd-group kwd-group-type="author" xml:lang="{lg}">'
-                     + "".join(f"<kwd>{inline(esc(k))}</kwd>" for k in kws) + "</kwd-group>")
+    o += _abstract_kwd_lines(meta, abstract_ja, lang, other)
     o += ["</article-meta>", "</front>"]
     return "\n".join(o)
 
