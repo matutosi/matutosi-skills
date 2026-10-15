@@ -288,6 +288,25 @@ class TestExtractMarksUnits(Base):
         args = types.SimpleNamespace(ref_pages="12,11")
         self.assertEqual(self.em.ref_page_numbers(args, 2, [1, 2]), [12, 11])
 
+    def test_bands_merge_overlapping_spans(self):
+        # pad=10: [100,110]→[90,120]，[115,125]→[105,135] は重なるので 1 本，[300,310] は別の 1 本
+        bands = self.em.to_bands([(0, 100, 5, 110), (0, 115, 5, 125), (0, 300, 5, 310)], 10)
+        self.assertEqual([(round(b[0]), round(b[1]), b[2]) for b in bands],
+                         [(90, 135, 2), (290, 320, 1)])
+
+    def test_bands_of_nothing(self):
+        self.assertEqual(self.em.to_bands([], 10), [])
+
+    def test_parse_hue_names_and_hex(self):
+        self.assertAlmostEqual(self.em.parse_hue("red"), self.em.COLOR_HUE["red"])
+        self.assertAlmostEqual(self.em.parse_hue("#ff0000"), 0.0)
+        self.assertAlmostEqual(self.em.parse_hue("#00ff00"), 120.0)
+        self.assertAlmostEqual(self.em.parse_hue("#0000FF"), 240.0)
+
+    def test_parse_hue_rejects_bad_spec(self):
+        with self.assertRaises(SystemExit):
+            self.em.parse_hue("#fff")
+
     def test_descending_range_is_an_error(self):
         with self.assertRaises(SystemExit):
             self.em.parse_pages("5-3")
