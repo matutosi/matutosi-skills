@@ -259,6 +259,91 @@ class TestExtractMarksImage(Base):
         self.assertNotEqual(code, 0)
 
 
+@unittest.skipUnless(HAVE_PDF, "pypdf と Pillow が要る")
+class TestExtractMarksUnits(Base):
+    """extract_marks.py の座標・ページ指定まわりの関数 (CLI を通さずに)．"""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, SCRIPTS)
+        import extract_marks
+        cls.em = extract_marks
+
+    def test_clusters_are_merged_transitively(self):
+        # 近い筆跡どうしだけでなく，3つ目が離れた2つをつなぐときも1つの書き込みにする
+        out = self.em.to_clusters([[0, 100, 10, 110], [60, 100, 70, 110], [20, 80, 50, 90]])
+        self.assertEqual(len(out), 1)
+        self.assertEqual([round(v) for v in out[0]], [0, 80, 70, 110])
+
+    def test_far_clusters_stay_separate(self):
+        out = self.em.to_clusters([[0, 100, 10, 110], [300, 300, 320, 310]])
+        self.assertEqual(len(out), 2)
+
+    def test_page_list_keeps_the_given_order(self):
+        self.assertEqual(self.em.parse_page_list("12,11"), [12, 11])
+        self.assertEqual(self.em.parse_page_list("3-5,1"), [3, 4, 5, 1])
+
+    def test_ref_pages_follow_image_order(self):
+        import types
+        args = types.SimpleNamespace(ref_pages="12,11")
+        self.assertEqual(self.em.ref_page_numbers(args, 2, [1, 2]), [12, 11])
+
+    def test_descending_range_is_an_error(self):
+        with self.assertRaises(SystemExit):
+            self.em.parse_pages("5-3")
+
+
+@unittest.skipUnless(HAVE_PDF, "pypdf と Pillow が要る")
+class TestExtractMarksLayout(Base):
+    def test_mediabox_origin_is_subtracted(self):
+        # 原点が 0 でない PDF でも，帯の位置はページの上端から測る
+        make_marked_pdf(self.p("proof.pdf"), [[(100, 400, 160, 415)]])
+        w = pypdf.PdfWriter(clone_from=self.p("proof.pdf"))
+        from pypdf.generic import RectangleObject
+        box = RectangleObject([0, 100, 595, 942])
+        w.pages[0].mediabox = box
+        w.pages[0].cropbox = box
+        with open(self.p("shifted.pdf"), "wb") as fh:
+            w.write(fh)
+        code, out, err = run("extract_marks.py", ["shifted.pdf", "--list"], self.d)
+        self.assertEqual(code, 0, err)
+        row = read(self.p("marks", "manifest.tsv")).splitlines()[1].split("	")
+        y0, y1 = float(row[2]), float(row[3])
+        self.assertAlmostEqual((y0 + y1) / 2, 307.5, delta=20)   # 絶対座標 407.5 − 下端 100
+
+    def test_out_option_and_other_pdf_warning(self):
+        make_marked_pdf(self.p("a.pdf"), [[(100, 700, 160, 715)]])
+        make_marked_pdf(self.p("b.pdf"), [[(100, 500, 160, 515)]])
+        code, out, err = run("extract_marks.py", ["a.pdf", "--list", "--out", "outA"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.exists(self.p("outA", "manifest.tsv")))
+        run("extract_marks.py", ["a.pdf", "--list"], self.d)
+        code, out, err = run("extract_marks.py", ["b.pdf", "--list"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertIn("別の", out + err)   # marks/ は a.pdf の出力．上書きすると知らせる
+
+
+@unittest.skipUnless(HAVE_PDF and HAVE_NUMPY, "Pillow と numpy が要る")
+class TestMultiPageTiff(Base):
+    def test_every_frame_is_read(self):
+        from PIL import Image, ImageDraw
+        marked = Image.new("RGB", (600, 800), "white")
+        dr = ImageDraw.Draw(marked)
+        for y in range(80, 700, 40):
+            dr.rectangle((60, y, 540, y + 12), fill=(20, 20, 20))
+        dr.line((100, 126, 260, 126), fill=(220, 30, 40), width=4)
+        blank = Image.new("RGB", (600, 800), "white")
+        dr2 = ImageDraw.Draw(blank)
+        dr2.line((100, 300, 260, 300), fill=(220, 30, 40), width=4)   # 2ページ目にも朱書き
+        marked.save(self.p("scan.tif"), save_all=True, append_images=[blank], dpi=(72, 72))
+        code, out, err = run("extract_marks.py", ["scan.tif", "--list"], self.d)
+        self.assertEqual(code, 0, err)
+        rows = [r.split("	") for r in read(self.p("marks", "manifest.tsv")).splitlines()[1:]]
+        names = [r[5] for r in rows]
+        self.assertTrue(any(n.startswith("scan_p1") for n in names), names)
+        self.assertTrue(any(n.startswith("scan_p2") for n in names), names)
+
+
 try:
     import cv2  # noqa: F401
     HAVE_CV2 = True

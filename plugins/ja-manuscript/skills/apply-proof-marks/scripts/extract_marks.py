@@ -103,16 +103,26 @@ def to_bands(rects, pad):
 
 def to_clusters(rects, gap_x=25.0, gap_y=12.0):
     """近い筆跡どうしをまとめて、書き込み1つぶんの矩形にする。"""
-    out = []
-    for r in sorted(rects, key=lambda r: (-r[3], r[0])):
-        for c in out:
-            if not (r[2] < c[0] - gap_x or r[0] > c[2] + gap_x
-                    or r[3] < c[1] - gap_y or r[1] > c[3] + gap_y):
-                c[0] = min(c[0], r[0]); c[1] = min(c[1], r[1])
-                c[2] = max(c[2], r[2]); c[3] = max(c[3], r[3])
+    out = [list(r) for r in sorted(rects, key=lambda r: (-r[3], r[0]))]
+
+    def near(a, b):
+        return not (a[2] < b[0] - gap_x or a[0] > b[2] + gap_x
+                    or a[3] < b[1] - gap_y or a[1] > b[3] + gap_y)
+
+    # 3つ目が離れた2つをつなぐことがあるので，これ以上まとまらなくなるまで繰り返す
+    merged = True
+    while merged:
+        merged = False
+        for i in range(len(out)):
+            for j in range(i + 1, len(out)):
+                if near(out[i], out[j]):
+                    a, b = out[i], out[j]
+                    out[i] = [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+                    del out[j]
+                    merged = True
+                    break
+            if merged:
                 break
-        else:
-            out.append(list(r))
     return sorted(out, key=lambda c: -c[3])
 
 
@@ -388,26 +398,50 @@ def diff_mask(img, refimg, px):
 def run_images(files, args):
     """画像ファイルから探す。"""
     pages = []
+    from PIL import ImageSequence
     for f in files:
         raw = Image.open(f)
         photo = is_photo(raw)
         dpi = image_dpi(raw, args.dpi)
-        img, angle = upright(raw, args.rotate)
-        if angle and args.rotate == "auto":
-            print("%s: 横倒しなので反時計回りに 90° 回して読む (逆さなら --rotate 270)"
-                  % Path(f).name)
-        pages.append((Path(f).stem, img, dpi, photo))
-    run_pages(pages, Path(files[0]).resolve().parent / "marks", args, "画像")
+        # 複数ページの TIFF は，全ページを <名前>_p1, _p2 … として読む
+        frames = [fr.copy() for fr in ImageSequence.Iterator(raw)]
+        for n, fr in enumerate(frames, start=1):
+            stem = Path(f).stem if len(frames) == 1 else "%s_p%d" % (Path(f).stem, n)
+            img, angle = upright(fr, args.rotate)
+            if angle and args.rotate == "auto":
+                print("%s: 横倒しなので反時計回りに 90° 回して読む (逆さなら --rotate 270)" % stem)
+            pages.append((stem, img, dpi, photo))
+    src = ",".join(Path(f).name for f in files)
+    outdir = prepare_outdir(Path(files[0]).resolve().parent / "marks", src, args)
+    run_pages(pages, outdir, args, "画像")
 
 
 def ref_page_numbers(args, n, default):
     """画像・ページの順に対応する参照 PDF のページ番号。"""
     if not args.ref_pages:
         return default
-    nums = sorted(parse_pages(args.ref_pages))
+    nums = parse_page_list(args.ref_pages)   # 画像・ページの順に対応させるので，書いた順を保つ
     if len(nums) != n:
         sys.exit("--ref-pages の数 (%d) が画像・ページの数 (%d) と合わない" % (len(nums), n))
     return nums
+
+
+def prepare_outdir(default, source, args):
+    """出力先 (--out か，ソースのあるフォルダの marks/) を作って返す．
+
+    marks/ が別の PDF・画像の出力のときは，上書きすると知らせる (--out で分けられる)．
+    ソースの名前は出力先の .source に控える．
+    """
+    outdir = Path(args.out).resolve() if getattr(args, "out", None) else default
+    outdir.mkdir(parents=True, exist_ok=True)
+    tag = outdir / ".source"
+    if tag.exists():
+        before = tag.read_text(encoding="utf-8").strip()
+        if before and before != source:
+            print("注意: %s は別のソース (%s) の出力です．%s の分で上書きします (--out で別の場所に出せます)"
+                  % (outdir, before, source))
+    tag.write_text(source + "\n", encoding="utf-8")
+    return outdir
 
 
 def run_pages(pages, outdir, args, unit, ref_nums=None):
@@ -418,7 +452,7 @@ def run_pages(pages, outdir, args, unit, ref_nums=None):
     if np is None:
         sys.exit("画像から探すには numpy が要ります: pip install numpy")
     hue = parse_hue(args.color)
-    outdir.mkdir(exist_ok=True)
+    outdir.mkdir(parents=True, exist_ok=True)
     if args.ref:
         load_cv2()
         ref_nums = ref_page_numbers(args, len(pages),
@@ -524,22 +558,31 @@ def run_scanned_pdf(pdf, reader, want, args):
         dpi = scan_dpi(page, args.dpi)
         pages.append(("p%03d" % i, render(pdf, i, dpi), dpi, False))
         nums.append(i)
-    run_pages(pages, pdf.parent / "marks", args, "ページ", nums)
+    outdir = prepare_outdir(pdf.parent / "marks", pdf.name, args)
+    run_pages(pages, outdir, args, "ページ", nums)
 
 
 # ---------------------------------------------------------------- 本体
-def parse_pages(spec):
+def parse_page_list(spec):
+    """`12,11` や `3-5,1` を，書いた順のページ番号の並びにする (範囲は昇順に展開)．"""
     if not spec:
         return None
-    out = set()
+    out = []
     for part in spec.split(","):
         part = part.strip()
         if "-" in part:
-            a, b = part.split("-")
-            out.update(range(int(a), int(b) + 1))
+            a, b = (int(x) for x in part.split("-"))
+            if b < a:
+                sys.exit("ページの範囲 %s が逆です (小さい方から書く)" % part)
+            out.extend(range(a, b + 1))
         else:
-            out.add(int(part))
+            out.append(int(part))
     return out
+
+
+def parse_pages(spec):
+    pages = parse_page_list(spec)
+    return set(pages) if pages is not None else None
 
 
 def main():
@@ -559,6 +602,8 @@ def main():
     ap.add_argument("--zoom", action="store_true",
                     help="筆跡のかたまりごとに拡大画像も出す(手書きが読めないとき)")
     ap.add_argument("--zoom-dpi", type=int, default=300)
+    ap.add_argument("--out", help="出力先のフォルダ (既定: 入力のあるフォルダの marks/)．"
+                    "別の PDF の出力を上書きしたくないときに分ける")
     ap.add_argument("--color", default="red",
                     help="画像のみ: 朱書きの色。red/orange/green/blue か #rrggbb")
     ap.add_argument("--hue-tol", type=float, default=25.0,
@@ -587,8 +632,6 @@ def main():
         sys.exit("PDF は1つだけ渡す")
 
     pdf = Path(args.src[0]).resolve()
-    outdir = pdf.parent / "marks"
-    outdir.mkdir(exist_ok=True)
     want = parse_pages(args.pages)
     need_clean = args.clean != "never" or args.ink != "never"
 
@@ -601,6 +644,7 @@ def main():
             print("注釈が無く、ページが画像だけなので、スキャンとみなして%s" % how)
             return run_scanned_pdf(pdf, reader, want, args)
         print("注意: Ink 注釈がありません。紙のスキャンなら、ページを画像にして渡す")
+    outdir = prepare_outdir(pdf.parent / "marks", pdf.name, args)
     rows = []
     for i, page in enumerate(reader.pages, start=1):
         if want and i not in want:
@@ -608,8 +652,13 @@ def main():
         rects = ink_rects(page)
         if not rects:
             continue
+        # 描画されるのは CropBox (無ければ MediaBox)．注釈の座標はその左下が原点とは限らない
+        box = page.cropbox
+        left, bottom = float(box.left), float(box.bottom)
+        H = float(box.top) - bottom
+        if left or bottom:
+            rects = [(r[0] - left, r[1] - bottom, r[2] - left, r[3] - bottom) for r in rects]
         bands = to_bands(rects, args.pad)
-        H = float(page.mediabox[3])
         if args.list:
             for k, (y0, y1, n) in enumerate(bands, start=1):
                 rows.append((i, k, round(y0, 1), round(y1, 1), n, "p%03d_b%d" % (i, k), ""))

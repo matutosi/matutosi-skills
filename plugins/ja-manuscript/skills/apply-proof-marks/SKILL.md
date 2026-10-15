@@ -338,6 +338,9 @@ python ${CLAUDE_SKILL_DIR}/scripts/extract_marks.py _review/scan/*.jpg --zoom   
 python ${CLAUDE_SKILL_DIR}/scripts/extract_marks.py _review/scan/*.png --color green --min-sat 0.75
 ```
 
+**複数ページの TIFF** は全ページを読み、帯の名前は `<名前>_p1_b1`・`<名前>_p2_b1` …になる。
+`--ref-pages` は画像・ページを渡した順に対応させる (`12,11` なら 1 つ目が参照の 12 ページ)。
+
 **紙をスキャンした PDF** (注釈が無く、ページが画像だけ) をそのまま渡しても、自動でこの方法に切り替わる
 (各ページを元の解像度で描画して色で探す。帯の名前は `pNNN_bK`)。`--color` などはそのまま効く。
 注釈も無く、本文の文字がある普通の PDF では切り替えず、「Ink 注釈がありません」と注意だけ出す。
@@ -433,6 +436,7 @@ python ${CLAUDE_SKILL_DIR}/scripts/extract_marks.py p07.jpg p29.jpg --ref manusc
 | `--overlap` | 0.10 | `auto` の閾値。**筆跡ごと**の重なり率の最大値で判定する |
 | `--zoom` | — | 書き込み1つごとに拡大も出す |
 | `--zoom-dpi` | 300 | `--zoom` の拡大の解像度 |
+| `--out` | 入力のあるフォルダの `marks/` | 出力先。別の PDF・画像の出力を上書きしたくないときに分ける (上書きするときは知らせる) |
 | `--color` | red | 画像のみ。朱書きの色 (`red`/`orange`/`green`/`blue` か `#rrggbb`) |
 | `--hue-tol` | 25 | 画像のみ。色相の許容幅 (度) |
 | `--min-sat` | 0.40 (写真は 0.30) | 画像のみ。彩度の下限 (0-1)。図の中間色を外すときは上げる |
