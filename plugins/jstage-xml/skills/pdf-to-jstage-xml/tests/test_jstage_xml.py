@@ -247,6 +247,77 @@ class TestRefGolden(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
+class TestBuildInlineMarks(unittest.TestCase):
+    """inline() の印 (斜体・太字・上付き・下付き・下線) と，引用のリンク．"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b = load("build")
+
+    def inl(self, s):
+        return self.b.inline(self.b.esc(s))
+
+    def test_italic_next_to_japanese(self):
+        self.assertEqual(self.inl("山麓部に*Abies*の林がある"), "山麓部に<italic>Abies</italic>の林がある")
+
+    def test_bold_and_bold_italic(self):
+        self.assertEqual(self.inl("a**太字**b"), "a<bold>太字</bold>b")
+        self.assertEqual(self.inl("***強調***です"), "<bold><italic>強調</italic></bold>です")
+
+    def test_star_in_a_word_is_not_a_mark(self):
+        self.assertEqual(self.inl("N* と log*x* です"), "N* と log<italic>x</italic> です")
+
+    def test_variable_after_a_coefficient(self):
+        self.assertEqual(self.inl("0.414*x*+0.1022"), "0.414<italic>x</italic>+0.1022")
+
+    def test_sup_sub_underline(self):
+        self.assertEqual(self.inl("H~2~O と m^2^"), "H<sub>2</sub>O と m<sup>2</sup>")
+        self.assertEqual(self.inl("__下線__です"), "<underline>下線</underline>です")
+
+    def test_escaped_marks_stay_literal(self):
+        self.assertEqual(self.inl("~300 m と \\~20 times"), "~300 m と ~20 times")
+        self.assertEqual(self.inl("表の脚注 \\*1: 注"), "表の脚注 *1: 注")
+
+    def test_ordinal_suffix_after_italic(self):
+        self.assertEqual(self.inl("*i*th 番目"), "<italic>i</italic>th 番目")
+
+    def test_semicolon_ends_the_url(self):
+        s = self.inl("https://a.jp/x; 岐阜県")
+        self.assertIn('xlink:href="https://a.jp/x"', s)
+        self.assertTrue(s.endswith("; 岐阜県"))
+
+    def test_paren_after_url_is_outside(self):
+        self.assertIn('>http://a.jp/x</ext-link>)', self.inl("(http://a.jp/x)"))
+
+    REFS = ["山田太郎・鈴木花子 2001. 植生の調査法. 植生学会誌 18: 1-10.",
+            "Smith, J. & Lee, K. 1999. A study. Journal of X 5: 1-9.",
+            "山田太郎 2005a. 植物. 雑誌 1: 1-2.",
+            "山田太郎 2005b. 動物. 雑誌 1: 3-4."]
+
+    def para(self, text):
+        refs = [self.b.Ref(i + 1, t) for i, t in enumerate(self.REFS)]
+        self.b.REPORT.clear()
+        return self.b.para_xml(text, refs, {}, "body")
+
+    def test_citation_with_authors_and_year_is_linked(self):
+        self.assertEqual(self.para("山田・鈴木 (2001) は述べた．"),
+                         '山田・鈴木 (<xref ref-type="bibr" rid="B1">2001</xref>) は述べた．')
+        self.assertIn('rid="B2">1999</xref>', self.para("Smith & Lee (1999) は述べた．"))
+
+    def test_year_with_a_b_suffixes(self):
+        s = self.para("山田 (2005a, b) の結果．")
+        self.assertIn('rid="B3">2005a</xref>', s)
+        self.assertIn('rid="B4">b</xref>', s)
+
+    def test_year_followed_by_nen_or_meter_is_not_a_citation(self):
+        s = self.para("2011 年に，標高 1893 m で調べた．")
+        self.assertNotIn("<xref", s)
+
+    def test_ambiguous_author_is_not_linked(self):
+        self.assertNotIn("<xref", self.para("山田 2005 は曖昧．"))
+
+
+@unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
 class TestWebRefComparison(unittest.TestCase):
     """J-STAGE 登録ずみの引用文献 (refs_web.txt) との照合．"""
 
@@ -298,12 +369,74 @@ class TestApplyBackup(unittest.TestCase):
         self.assertEqual(lines[start], "# ABSTRACT")
         self.assertEqual(lines[end], "# INTRODUCTION")
 
+    def test_ja_punct_converts_japanese_context_only(self):
+        self.assertEqual(self.ab.ja_punct("植生を調べ,結果を述べる."), "植生を調べ，結果を述べる．")
+        self.assertEqual(self.ab.ja_punct("結果は(見よ)．"), "結果は（見よ）．")
+        self.assertEqual(self.ab.ja_punct("(1) の結果，2.3 倍．"), "(1) の結果，2.3 倍．")   # 欧文・数は変えない
+
+    def test_ja_punct_list_number_at_line_start(self):
+        self.assertEqual(self.ab.ja_punct("1. はじめに\n2. 方法"), "1．はじめに\n2．方法")
+
+    def test_ja_punct_keeps_a_decimal_at_line_start(self):
+        # 行頭の小数 (3.5 倍) を箇条の番号と取り違えて「3．5」にしてはいけない
+        self.assertEqual(self.ab.ja_punct("3.5 倍に増えた．"), "3.5 倍に増えた．")
+
+    def test_fix_numbers_corrects_ocr_digits(self):
+        log = []
+        self.assertEqual(self.ab.fix_numbers("植生学会誌 18: 2DOO 年", "植生学会誌 18: 2000 年", log),
+                         "植生学会誌 18: 2000 年")
+        self.assertEqual(log, ["2DOO → 2000"])
+
+    def test_fix_numbers_leaves_unmatched_alone(self):
+        log = []
+        self.assertEqual(self.ab.fix_numbers("2DOO", "1999", log), "2DOO")
+        self.assertEqual(log, [])
+
     def test_default_span_still_skips_fake_headings(self):
         # 引用文献などでは，偽の見出し (「# 53.78」) を読み飛ばして次の本物の節まで
         md = "# 引用文献\nA 1999.\n# 53.78\nB 2000.\n\n# 謝辞\nthanks\n"
         lines = md.split("\n")
         start, end = self.ab.section_span(md, ["引用文献"], {"謝辞"})
         self.assertEqual(lines[end], "# 謝辞")
+
+
+class TestManifest(unittest.TestCase):
+    def test_round_trip_and_zip_members(self):
+        import zipfile
+        manifest = load("manifest")
+        with tempfile.TemporaryDirectory() as d:
+            work = Path(d) / "work"
+            (work / "out").mkdir(parents=True)
+            (work / "figs").mkdir()
+            (work / "figs" / "fig1.png").write_bytes(b"png")
+            (work / "out" / "9_1.xml").write_text("<article/>", encoding="utf-8")
+            (work / "9_1.pdf").write_bytes(b"%PDF")
+            outside = Path(d) / "outside.png"           # 作業ディレクトリの外のファイル
+            outside.write_bytes(b"png2")
+            m = manifest.write(work, "vegsci", 9, 1, "9_1", work / "9_1.pdf",
+                               [("9_1_01.png", work / "figs" / "fig1.png"), ("9_1_02.png", outside)])
+            self.assertEqual(manifest.read(work), m)
+            self.assertEqual(m["pdf"], "9_1.pdf")
+            self.assertEqual(m["graphics"][0], ["9_1_01.png", "figs/fig1.png"])        # 中なら相対
+            self.assertEqual(Path(m["graphics"][1][1]), outside.resolve())             # 外なら絶対
+            names = sorted(n for _src, n in manifest.members(work, m))
+            self.assertEqual(names, ["9_1.pdf", "9_1.xml", "Graphics/9_1_01.png", "Graphics/9_1_02.png"])
+            zpath = work / "9_1.zip"
+            with zipfile.ZipFile(zpath, "w") as z:
+                self.assertEqual(manifest.add_to_zip(z, work, m), 4)
+            self.assertEqual(manifest.zip_names(work, m),
+                             {"9_1.xml", "9_1.pdf", "Graphics/9_1_01.png", "Graphics/9_1_02.png"})
+            with zipfile.ZipFile(zpath) as z:
+                self.assertTrue(all(n.startswith("vegsci/9/1/9_1/") for n in z.namelist()))
+
+    def test_find_work_from_xml_path(self):
+        manifest = load("manifest")
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "out").mkdir()
+            xml = Path(d) / "out" / "a.xml"
+            xml.write_text("<a/>", encoding="utf-8")
+            self.assertEqual(manifest.find_work(xml), Path(d).resolve())
+            self.assertIsNone(manifest.find_work(Path(d) / "a.xml"))
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
