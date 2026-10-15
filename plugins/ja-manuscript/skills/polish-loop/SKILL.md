@@ -56,8 +56,10 @@ _polish/
 }
 ```
 
+`terms` は `[正しい語, 誤った語]` の組 (正を先に書く)．`scan_recurring.py --type terms` が誤の側を探す．
 `forbidden` と `check_heading_number` は `apply_fixes.py` が使う (置換で禁止文字や見出しの空白落ちが**増えたら**警告)。
 `forbidden` は `scan_recurring.py --type forbidden` も使う (コードブロックの外だけを見る)。
+`check` は `apply_fixes.py --post` が最後に走らせる点検コマンド。無ければ、カレントに `check_manuscript.py` があるときだけそれを走らせる。
 書かなければ、その点検はしない。
 `prefetch` は手順 7.5 の先読み (既定 `true`)。`false` にするとそのプロジェクトでは先読みしない。
 

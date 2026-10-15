@@ -68,6 +68,14 @@ class TestApplyFixes(Base):
         self.assertIn("誤字", text)
         self.assertIn("統合", text)
 
+    def test_post_runs_the_check_command_from_config(self):
+        f = self.fixes([{"file": "chapter_01.md", "before": "誤時", "after": "誤字"}])
+        write(self.p("_polish", "config.json"), json.dumps(
+            {"check": "python -c \"open('checked.txt','w').write('x')\""}))
+        code, out, err = run("apply_fixes.py", [f, "--apply", "--post"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.exists(self.p("checked.txt")))
+
     def test_check_only_does_not_write(self):
         f = self.fixes([{"file": "chapter_01.md", "before": "誤時", "after": "誤字"}])
         code, out, err = run("apply_fixes.py", [f], self.d)

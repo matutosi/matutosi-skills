@@ -41,6 +41,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -110,7 +111,8 @@ def load_config(path):
     forb = cfg.get("forbidden", {})
     if isinstance(forb, list):  # ["（", "、"] の形も受ける
         forb = {ch: ch for ch in forb}
-    return {"forbidden": forb, "check_heading_number": bool(cfg.get("check_heading_number"))}
+    return {"forbidden": forb, "check_heading_number": bool(cfg.get("check_heading_number")),
+            "check": cfg.get("check") or ""}
 
 
 def read_doc(path):
@@ -301,7 +303,10 @@ def main():
         for script in (SPL, PAD):
             if script.exists():
                 subprocess.run([sys.executable, str(script)] + files)
-        if Path("check_manuscript.py").exists():
+        if cfg.get("check"):
+            # config の "check" に書いた点検コマンド (例: "python check_manuscript.py")
+            subprocess.run(shlex.split(cfg["check"]))
+        elif Path("check_manuscript.py").exists():
             subprocess.run([sys.executable, "check_manuscript.py"])
     return 0
 
