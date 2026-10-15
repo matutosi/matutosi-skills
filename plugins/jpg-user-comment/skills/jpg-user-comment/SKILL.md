@@ -14,19 +14,19 @@ JPEG の Exif **UserComment** (tag 0x9286) を CSV (`filename,comment`) で読�
 S=${CLAUDE_SKILL_DIR}/scripts/jpg_comment.py
 
 # 出力: JPEG -> CSV
-python3 "$S" export photos/ -o comments.csv     # ディレクトリ内の JPEG (filename はフルパス)
-python3 "$S" export a.jpg b.jpg                 # 個別指定 (-o 省略で標準出力)
-python3 "$S" export photos/ -r -o comments.csv              # 再帰 (フルパス)
-python3 "$S" export photos/ -r --relative -o comments.csv   # 再帰 + 相対パス
-python3 "$S" export photos/ --basename -o comments.csv      # ファイル名だけ
+python "$S" export photos/ -o comments.csv     # ディレクトリ内の JPEG (filename はフルパス)
+python "$S" export a.jpg b.jpg                 # 個別指定 (-o 省略で標準出力)
+python "$S" export photos/ -r -o comments.csv              # 再帰 (フルパス)
+python "$S" export photos/ -r --relative -o comments.csv   # 再帰 + 相対パス
+python "$S" export photos/ --basename -o comments.csv      # ファイル名だけ
 
 # 入力: CSV -> JPEG
-python3 "$S" import comments.csv                 # 既定は --append (継ぎ足す)
-python3 "$S" import comments.csv -n              # dry-run (書き込まない)
-python3 "$S" import comments.csv --overwrite     # comment が空でない行だけ置き換える
-python3 "$S" import comments.csv --overwrite-all # 空の行も置き換える (= タグを削除)
-python3 "$S" import comments.csv --separator " / "  # 継ぎ足しの区切りを変える
-python3 "$S" import comments.csv --outdir out/   # 元ファイルを残して別ディレクトリへ
+python "$S" import comments.csv                 # 既定は --append (継ぎ足す)
+python "$S" import comments.csv -n              # dry-run (書き込まない)
+python "$S" import comments.csv --overwrite     # comment が空でない行だけ置き換える
+python "$S" import comments.csv --overwrite-all # 空の行も置き換える (= タグを削除)
+python "$S" import comments.csv --separator " / "  # 継ぎ足しの区切りを変える
+python "$S" import comments.csv --outdir out/   # 元ファイルを残して別ディレクトリへ
 ```
 
 主なオプション:
@@ -114,7 +114,7 @@ photos/DSC_0003.jpg,
 ## 動作確認
 
 ```bash
-python3 ${CLAUDE_SKILL_DIR}/tests/test_jpg_comment.py
+python ${CLAUDE_SKILL_DIR}/tests/test_jpg_comment.py
 ```
 
 外部依存なしで、往復変換・日本語・既存 Exif とサムネイルの保持・削除・冪等性を検証する。
