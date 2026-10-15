@@ -167,7 +167,7 @@ class Book:
         """見出し (索引そのものなど) のページを対象から外す．"""
         starts = [(t, p) for lv, t, p in self.toc if lv == 0]
         for i, (t, start) in enumerate(starts):
-            if title and title in t:
+            if title and _title_matches(t, title):
                 end = starts[i + 1][1] - 1 if i + 1 < len(starts) else len(self.text) - 1
                 self.skip |= set(range(start, end + 1))
 
@@ -199,7 +199,8 @@ class Book:
             if level != 0:
                 continue
             m = re.match(r"(?:第\s*(\d+)\s*章|Chapter\s+(\d+))", title, re.I)
-            starts.append(((m.group(1) or m.group(2)) if m else title, page))
+            # 「第１章」(全角) も 1 として扱う
+            starts.append((str(int(m.group(1) or m.group(2))) if m else title, page))
         ranges = {}
         for idx, (key, start) in enumerate(starts):
             end = starts[idx + 1][1] - 1 if idx + 1 < len(starts) else len(self.text) - 1
@@ -221,8 +222,11 @@ class Book:
             ranges = self.chapter_ranges()
             allowed = set()
             for ch in chapters:
-                rng = ranges.get(str(ch))
+                rng = ranges.get(_chapter_key(ch))
                 if rng is None:
+                    # 黙って 0 件にしない (目次の見出しが「第N章」の形でないと章が見つからない)
+                    print(f"警告: 章 {ch} が目次に見つかりません (目次の見出しは「第N章」か「Chapter N」の形が要ります)．"
+                          f"章の指定 {chapters} の検索は 0 件になります", file=sys.stderr)
                     continue
                 allowed |= set(range(rng[0], rng[1] + 1))
         keys = [norm(w) for w in words if w]
@@ -274,6 +278,31 @@ def load_terms(path: Path) -> tuple[dict, list[dict]]:
     return meta, entries
 
 
+def _as_list(v):
+    """YAML の「検索: 樹形図」「章: 3」「ページ: 12」のように1つだけ書かれた値を，並びにそろえる．"""
+    if v is None or v == "":
+        return []
+    if isinstance(v, (list, tuple, set)):
+        return list(v)
+    return [v]
+
+
+def _chapter_key(ch) -> str:
+    """章の指定 (3・"3"・"第3章"・"３") を，chapter_ranges のキーにそろえる．"""
+    m = re.fullmatch(r"\s*(?:第\s*)?(\d+)\s*(?:章)?\s*", str(ch))
+    return str(int(m.group(1))) if m else str(ch)
+
+
+def _title_matches(toc_title: str, title: str) -> bool:
+    """目次の見出し toc_title が，除外したい見出し title (索引・「第3章」など) か．
+
+    部分一致にすると「第5章 索引の作り方」まで「索引」で外れるので，
+    完全一致か，語の頭 (「第3章 …」) か，語の末 (「第10章 索引」) の一致だけにする．
+    """
+    t, w = toc_title.strip(), title.strip()
+    return t == w or t.startswith(w + " ") or t.startswith(w + "　") or t.endswith(" " + w)         or t.endswith("　" + w)
+
+
 def _main_pages(e: dict) -> list[int]:
     v = e.get("主")
     if v is None:
@@ -290,9 +319,9 @@ def resolve(entries: list[dict], book) -> list[dict]:
     """
     def one(e: dict, inherited_chapters):
         main = _main_pages(e)
-        manual = e.get("ページ")
+        manual = _as_list(e.get("ページ"))
         found = sorted(set(manual)) if manual else book.find(
-            e.get("検索") or [e["見出し"]], e.get("章") or inherited_chapters)
+            _as_list(e.get("検索")) or [e["見出し"]], _as_list(e.get("章")) or inherited_chapters)
         e["_pages"] = sorted(set(found) | set(main))
         e["_main"] = sorted(set(main))
 
@@ -302,7 +331,7 @@ def resolve(entries: list[dict], book) -> list[dict]:
             continue
         one(e, None)
         for sub in e.get("副", []) or []:
-            one(sub, e.get("章"))
+            one(sub, _as_list(e.get("章")))
     return entries
 
 
@@ -326,7 +355,7 @@ def check(entries: list[dict], meta: dict, book, line_count: int) -> tuple[list,
         for p in _main_pages(e):
             if not lo_label <= p <= hi_label:
                 errors.append(f"主要ページが PDF の範囲 ({lo_label}-{hi_label}) の外: {label} の 主 {p}")
-        for p in e.get("ページ") or []:
+        for p in _as_list(e.get("ページ")):
             if not lo_label <= p <= hi_label:
                 warns.append(f"ページが PDF の範囲 ({lo_label}-{hi_label}) の外: {label} の ページ {p}")
 

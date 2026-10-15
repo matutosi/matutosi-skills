@@ -459,5 +459,71 @@ class TestSuggestYomi(unittest.TestCase):
                 self.assertEqual(f.read(), body)
 
 
+def fake_book(toc, n_pages):
+    """PDF を開かずに，目次と本文の文字だけを持つ Book を作る (章の範囲・除外の試験用)."""
+    b = bi.Book.__new__(bi.Book)
+    b.toc = toc
+    b.text = ["語%d" % i for i in range(n_pages)]
+    b.labels = list(range(1, n_pages + 1))
+    b.skip = set()
+    return b
+
+
+class TestRobustness(unittest.TestCase):
+    def test_fullwidth_chapter_number_matches(self):
+        b = fake_book([(0, "第１章 はじめに", 0), (0, "第２章 方法", 3)], 6)
+        self.assertEqual(sorted(b.chapter_ranges()), ["1", "2"])
+        self.assertEqual(b.find(["語4"], [2]), [5])      # 第２章 (全角) に章: [2] が当たる
+        self.assertEqual(b.find(["語4"], ["2"]), [5])
+        self.assertEqual(b.find(["語4"], [1]), [])
+
+    def test_unknown_chapter_warns(self):
+        import contextlib
+        import io
+        b = fake_book([(0, "1 はじめに", 0), (0, "2 方法", 3)], 6)   # 「第N章」の形でない目次
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            hits = b.find(["語4"], [2])
+        self.assertEqual(hits, [])
+        self.assertIn("章", err.getvalue())
+        self.assertIn("2", err.getvalue())
+
+    def test_search_as_plain_string_is_one_word(self):
+        seen = []
+
+        class B(FakeBook):
+            def find(self, words, chapters):
+                seen.append(list(words))
+                return [1]
+        bi.resolve([{"見出し": "樹形図", "よみ": "じゅけいず", "検索": "樹形図"}], B([1]))
+        self.assertEqual(seen, [["樹形図"]])
+
+    def test_chapter_and_pages_as_scalars(self):
+        seen = []
+
+        class B(FakeBook):
+            def find(self, words, chapters):
+                seen.append(chapters)
+                return [1]
+        entries = [{"見出し": "a", "よみ": "あ", "章": 3},
+                   {"見出し": "b", "よみ": "い", "ページ": 12}]
+        bi.resolve(entries, B([1]))
+        self.assertEqual(seen, [[3]])
+        self.assertEqual(entries[1]["_pages"], [12])
+
+    def test_exclude_section_is_not_a_substring_match(self):
+        b = fake_book([(0, "第5章 索引の作り方", 0), (0, "索引", 3)], 6)
+        b.exclude_section("索引")
+        self.assertEqual(b.skip, {3, 4, 5})              # 章 5 の本文は残る
+
+    def test_exclude_section_with_chapter_prefix(self):
+        b = fake_book([(0, "第1章 はじめに", 0), (0, "第2章 索引", 3)], 6)
+        b.exclude_section("索引")
+        self.assertEqual(b.skip, {3, 4, 5})
+        b2 = fake_book([(0, "第1章 はじめに", 0), (0, "第2章 方法", 3)], 6)
+        b2.exclude_section("第2章")
+        self.assertEqual(b2.skip, {3, 4, 5})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

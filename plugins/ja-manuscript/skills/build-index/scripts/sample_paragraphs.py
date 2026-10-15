@@ -55,9 +55,13 @@ def load_headings(path: Path | None):
     heads = []
     for e in data.get("entries", []) or []:
         words = e.get("検索") or [e["見出し"]]
+        if isinstance(words, str):   # 「検索: 樹形図」と1つだけ書かれたとき
+            words = [words]
         heads.append((e["見出し"], [norm(w) for w in words]))
         for s in e.get("副", []) or []:
             sw = s.get("検索") or [s["見出し"]]
+            if isinstance(sw, str):
+                sw = [sw]
             heads.append((f"{e['見出し']} > {s['見出し']}", [norm(w) for w in sw]))
     return heads
 
