@@ -195,7 +195,9 @@ class TestBuildGolden(unittest.TestCase):
             golden = self.GOLD / "minimal.xml"
             if os.environ.get("UPDATE_GOLDEN"):
                 golden.write_bytes(xml)
-            self.assertEqual(xml.decode("utf-8"), golden.read_bytes().decode("utf-8"))
+            # 取り出しのとき改行が CRLF に変わっていても (Windows の autocrlf) 同じと見る
+            self.assertEqual(xml.decode("utf-8"),
+                             golden.read_bytes().decode("utf-8").replace("\r\n", "\n"))
 
     def test_zip_has_xml_and_graphics(self):
         import zipfile
