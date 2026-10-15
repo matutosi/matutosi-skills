@@ -30,12 +30,13 @@ import json
 import sys
 from pathlib import Path
 
-sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 
 def load_fixes(path):
     """polish-loop 形式(before/after)と apply-proof-marks 形式(old/new)の両方を読む。"""
-    rows = json.loads(Path(path).read_text(encoding="utf-8"))
+    rows = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     out = []
     for i, r in enumerate(rows):
         target = r.get("before", r.get("old"))

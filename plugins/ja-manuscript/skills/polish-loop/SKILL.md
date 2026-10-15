@@ -57,6 +57,7 @@ _polish/
 ```
 
 `forbidden` と `check_heading_number` は `apply_fixes.py` が使う (置換で禁止文字や見出しの空白落ちが**増えたら**警告)。
+`forbidden` は `scan_recurring.py --type forbidden` も使う (コードブロックの外だけを見る)。
 書かなければ、その点検はしない。
 `prefetch` は手順 7.5 の先読み (既定 `true`)。`false` にするとそのプロジェクトでは先読みしない。
 
@@ -261,7 +262,7 @@ python ${CLAUDE_SKILL_DIR}/scripts/calibrate.py \
 | ファイル | 役割 |
 | --- | --- |
 | `scripts/apply_fixes.py` | before/after を一意一致で適用し、前後の文脈を見せ、巻き込みを警告する (apply-proof-marks と共通の本体) |
-| `scripts/scan_recurring.py` | 指摘の型ごとに原稿全体を照合する(14型) |
+| `scripts/scan_recurring.py` | 指摘の型ごとに原稿全体を照合する(12型と、機械照合できない型の一覧。`--list`) |
 | `scripts/round_report.py` | severity の集計・推移表と、型の出現回数を記録する |
 | `scripts/calibrate.py` | AI の指摘と朱書きを突き合わせ、見逃し・空振りを数える |
 | `templates/review_prompt.md` | レビュアへの指示のひな形 |

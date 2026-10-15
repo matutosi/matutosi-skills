@@ -227,12 +227,16 @@ def main():
         print("置換リストか設定が読めない: %s" % e)
         return 1
 
-    by_file = {}
+    # 同じファイルを別の書き方 (a.md と ./a.md・大文字小文字・\ と /) で指しても1つにまとめる
+    by_file, names = {}, {}
     for n, f, b, a, c in rows:
-        by_file.setdefault(f, []).append((n, b, a, c))
+        key = os.path.normcase(os.path.abspath(f))
+        names.setdefault(key, f)
+        by_file.setdefault(key, []).append((n, b, a, c))
 
     ng, warns, shown, staged = [], [], [], {}
-    for f, items in by_file.items():
+    for key, items in by_file.items():
+        f = names[key]
         if not os.path.exists(f):
             ng.append("%s が無い (%d 件)" % (f, len(items)))
             continue

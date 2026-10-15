@@ -58,6 +58,16 @@ class TestApplyFixes(Base):
         write(self.p(name), json.dumps(rows, ensure_ascii=False))
         return name
 
+    def test_same_file_written_two_ways_keeps_every_fix(self):
+        # "chapter_01.md" と "./chapter_01.md" は同じファイル．別扱いにして先の置換が消えてはいけない
+        f = self.fixes([{"file": "chapter_01.md", "before": "誤時", "after": "誤字"},
+                        {"file": "./chapter_01.md", "before": "統一", "after": "統合"}])
+        code, out, err = run("apply_fixes.py", [f, "--apply"], self.d)
+        self.assertEqual(code, 0, err)
+        text = read(self.p("chapter_01.md"))
+        self.assertIn("誤字", text)
+        self.assertIn("統合", text)
+
     def test_check_only_does_not_write(self):
         f = self.fixes([{"file": "chapter_01.md", "before": "誤時", "after": "誤字"}])
         code, out, err = run("apply_fixes.py", [f], self.d)
@@ -236,12 +246,43 @@ class TestScanRecurring(Base):
         self.assertEqual(code, 1)
 
     def test_forbidden(self):
+        # 禁止文字は config の forbidden に書いたものだけを見る (SKILL.md の約束)
         write(self.p("chapter_01.md"), "読点は、使わない．（全角括弧）も使わない．\n")
+        write(self.p("_polish", "config.json"),
+              json.dumps({"forbidden": {"全角括弧": "（", "読点、": "、"}}, ensure_ascii=False))
         code, out, err = run("scan_recurring.py", ["--type", "forbidden"], self.d)
         self.assertEqual(code, 0, err)
         self.assertIn("ch01.md:1", out)  # 表示では chapter_ を ch に縮める
         self.assertIn("全角括弧", out)
         self.assertIn("読点、", out)
+
+    def test_forbidden_needs_config(self):
+        write(self.p("chapter_01.md"), "読点は、使わない．（全角括弧）も使わない．\n")
+        code, out, err = run("scan_recurring.py", ["--type", "forbidden"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertIn("0 件", out)
+
+    def test_forbidden_skips_code_blocks(self):
+        write(self.p("chapter_01.md"), "本文です．\n\n```r\nx <- c(1、2)\n```\n")
+        write(self.p("_polish", "config.json"),
+              json.dumps({"forbidden": {"読点、": "、"}}, ensure_ascii=False))
+        code, out, err = run("scan_recurring.py", ["--type", "forbidden"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertIn("0 件", out)
+
+    def test_config_with_bom(self):
+        write(self.p("chapter_01.md"), "読点は、使わない．\n")
+        write(self.p("_polish", "config.json"),
+              "﻿" + json.dumps({"forbidden": {"読点、": "、"}}, ensure_ascii=False))
+        code, out, err = run("scan_recurring.py", ["--type", "forbidden"], self.d)
+        self.assertEqual(code, 0, err)
+        self.assertIn("読点、", out)
+
+    def test_unknown_type_is_an_error(self):
+        write(self.p("chapter_01.md"), "本文です．\n")
+        code, out, err = run("scan_recurring.py", ["--type", "no-such-type"], self.d)
+        self.assertNotEqual(code, 0)
+        self.assertIn("no-such-type", out + err)
 
     def test_terms_from_config(self):
         write(self.p("chapter_01.md"), "樹形図を描く．デンドログラムを読む．\n")
@@ -276,12 +317,23 @@ class TestScanRecurring(Base):
 
     def test_glob(self):
         write(self.p("body", "a.md"), "読点は、使わない．\n")
+        write(self.p("_polish", "config.json"),
+              json.dumps({"forbidden": {"読点、": "、"}}, ensure_ascii=False))
         code, out, err = run("scan_recurring.py", ["--type", "forbidden", "--glob", "body/*.md"], self.d)
         self.assertEqual(code, 0, err)
         self.assertIn("a.md:1", out)
 
 
 class TestCalibrate(Base):
+    def test_fixes_with_bom(self):
+        write(self.p("chapter_01.md"), "これは誤時です．\n")
+        ai = [{"file": "chapter_01.md", "before": "誤時", "after": "誤字"}]
+        human = [{"file": "chapter_01.md", "old": "誤時です", "new": "誤字です"}]
+        write(self.p("ai.json"), "﻿" + json.dumps(ai, ensure_ascii=False))
+        write(self.p("human.json"), "﻿" + json.dumps(human, ensure_ascii=False))
+        code, out, err = run("calibrate.py", ["--ai", "ai.json", "--human", "human.json"], self.d)
+        self.assertEqual(code, 0, err)
+
     def test_hit_miss_false_alarm(self):
         write(self.p("chapter_01.md"), "これは誤時です．冗長な表現をすることができます．最後の文です．\n")
         ai = [{"file": "chapter_01.md", "before": "誤時", "after": "誤字"},

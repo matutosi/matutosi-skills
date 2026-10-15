@@ -36,22 +36,23 @@ BS = chr(92)   # バックスラッシュ。リテラルで書くと環境によ
 # 用語の組 (正, 誤) は原稿ごとに違うので，_polish/config.json の "terms" に書く
 # (例: [["デンドログラム", "樹形図"], ["既定", "デフォルト"]])
 DEFAULT_TERMS = []
-FORBIDDEN = [("全角括弧", "（"), ("全角括弧", "）"), ("読点、", "、"), ("句点。", "。"),
-             ("en ダッシュ", "–"), ("≈", "≈"), ("波ダッシュ", "〜")]
+# 禁止文字も原稿ごとに違うので，既定では何も見ない．_polish/config.json の
+# "forbidden" に {"ラベル": "文字"} の形で書く (例: {"読点、": "、", "全角括弧": "（"})
 
 
 def load_config():
     cfg = {}
     p = os.path.join("_polish", "config.json")
     if os.path.exists(p):
-        cfg = json.loads(io.open(p, encoding="utf-8").read())
+        with io.open(p, encoding="utf-8-sig") as fh:   # BOM 付きでも読む
+            cfg = json.loads(fh.read())
     return cfg
 
 
 def body_lines(path):
     """コードブロックの外の行だけを (行番号, 行) で返す。"""
     fence = False
-    for i, ln in enumerate(io.open(path, encoding="utf-8"), 1):
+    for i, ln in enumerate(io.open(path, encoding="utf-8-sig"), 1):
         if ln.lstrip().startswith("```"):
             fence = not fence
             continue
@@ -112,7 +113,7 @@ def t_donoun(files, cfg):
 def t_terms(files, cfg):
     """用語のゆれ。config の terms を足せる。"""
     pairs = DEFAULT_TERMS + [tuple(x) for x in cfg.get("terms", [])]
-    texts = {f: io.open(f, encoding="utf-8").read() for f in files}
+    texts = {f: io.open(f, encoding="utf-8-sig").read() for f in files}
     allt = "".join(texts.values())
     hits = []
     for good, bad in pairs:
@@ -127,10 +128,12 @@ def t_terms(files, cfg):
 
 
 def t_forbidden(files, cfg):
+    """config の "forbidden" に書いた文字だけを，コードブロックの外で探す。"""
+    forbidden = cfg.get("forbidden") or {}
     hits = []
     for f in files:
-        for i, ln in enumerate(io.open(f, encoding="utf-8"), 1):
-            for label, ch in FORBIDDEN:
+        for i, ln in body_lines(f):
+            for label, ch in forbidden.items():
                 if ch in ln:
                     hits.append("%s:%d %s  %s" % (short(f), i, label, ln.strip()[:44]))
     return hits
@@ -152,7 +155,7 @@ def t_selfref(files, cfg):
     """自分の章を指す参照。"""
     hits = []
     for f in files:
-        txt = io.open(f, encoding="utf-8").read()
+        txt = io.open(f, encoding="utf-8-sig").read()
         m = re.search(r"^# .*\{#([" + r"\w-" + r"]+)\}", txt, re.M)
         if not m:
             continue
@@ -166,7 +169,7 @@ def t_exercises(files, cfg):
     """練習問題の数と解答の数。"""
     hits = []
     for f in files:
-        txt = io.open(f, encoding="utf-8").read()
+        txt = io.open(f, encoding="utf-8-sig").read()
         q = re.search(r"## [\d.]+ 練習問題 \{[^}]*\}(.*?)(?=\n## )", txt, re.S)
         a = re.search(r"## [\d.]+ 練習問題の解答例 \{[^}]*\}(.*)", txt, re.S)
         if not q or not a:
@@ -184,7 +187,7 @@ def t_axis(files, cfg):
     hits = []
     for f in files:
         fence = None
-        for i, ln in enumerate(io.open(f, encoding="utf-8"), 1):
+        for i, ln in enumerate(io.open(f, encoding="utf-8-sig"), 1):
             s = ln.strip()
             if s.startswith("```"):
                 fence = None if fence is not None else s[3:]
@@ -206,7 +209,7 @@ def t_lablang(files, cfg):
     LAB = re.compile(r"(?:labs|set_xlabel|set_ylabel|xlab|ylab)\s*\(([^\n]*)")
     hits = []
     for f in files:
-        txt = io.open(f, encoding="utf-8").read()
+        txt = io.open(f, encoding="utf-8-sig").read()
         blocks = re.findall(r"```(?:r|python)\n# (code_\d+_\d+_(?:R|py))\n(.*?)```", txt, re.S)
         d = {}
         for cid, code in blocks:
@@ -239,12 +242,12 @@ def t_figleaf(files, cfg):
     srcs = cfg.get("figure_sources", [])
     if not srcs:
         return []
-    body = re.sub(r"\s", "", "".join(io.open(f, encoding="utf-8").read() for f in files))
+    body = re.sub(r"\s", "", "".join(io.open(f, encoding="utf-8-sig").read() for f in files))
     hits, seen = [], set()
     for src in srcs:
         if not os.path.exists(src):
             continue
-        text = io.open(src, encoding="utf-8").read()
+        text = io.open(src, encoding="utf-8-sig").read()
         for path in re.findall(r"c\((.*?)\)\)?,?\n", text):
             items = re.findall(r'"([^"]*)"', path)
             if not items:
@@ -314,6 +317,12 @@ def main():
         return 1
 
     want = args.type or [k for k, _, _ in TYPES if k != "manual"]
+    known = {k for k, _, _ in TYPES}
+    unknown = [k for k in want if k not in known]
+    if unknown:
+        # 知らない型名を黙って「0 件」にしない (綴りの間違いに気づけるように)
+        print("知らない型: %s (--list で一覧)" % ", ".join(unknown))
+        return 2
     print("原稿 %d ファイル / 型 %d" % (len(files), len(want)))
     total = 0
     for key, desc, fn in TYPES:
