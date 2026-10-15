@@ -624,7 +624,7 @@ class Ref:
                 # 末尾の区切りの「.」は名前に入れない (「R Core Team. 2015.」．36(1):1・37(2):85)．
                 # 「Inc.」「Ltd.」などの略記の点は名前の一部なので残す
                 core = auth.rstrip()
-                if core.endswith(".") and not re.search(r"(?:Inc|Ltd|Co|Corp|Univ|Dept|Assoc|St)\.$", core):
+                if core.endswith(".") and not re.search(r"\b(?:Inc|Ltd|Co|Corp|Univ|Dept|Assoc|St)\.$", core):
                     core = core[:-1].rstrip()
                 tagged, names = f"<collab>{esc(core)}</collab>{esc(auth[len(core):])}", [core]
         else:
@@ -1405,7 +1405,7 @@ def ref_words(t):
     n = re.sub(r"^\s*\d+[)）]", "", n)             # ウェブ版の通し番号
     n = re.sub(r"(?:doi|https?)\S*", "", n)        # ウェブ版だけが持つ DOI・URL
     # 登録版 (控えの XML) だけが持つもの: 接頭辞の無い DOI・JaLC の番号・号 (「no. 4」)・&amp;
-    n = re.sub(r"10\.\d{4,9}/\S+|dn/\S+|no\.\s*\d+|&amp;", " ", n)
+    n = re.sub(r"10\.\d{4,9}/\S+|dn/\S+|\bno\.\s*\d+|&amp;", " ", n)
     c = Counter(re.findall(r"[a-z]+|\d+|[^\x00-\x7f\W\d_]", n))
     for w in ("vol", "p", "pp", "no", "in", "and"):  # 組み方の違いで出入りする語
         c.pop(w, None)

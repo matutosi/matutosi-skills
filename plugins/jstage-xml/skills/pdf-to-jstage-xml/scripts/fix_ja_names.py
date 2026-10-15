@@ -124,7 +124,9 @@ def main():
         name, x = xml_in_zip(f) if is_zip else (None, Path(f).read_text(encoding="utf-8"))
         log = []
         new = fix_xml(x, known, log)
-        assert text_of(new) == text_of(x), f"文字が変わった: {f}"
+        # 検算 (python -O でも効くよう assert にしない)．タグを足すだけで，文字は変えない
+        if text_of(new) != text_of(x):
+            raise SystemExit(f"文字が変わった (書き換えない): {f}")
         total += len(log)
         print(f"{f}: {len(log)} 件")
         if a.write and new != x:

@@ -347,6 +347,17 @@ class TestWebRefComparison(unittest.TestCase):
         self.assertEqual(res[2], 1)
         self.assertTrue([r for r in report if "違い" in r or "食い違" in r or "植生" in r], report)
 
+    def test_issue_number_is_not_a_word(self):
+        # 「no. 12」(号) は組み方で出入りするので，語に数えない
+        words = self.b.ref_words("Smith 1999. Title. Journal vol. 5, no. 12, p. 1-9")
+        self.assertNotIn("12", words)
+        self.assertIn("1999", words)
+
+    def test_organization_abbreviation_keeps_its_period(self):
+        ref = self.b.Ref(1, "Acme Ltd. 2010. Report. Acme, London.")
+        self.assertEqual(ref.names, ["Acme Ltd."])
+        self.assertIn("<collab>Acme Ltd.</collab>", ref.xml)
+
     def test_word_overlap_helper(self):
         from collections import Counter
         a, b = Counter("abcd"), Counter("abxy")
