@@ -34,6 +34,7 @@ import pymupdf
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from list_articles import entries, squash, NS   # noqa: E402
+from journal_profile import epub_issn   # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -147,13 +148,15 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("vol")
     ap.add_argument("no", nargs="?")
-    ap.add_argument("--issn", default="2189-4809")
+    ap.add_argument("--journal", help="資料コード (例: vegsci)．設定の issn.epub を使う")
+    ap.add_argument("--issn", help="電子版の ISSN (--journal の代わりに直接渡す)")
     ap.add_argument("--n", type=int, default=1, help="調べる論文の数 (既定 1)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
     out = []
-    for journal, vol, no, art in article_ids(a.issn, a.vol, a.no, a.n):
+    issn = epub_issn(a.journal, a.issn)
+    for journal, vol, no, art in article_ids(issn, a.vol, a.no, a.n):
         fp = fingerprint(fetch_pdf(journal, vol, no, art))
         fp["article"] = art
         fp["vol"], fp["no"] = vol, no

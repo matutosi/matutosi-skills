@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from list_articles import entries, squash, NS   # noqa: E402  (同じディレクトリの取得部を使う)
+from journal_profile import epub_issn   # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -110,7 +111,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("update", help="J-STAGE の API から対応表を更新する")
-    p.add_argument("--issn", default="2189-4809", help="ISSN (既定: 植生学会誌の電子版)")
+    p.add_argument("--journal", help="資料コード (例: vegsci)．設定の issn.epub を使う")
+    p.add_argument("--issn", help="電子版の ISSN (--journal の代わりに直接渡す)")
     p.add_argument("--vol")
     p = sub.add_parser("get", help="短縮形 ↔ 記事識別子を引く")
     p.add_argument("key")
@@ -118,7 +120,7 @@ def main():
     p.add_argument("--vol")
     a = ap.parse_args()
     if a.cmd == "update":
-        update(a.issn, a.vol)
+        update(epub_issn(a.journal, a.issn), a.vol)
     elif a.cmd == "get":
         get(a.key)
     else:

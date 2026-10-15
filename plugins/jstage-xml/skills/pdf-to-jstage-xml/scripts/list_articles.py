@@ -119,7 +119,8 @@ def main():
     p.add_argument("vol"); p.add_argument("no")
     p.add_argument("--lang", choices=["ja", "en"], default="ja")
     p = sub.add_parser("html", help="サイト用の論文リスト (<li>) を出す")
-    p.add_argument("--issn", default="2189-4809", help="ISSN (既定: 植生学会誌の電子版)")
+    p.add_argument("--journal", help="資料コード (例: vegsci)．設定の issn.epub を使う")
+    p.add_argument("--issn", help="電子版の ISSN (--journal の代わりに直接渡す)")
     p.add_argument("--vol"); p.add_argument("--no")
     p.add_argument("--lang", choices=["ja", "en"], default="ja")
     p.add_argument("--out", help="書き出すファイル (省略すると標準出力)")
@@ -127,7 +128,8 @@ def main():
     if a.cmd == "toc":
         toc(a.journal, a.vol, a.no, a.lang)
     else:
-        html_list(a.issn, a.vol, a.no, a.lang, a.out)
+        from journal_profile import epub_issn   # 設定を読むときだけ (PyYAML を要る)
+        html_list(epub_issn(a.journal, a.issn), a.vol, a.no, a.lang, a.out)
 
 
 if __name__ == "__main__":

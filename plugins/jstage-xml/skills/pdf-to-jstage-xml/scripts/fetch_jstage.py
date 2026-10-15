@@ -87,7 +87,7 @@ def ymd(s):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("url", nargs="?")
-    ap.add_argument("--journal", default="vegsci")
+    ap.add_argument("--journal", required=True, help="資料コード (例: vegsci)．journals/<資料コード>.yaml を読む")
     ap.add_argument("--volume")
     ap.add_argument("--issue")
     ap.add_argument("--fpage")

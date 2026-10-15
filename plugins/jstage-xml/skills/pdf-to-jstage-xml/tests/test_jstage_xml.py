@@ -633,6 +633,45 @@ class TestJournalProfile(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
+class TestNoJournalDefault(unittest.TestCase):
+    """既定の雑誌・ISSN (植生学会誌) を持たない．渡し忘れたら黙って植生学会誌を引かずに止まる．"""
+
+    def run_script(self, name, *args):
+        import subprocess
+        r = subprocess.run([sys.executable, str(SCRIPTS / name)] + list(args), capture_output=True)
+        return r.returncode, (r.stdout + r.stderr).decode("utf-8", "replace")
+
+    def test_epub_issn_helper(self):
+        jp = load("journal_profile")
+        self.assertEqual(jp.epub_issn(issn="1234-5678"), "1234-5678")
+        self.assertEqual(jp.epub_issn(journal="vegsci"), jp.load_profile("vegsci")["issn"]["epub"])
+        with self.assertRaises(SystemExit):
+            jp.epub_issn()
+
+    def test_article_ids_needs_issn_or_journal(self):
+        code, out = self.run_script("article_ids.py", "update")
+        self.assertNotEqual(code, 0)
+        self.assertIn("--issn", out)
+
+    def test_list_articles_html_needs_issn_or_journal(self):
+        code, out = self.run_script("list_articles.py", "html")
+        self.assertNotEqual(code, 0)
+        self.assertIn("--issn", out)
+
+    def test_fetch_jstage_needs_journal(self):
+        code, out = self.run_script("fetch_jstage.py", "--out", "x")
+        self.assertNotEqual(code, 0)
+        self.assertIn("--journal", out)
+
+    def test_no_script_hard_codes_the_default(self):
+        for p in sorted(SCRIPTS.glob("*.py")):
+            text = p.read_text(encoding="utf-8")
+            self.assertNotIn('default="vegsci"', text, p.name)
+            self.assertNotIn('default="2189-4809"', text, p.name)
+            self.assertNotIn('or "vegsci"', text, p.name)
+
+
+@unittest.skipUnless(HAVE_YAML, "PyYAML が要る")
 class TestJournals(unittest.TestCase):
     def test_journal_settings_have_required_keys(self):
         for p in sorted((SKILL / "journals").glob("*.yaml")):

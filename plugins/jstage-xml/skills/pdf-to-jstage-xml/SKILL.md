@@ -23,7 +23,7 @@ argument-hint: "<控えの zip・論文.pdf・記事の URL のどれか> [--rev
   2000 年代より前の号は `<巻>_KJ0000…` のような NII 由来の形のことがあり，登載ではそちらが要る．
   `fetch_jstage.py` が記事の URL から `meta.yaml` の `article_id` に書き，`build.py` がそれを使う．
   AI が手で引くときは対応表を使う (`python $S/article_ids.py get <巻>_<開始ページ>`，逆も可．
-  表に無ければ `python $S/article_ids.py update --vol <巻> [--issn <ISSN>]`)．
+  表に無ければ `python $S/article_ids.py update --vol <巻> --journal <資料コード>`．`--issn <ISSN>` でもよい)．
 - **作業ディレクトリの中に写しや入れ子を作らない**．J-STAGE が求める
   「資料コード/巻/号/記事識別子/」の入れ子は zip の中の名前にだけ付け，PDF と図表の画像は元のファイルから
   直接 zip へ入れる (`scripts/manifest.py`)．できあがる形:
@@ -545,13 +545,13 @@ python $S/bundle.py W1 W2 W3 --out <出力先>
 ## 他の雑誌に広げるとき
 
 **スキル本体 (SKILL.md・scripts/) の処理は雑誌によらない**．雑誌ごとの違いは設定に置く．
-ただし**コマンドの既定値は植生学会誌** (`--journal vegsci`・`--issn 2189-4809`)．別の雑誌では毎回 `--journal <資料コード>` と `--issn <電子版の ISSN>` を渡す (忘れると植生学会誌の設定で動く)．
+**雑誌の既定値は持たない**．`extract.py`・`extract_scan.py`・`fetch_jstage.py` は `--journal <資料コード>` が必須で，ISSN を使う `article_ids.py`・`list_articles.py html`・`pdf_fingerprint.py` は `--journal <資料コード>` (設定の `issn.epub` を使う) か `--issn <電子版の ISSN>` のどちらかを渡す (渡し忘れると，黙って別の雑誌を引かずに止まる)．
 新しい雑誌を足すのは次の5歩．
 
 ### 1. 資料コードと ISSN を調べる
 
 記事の URL `https://www.jstage.jst.go.jp/article/<資料コード>/<巻>/<号>/<記事識別子>/…` の
-`<資料コード>`と，記事ページの ISSN (冊子・電子) を控える．電子 ISSN は `article_ids.py`・`list_articles.py`・`pdf_fingerprint.py` の `--issn` に使う．
+`<資料コード>`と，記事ページの ISSN (冊子・電子) を控える．電子 ISSN は `article_ids.py`・`list_articles.py`・`pdf_fingerprint.py` の `--issn` に使う (設定の `issn.epub` に書けば `--journal` で足りる)．
 
 ### 2. 設定を写す
 

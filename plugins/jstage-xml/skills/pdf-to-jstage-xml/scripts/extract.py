@@ -1184,7 +1184,7 @@ def check_era(prof, pdf, out):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pdf")
-    ap.add_argument("--journal", default="vegsci")
+    ap.add_argument("--journal", required=True, help="資料コード (例: vegsci)．journals/<資料コード>.yaml を読む")
     ap.add_argument("--out", required=True)
     ap.add_argument("--dpi-page", type=int, default=100)
     ap.add_argument("--force", action="store_true", help="既にある body.md を上書きする (AI が手で直した分は消える)")

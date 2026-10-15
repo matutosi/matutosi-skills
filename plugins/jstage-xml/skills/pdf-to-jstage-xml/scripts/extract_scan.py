@@ -369,7 +369,7 @@ def join_text(a, b):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pdf")
-    ap.add_argument("--journal", default="vegsci")
+    ap.add_argument("--journal", required=True, help="資料コード (例: vegsci)．journals/<資料コード>.yaml を読む")
     ap.add_argument("--out", required=True)
     ap.add_argument("--band", type=float, default=9.0, help="同じ行とみなす y の帯 (pt)")
     # extract.py から呼ばれたときと同じ 100dpi にそろえる (違うと，画素から pt への換算を取り違えて

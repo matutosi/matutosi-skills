@@ -304,7 +304,9 @@ def main():
             txt = raw.decode("utf-8")
         except UnicodeDecodeError:   # 35(1):35 の控えの .txt は Shift_JIS だった
             txt = raw.decode("cp932")
-    prof = es.load_profile(meta.get("journal") or "vegsci")
+    if not meta.get("journal"):
+        sys.exit("meta.yaml に journal (資料コード) が無い")
+    prof = es.load_profile(meta["journal"])
     sec = prof["sections"]
     names = lambda k: [sec[k]] if isinstance(sec[k], str) else list(sec[k])
     root = fb.parse(xml)
