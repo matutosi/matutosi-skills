@@ -329,6 +329,21 @@ class TestCsv(Base):
             self.assertIn("sub/d.jpg", handle.read().replace("\\", "/"))
 
 
+    def test_basename_with_same_names_warns(self):
+        # --basename だと別のフォルダの同名ファイルが区別できない (import で取り違える) ので知らせる
+        import contextlib
+        import io
+        os.makedirs(os.path.join(self.dir, "x"))
+        os.makedirs(os.path.join(self.dir, "y"))
+        self.path(os.path.join("x", "same.jpg"))
+        self.path(os.path.join("y", "same.jpg"))
+        out = os.path.join(self.dir, "out.csv")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.run_cli(["export", self.dir, "-r", "--basename", "-o", out])
+        self.assertIn("same.jpg", err.getvalue())
+        self.assertIn("同名", err.getvalue())
+
     def test_relative_export_then_import_round_trips(self):
         # export photos/ --relative -o c.csv のあと import c.csv で，同じファイルに当たること
         # (相対パスの基準が，import の既定 (CSV のある場所) と食い違ってはいけない)

@@ -537,6 +537,14 @@ def cmd_export(args):
         except (JpegError, OSError) as error:
             errors += 1
             print("skip: %s (%s)" % (path, error), file=sys.stderr)
+    if args.basename:
+        # ファイル名だけにすると，別のフォルダの同名ファイルは区別できず，import で取り違える
+        seen, dup = set(), set()
+        for name, _comment in rows:
+            (dup if name in seen else seen).add(name)
+        if dup:
+            print("警告: 同名のファイルが別のフォルダにあります (--basename では区別できません．"
+                  "--relative か既定のフルパスにしてください): " + ", ".join(sorted(dup)), file=sys.stderr)
     stream = (open(args.output, "w", encoding="utf-8-sig", newline="")
               if args.output else sys.stdout)
     try:
