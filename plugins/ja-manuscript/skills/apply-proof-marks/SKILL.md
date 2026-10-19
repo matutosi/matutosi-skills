@@ -280,9 +280,12 @@ python $D/decisions.py to-fixes --ids K18,K19 --out fixes.json     # 承認済�
 python $D/apply_fixes.py fixes.json --apply
 python $D/decisions.py mark-applied --ids K18,K19
 python $D/split_commits.py --dry-run                                # コミットの振り分けを見る
+python $D/split_commits.py --group-by-tag --tag-label "contrast=対比の表現をそろえる"   # 同じタグの決定を1コミットにまとめる
 ```
 
 `--file` (記録の置き場) は、サブコマンドの前に置く。`to-fixes` に `pending`・`rejected` の id が混ざっていると、警告を出して飛ばす。
+`split_commits.py` は、既定では1決定=1コミットにする。`--group-by-tag` を付けると、同じ `tag` の決定を1コミットにまとめる
+(メッセージは、そのタグの最初の決定の `label`。`--tag-label タグ=メッセージ` で指定できる)。
 `split_commits.py` は、ステージ済みの変更があると実行を拒否する。同じ行に2つの決定の変更が入っていて1つのハンクになるときは、
 ハンクを分けられないので、先に載っている決定へ寄せて警告を出す (その行は、決定を分けて反映しておく)。
 `check_applied.py` は、`file` が読めない項目を `nofile` と判定する。
