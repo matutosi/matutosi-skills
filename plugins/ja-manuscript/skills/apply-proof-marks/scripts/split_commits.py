@@ -4,9 +4,14 @@
 
 使い方:
   python split_commits.py [--file decisions.json] [--repo .] [--dry-run] [--trailer-file FILE]
+                          [--group-by-tag [--tag-label TAG=メッセージ ...]]
 
   --dry-run        どの変更がどの決定に振り分けられるかを表で出すだけ (何もコミットしない)
   --trailer-file   各コミットメッセージの末尾に足す文面 (共著の行など)
+  --group-by-tag   同じ tag の決定を1つのコミットにまとめる (順はタグが最初に現れる決定の順。
+                   メッセージは既定でそのタグの最初の決定の label。tag の無い決定は単独のまま)
+  --tag-label      タグごとのコミットメッセージを指定する (TAG=メッセージ。複数回指定できる。
+                   --group-by-tag が要る)
 
 振り分け:
   - テキストファイルごとに git diff -U0 を取り、ハンクに分ける。
@@ -124,18 +129,20 @@ def match_decisions(path, h, decs):
     return hits
 
 
-def build_plan(repo, decs, skip_path):
+def build_plan(repo, decs, skip_path, group_of=None):
     """変更を決定ごとに振り分ける。
 
     戻り値: (hunk_map, whole_map, warnings)
-      hunk_map: id -> [(path, header, hunk)]
-      whole_map: id -> [path] (ファイル丸ごと。バイナリ・未追跡・決定の files)
+      hunk_map: 振り分け先 -> [(path, header, hunk)]
+      whole_map: 振り分け先 -> [path] (ファイル丸ごと。バイナリ・未追跡・決定の files)
+    振り分け先は決定の id。group_of (id -> グループ名) を渡すとグループ名になる。
     """
+    group_of = group_of or {}
     active = [d for d in decs if d.get("status") != "rejected"]
     file_owner = {}
     for d in active:
         for f in d.get("files", []):
-            file_owner.setdefault(f.replace("\\", "/"), d["id"])
+            file_owner.setdefault(f.replace("\\", "/"), group_of.get(d["id"], d["id"]))
     tracked, untracked = changed_files(repo)
     bins = binary_files(repo)
     hunk_map, whole_map, warns = {}, {}, []
@@ -152,7 +159,11 @@ def build_plan(repo, decs, skip_path):
                   "--", path).stdout
         header, hunks = parse_diff(raw)
         for h in hunks:
-            hits = match_decisions(path, h, active)
+            hits = []
+            for x in match_decisions(path, h, active):
+                g = group_of.get(x, x)
+                if g not in hits:
+                    hits.append(g)
             if len(hits) > 1:
                 warns.append("%s: 複数の決定に当たる (%s)。%s へ振り分ける" % (path, ",".join(hits), hits[0]))
             hunk_map.setdefault(hits[0] if hits else OTHER, []).append((path, header, h))
@@ -168,6 +179,27 @@ def make_patch(items):
             order.append(path)
         by[path][1].append(h)
     return b"".join(by[p][0] + b"".join(by[p][1]) for p in order)
+
+
+def make_groups(decs, tag_labels):
+    """--group-by-tag 用。(group_of, order, labels, members) を返す。
+
+    group_of: 決定の id -> グループ名 (tag の無い決定は id のまま)
+    members: グループ名 -> [決定の id]
+    """
+    group_of, order, labels, members = {}, [], {}, {}
+    for d in decs:
+        if d.get("status") == "rejected":
+            continue
+        tag = d.get("tag")
+        g = "tag:%s" % tag if tag else d["id"]
+        group_of[d["id"]] = g
+        if g not in members:
+            members[g] = []
+            order.append(g)
+            labels[g] = tag_labels[tag] if tag and tag in tag_labels else d.get("label", d["id"])
+        members[g].append(d["id"])
+    return group_of, order, labels, members
 
 
 def commit(repo, message, trailer):
@@ -198,7 +230,17 @@ def main(argv=None):
     ap.add_argument("--repo", default=".")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--trailer-file")
+    ap.add_argument("--group-by-tag", action="store_true")
+    ap.add_argument("--tag-label", action="append", default=[], metavar="TAG=メッセージ")
     a = ap.parse_args(argv)
+    tag_labels = {}
+    for tl in a.tag_label:
+        if "=" not in tl or not tl.split("=", 1)[0]:
+            ap.error("--tag-label は TAG=メッセージ の形で指定する: %s" % tl)
+        k, v = tl.split("=", 1)
+        tag_labels[k] = v
+    if tag_labels and not a.group_by_tag:
+        ap.error("--tag-label には --group-by-tag が要る")
     repo = str(Path(a.repo).resolve())
     dfile = Path(a.file)
     if not dfile.is_absolute() and not dfile.exists():
@@ -214,20 +256,30 @@ def main(argv=None):
     except ValueError:
         pass
 
+    group_of = None
+    if a.group_by_tag:
+        group_of, g_order, g_labels, members = make_groups(decs, tag_labels)
+        known = {d.get("tag") for d in decs}
+        for t in tag_labels:
+            if t not in known:
+                print("警告: --tag-label のタグ %s は決定に無い (無視する)" % t, file=sys.stderr)
+
     try:
         if git(repo, "diff", "--cached", "--name-only").stdout.strip():
             sys.exit("ステージ済みの変更がある。先にコミットするか戻してから実行する")
-        hunk_map, whole_map, warns = build_plan(repo, decs, skip)
+        hunk_map, whole_map, warns = build_plan(repo, decs, skip, group_of)
     except GitError as e:
         sys.exit("エラー: %s" % e)
     for w in warns:
         print("警告: %s" % w, file=sys.stderr)
 
     labels = {d["id"]: d.get("label", d["id"]) for d in decs}
-    labels[OTHER] = OTHER_LABEL
     order = [d["id"] for d in decs if d.get("status") != "rejected"] + [OTHER]
+    if a.group_by_tag:
+        labels, order = dict(g_labels), g_order + [OTHER]
+    labels[OTHER] = OTHER_LABEL
 
-    print("決定 | ファイル | 種別 | 変更")
+    print("%s | ファイル | 種別 | 変更" % ("グループ" if a.group_by_tag else "決定"))
     count = 0
     for did in order:
         for path, _, h in hunk_map.get(did, []):
@@ -237,6 +289,17 @@ def main(argv=None):
             print("%s | %s | ファイル丸ごと | -" % (did, path))
             count += 1
     if a.dry_run:
+        if a.group_by_tag:
+            print("\nグループ | メッセージ | 決定 | ハンク | ファイル丸ごと")
+            for g in g_order:
+                print("%s | %s | %s | %d | %d" % (g, labels[g], ",".join(members[g]),
+                                                  len(hunk_map.get(g, [])), len(whole_map.get(g, []))))
+        n_dec = len([d for d in decs if d.get("status") != "rejected"])
+        n_hunk = sum(len(v) for v in hunk_map.values())
+        n_whole = sum(len(v) for v in whole_map.values())
+        n_group = len(g_order) if a.group_by_tag else n_dec
+        print("\n要約: 決定 %d 件 (コミット %d 件 + その他)・ハンク %d 件・ファイル丸ごと %d 件"
+              % (n_dec, n_group, n_hunk, n_whole))
         print("(--dry-run: 何もコミットしない)")
         return 0
     if not count:
@@ -247,7 +310,7 @@ def main(argv=None):
     for did in order:
         if done:  # 前のコミットで行番号がずれるので、毎回作り直す
             try:
-                hunk_map, whole_map, _ = build_plan(repo, decs, skip)
+                hunk_map, whole_map, _ = build_plan(repo, decs, skip, group_of)
             except GitError as e:
                 print("エラー: %s" % e, file=sys.stderr)
                 report_state(repo, done)

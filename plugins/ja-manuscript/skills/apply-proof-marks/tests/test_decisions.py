@@ -229,5 +229,69 @@ class TestSplitCommits(Base):
         self.assertEqual(self.log(), ["流れ", "init"])
 
 
+class TestGroupByTag(Base):
+    def setup_repo(self):
+        write(self.p("a.md"), "あ1\nい\nい\nい\nう2\nい\nい\nい\nえ3\nい\nい\nい\nお4\n")
+        self.commit_all()
+        write(self.p("a.md"), "あ一\nい\nい\nい\nう二\nい\nい\nい\nえ三\nい\nい\nい\nお四\n")
+        self.add("T1", "一にする", "あ1", "あ一", extra=["--tag", "x"])
+        self.add("T2", "二にする", "う2", "う二", extra=["--tag", "x"])
+        self.add("T3", "三にする", "え3", "え三", extra=["--tag", "x"])
+        self.add("U1", "四にする", "お4", "お四", extra=["--tag", "y"])
+
+    def split(self, *extra):
+        return run("split_commits.py", ["--file", self.dec] + list(extra), self.d)
+
+    def test_group_by_tag(self):
+        self.setup_repo()
+        code, out, err = self.split("--group-by-tag")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.log(), ["四にする", "一にする", "init"])
+        dx = git(self.d, "show", "--format=", "HEAD~1")
+        for s in ("あ一", "う二", "え三"):
+            self.assertIn(s, dx)
+        self.assertNotIn("お四", dx)
+        dy = git(self.d, "show", "--format=", "HEAD")
+        self.assertIn("お四", dy)
+        self.assertNotIn("あ一", dy)
+
+    def test_tag_label(self):
+        self.setup_repo()
+        code, out, err = self.split("--group-by-tag", "--tag-label", "x=まとめて数字にする")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.log(), ["四にする", "まとめて数字にする", "init"])
+
+    def test_tag_label_needs_group_by_tag(self):
+        self.setup_repo()
+        code, out, err = self.split("--tag-label", "x=メッセージ")
+        self.assertNotEqual(code, 0)
+        self.assertIn("--group-by-tag", err)
+        self.assertEqual(len(self.log()), 1)
+
+    def test_default_is_per_decision(self):
+        self.setup_repo()
+        code, out, err = self.split()
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.log(), ["四にする", "三にする", "二にする", "一にする", "init"])
+
+    def test_dry_run_commits_nothing(self):
+        self.setup_repo()
+        before = git(self.d, "rev-parse", "HEAD")
+        code, out, err = self.split("--group-by-tag", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(git(self.d, "rev-parse", "HEAD"), before)
+        self.assertIn("tag:x", out)
+        self.assertIn("tag:y", out)
+        self.assertIn("要約: 決定 4 件", out)
+        self.assertIn("ハンク 4 件", out)
+
+    def test_trailer_on_group_commit(self):
+        self.setup_repo()
+        write(self.p("trailer.txt"), "Co-Authored-By: Someone <s@example.com>\n")
+        code, out, err = self.split("--group-by-tag", "--trailer-file", self.p("trailer.txt"))
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("Co-Authored-By: Someone", git(self.d, "log", "-1", "--format=%B", "HEAD~1"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
