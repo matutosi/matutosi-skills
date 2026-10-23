@@ -281,8 +281,6 @@ def main(argv=None):
     if a.group_by_tag:
         labels, order = dict(g_labels), g_order + [OTHER]
     labels[OTHER] = OTHER_LABEL
-    if a.skip_other:
-        order = [o for o in order if o != OTHER]
 
     print("%s | ファイル | 種別 | 変更" % ("グループ" if a.group_by_tag else "決定"))
     count = 0
@@ -303,8 +301,8 @@ def main(argv=None):
         n_hunk = sum(len(v) for v in hunk_map.values())
         n_whole = sum(len(v) for v in whole_map.values())
         n_group = len(g_order) if a.group_by_tag else n_dec
-        print("\n要約: 決定 %d 件 (コミット %d 件 + その他)・ハンク %d 件・ファイル丸ごと %d 件"
-              % (n_dec, n_group, n_hunk, n_whole))
+        print("\n要約: 決定 %d 件 (コミット %d 件 + その他%s)・ハンク %d 件・ファイル丸ごと %d 件"
+              % (n_dec, n_group, "はコミットしない" if a.skip_other else "", n_hunk, n_whole))
         print("(--dry-run: 何もコミットしない)")
         return 0
     if not count:
@@ -313,6 +311,8 @@ def main(argv=None):
 
     done = []
     for did in order:
+        if a.skip_other and did == OTHER:
+            continue  # 表には載せるが，コミットしない
         if done:  # 前のコミットで行番号がずれるので、毎回作り直す
             try:
                 hunk_map, whole_map, _ = build_plan(repo, decs, skip, group_of)

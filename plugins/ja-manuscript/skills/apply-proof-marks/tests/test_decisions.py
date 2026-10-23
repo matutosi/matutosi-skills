@@ -275,8 +275,7 @@ class TestGroupByTag(Base):
 
     def test_skip_other_with_group_by_tag(self):
         self.setup_repo()
-        write(self.p("b.md"), "決定に関係ない新しい章です．
-")
+        write(self.p("b.md"), "決定に関係ない新しい章です．" + chr(10))
         code, out, err = self.split("--group-by-tag", "--skip-other")
         self.assertEqual(code, 0, out + err)
         self.assertEqual(self.log(), ["四にする", "一にする", "init"])
