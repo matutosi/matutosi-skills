@@ -184,6 +184,14 @@ class TestSplitCommits(Base):
         self.assertIn("a.md", status)  # 誤字の直しのハンクが残る
         self.assertIn("誤りがある", git(self.d, "diff", "a.md"))
 
+    def test_skip_other_dry_run_still_lists_other(self):
+        self.setup_repo()
+        before = git(self.d, "rev-parse", "HEAD")
+        code, out, err = self.split("--skip-other", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(git(self.d, "rev-parse", "HEAD"), before)
+        self.assertIn("other", out)
+
     def test_dry_run_commits_nothing(self):
         self.setup_repo()
         before = git(self.d, "rev-parse", "HEAD")
@@ -264,6 +272,15 @@ class TestGroupByTag(Base):
         dy = git(self.d, "show", "--format=", "HEAD")
         self.assertIn("お四", dy)
         self.assertNotIn("あ一", dy)
+
+    def test_skip_other_with_group_by_tag(self):
+        self.setup_repo()
+        write(self.p("b.md"), "決定に関係ない新しい章です．
+")
+        code, out, err = self.split("--group-by-tag", "--skip-other")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.log(), ["四にする", "一にする", "init"])
+        self.assertIn("b.md", git(self.d, "status", "--porcelain"))
 
     def test_tag_label(self):
         self.setup_repo()
