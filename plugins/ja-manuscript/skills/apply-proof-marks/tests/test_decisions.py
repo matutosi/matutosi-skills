@@ -174,6 +174,16 @@ class TestSplitCommits(Base):
         self.assertEqual(status, [])
         self.assertIn("a.md", git(self.d, "show", "--format=", "--name-only", "HEAD"))
 
+    def test_skip_other_leaves_other_uncommitted(self):
+        self.setup_repo()
+        code, out, err = self.split("--skip-other")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.log(), ["「平均」を「中央値」にする", "「フロー」を「流れ」にする", "init"])
+        status = git(self.d, "status", "--porcelain")
+        self.assertIn("b.md", status)
+        self.assertIn("a.md", status)  # 誤字の直しのハンクが残る
+        self.assertIn("誤りがある", git(self.d, "diff", "a.md"))
+
     def test_dry_run_commits_nothing(self):
         self.setup_repo()
         before = git(self.d, "rev-parse", "HEAD")

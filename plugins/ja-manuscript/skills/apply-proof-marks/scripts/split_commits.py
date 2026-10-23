@@ -4,7 +4,7 @@
 
 使い方:
   python split_commits.py [--file decisions.json] [--repo .] [--dry-run] [--trailer-file FILE]
-                          [--group-by-tag [--tag-label TAG=メッセージ ...]]
+                          [--group-by-tag [--tag-label TAG=メッセージ ...]] [--skip-other]
 
   --dry-run        どの変更がどの決定に振り分けられるかを表で出すだけ (何もコミットしない)
   --trailer-file   各コミットメッセージの末尾に足す文面 (共著の行など)
@@ -12,6 +12,8 @@
                    メッセージは既定でそのタグの最初の決定の label。tag の無い決定は単独のまま)
   --tag-label      タグごとのコミットメッセージを指定する (TAG=メッセージ。複数回指定できる。
                    --group-by-tag が要る)
+  --skip-other     どの決定にも当たらない変更 (other) をコミットせず，未コミットのまま残す
+                   (決定の分だけを先にコミットしたいとき)
 
 振り分け:
   - テキストファイルごとに git diff -U0 を取り、ハンクに分ける。
@@ -231,6 +233,7 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--trailer-file")
     ap.add_argument("--group-by-tag", action="store_true")
+    ap.add_argument("--skip-other", action="store_true")
     ap.add_argument("--tag-label", action="append", default=[], metavar="TAG=メッセージ")
     a = ap.parse_args(argv)
     tag_labels = {}
@@ -278,6 +281,8 @@ def main(argv=None):
     if a.group_by_tag:
         labels, order = dict(g_labels), g_order + [OTHER]
     labels[OTHER] = OTHER_LABEL
+    if a.skip_other:
+        order = [o for o in order if o != OTHER]
 
     print("%s | ファイル | 種別 | 変更" % ("グループ" if a.group_by_tag else "決定"))
     count = 0
@@ -334,6 +339,9 @@ def main(argv=None):
 
     status = git(repo, "status", "--porcelain").stdout.decode("utf-8", "replace").splitlines()
     left = [l for l in status if not (skip and l[3:].strip('"') == skip)]
+    if left and a.skip_other:
+        print("未コミットが残っている (--skip-other．other はコミットしていない):" + chr(10) + chr(10).join(left))
+        return 0
     if left:
         print("未コミットが残っている:\n%s" % "\n".join(left), file=sys.stderr)
         return 1
