@@ -79,8 +79,13 @@ def _need_password(wrong):
 def open_reader(pdf):
     """pypdf で開く。パスワード付きなら復号する (無い・違うときは分かるメッセージで止める)。"""
     r = pypdf.PdfReader(str(pdf))
-    if r.is_encrypted and not r.decrypt(PASSWORD or ""):
-        _need_password(bool(PASSWORD))
+    if r.is_encrypted:
+        try:
+            ok = r.decrypt(PASSWORD or "")
+        except pypdf.errors.DependencyError:
+            sys.exit("AES 暗号の PDF には cryptography が要ります: pip install cryptography")
+        if not ok:
+            _need_password(bool(PASSWORD))
     return r
 
 

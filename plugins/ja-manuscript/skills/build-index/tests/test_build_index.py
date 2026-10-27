@@ -348,7 +348,7 @@ class TestPasswordPdf(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp(prefix="bi_pw_")
         cls.path = os.path.join(cls.tmp, "locked.pdf")
         w = pypdf.PdfWriter(clone_from=pypdf.PdfReader(os.path.join(EXAMPLE, "sample_book.pdf")))
-        w.encrypt("dummy-pw", algorithm="AES-256")
+        w.encrypt("dummy-pw", algorithm="RC4-128")   # AES は cryptography が要る (CI に無い)
         with open(cls.path, "wb") as fh:
             w.write(fh)
 
@@ -361,6 +361,16 @@ class TestPasswordPdf(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             bi.Book(self.path, password="wrong")
         self.assertIn("パスワードが違い", str(cm.exception))
+
+    @unittest.skipUnless(importlib.util.find_spec("cryptography"), "cryptography が無い (AES の PDF を作れない)")
+    def test_aes256_pdf(self):
+        import pypdf
+        w = pypdf.PdfWriter(clone_from=pypdf.PdfReader(os.path.join(EXAMPLE, "sample_book.pdf")))
+        w.encrypt("dummy-pw", algorithm="AES-256")
+        p = os.path.join(self.tmp, "aes.pdf")
+        with open(p, "wb") as fh:
+            w.write(fh)
+        self.assertEqual(bi.Book(os.path.join(EXAMPLE, "sample_book.pdf")).text, bi.Book(p, password="dummy-pw").text)
 
     def test_with_password_reads_same_text(self):
         plain = bi.Book(os.path.join(EXAMPLE, "sample_book.pdf"))

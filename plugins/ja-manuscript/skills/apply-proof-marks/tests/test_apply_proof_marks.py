@@ -172,7 +172,7 @@ class TestExtractMarks(Base):
         """パスワード付き PDF: 無い・違うときは分かるメッセージで止まり，--password か環境変数 PDF_PASSWORD で読める．"""
         r = pypdf.PdfReader(self.p("proof.pdf"))
         w = pypdf.PdfWriter(clone_from=r)
-        w.encrypt("dummy-pw", algorithm="AES-256")
+        w.encrypt("dummy-pw", algorithm="RC4-128")   # AES は cryptography が要る (CI に無い)．AES は別の試験
         with open(self.p("locked.pdf"), "wb") as fh:
             w.write(fh)
         code, out, err = run("extract_marks.py", ["locked.pdf", "--list"], self.d)
