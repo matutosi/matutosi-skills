@@ -48,6 +48,8 @@ from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):   # sys.exit(メッセージ) の日本語が，端末の文字コード次第で化けない (CI の Windows で化けた)
+    sys.stderr.reconfigure(encoding="utf-8")
 
 try:
     import pypdf

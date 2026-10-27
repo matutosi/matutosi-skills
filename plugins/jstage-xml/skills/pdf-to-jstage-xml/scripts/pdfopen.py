@@ -10,6 +10,9 @@ import sys
 
 import pymupdf
 
+if hasattr(sys.stderr, "reconfigure"):   # エラーメッセージの日本語が，端末の文字コードで化けない
+    sys.stderr.reconfigure(encoding="utf-8")
+
 
 def add_arg(ap):
     ap.add_argument("--password", help="パスワード付き PDF のパスワード (環境変数 PDF_PASSWORD でも渡せる)")
