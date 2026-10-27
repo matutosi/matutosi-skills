@@ -35,6 +35,7 @@ import pymupdf
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from list_articles import entries, squash, NS   # noqa: E402
 from journal_profile import epub_issn   # noqa: E402
+from pdfopen import add_arg, apply, open_pdf   # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -70,7 +71,7 @@ def fetch_pdf(journal, vol, no, art):
 
 
 def fingerprint(path):
-    doc = pymupdf.open(path)
+    doc = open_pdf(path)
     fonts, sizes = Counter(), Counter()
     xs = []
     text_all = []
@@ -152,7 +153,9 @@ def main():
     ap.add_argument("--issn", help="電子版の ISSN (--journal の代わりに直接渡す)")
     ap.add_argument("--n", type=int, default=1, help="調べる論文の数 (既定 1)")
     ap.add_argument("--json", action="store_true")
+    add_arg(ap)
     a = ap.parse_args()
+    apply(a)
 
     out = []
     issn = epub_issn(a.journal, a.issn)

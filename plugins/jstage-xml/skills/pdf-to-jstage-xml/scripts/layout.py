@@ -17,6 +17,8 @@ import pymupdf
 
 import sys  # noqa: E402
 
+from pdfopen import open_pdf  # noqa: E402
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -27,7 +29,7 @@ def detect(pdf):
     スキャンは (1) 書体が1〜2種類しかなく (OCR が付けた1種類 + 記号)，
     (2) 1ページ目がページ全体を覆う画像1枚でできている．
     """
-    doc = pdf if isinstance(pdf, pymupdf.Document) else pymupdf.open(pdf)
+    doc = pdf if isinstance(pdf, pymupdf.Document) else open_pdf(pdf)
     fonts = {s["font"].split("+")[-1]
              for p in doc for b in p.get_text("dict")["blocks"] if b["type"] == 0
              for l in b["lines"] for s in l["spans"]}

@@ -11,6 +11,7 @@ PDF の読み込みは pypdfium2，terms.yaml の読み込みは pyyaml (どち�
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import unicodedata
@@ -143,9 +144,15 @@ def _toc_items(pdf):
 class Book:
     """ビルド済み PDF．ページ番号は紙面のノンブルで扱う．"""
 
-    def __init__(self, path, offset: int | None = None):
+    def __init__(self, path, offset: int | None = None, password: str | None = None):
         import pypdfium2 as pdfium
-        self.pdf = pdfium.PdfDocument(str(path))
+        try:
+            self.pdf = pdfium.PdfDocument(str(path), password=password)
+        except pdfium.PdfiumError as e:   # パスワード付き PDF
+            if "assword" in str(e):
+                raise SystemExit("PDF のパスワードが違います: --password か環境変数 PDF_PASSWORD を確かめる" if password else
+                                 "パスワード付きの PDF です: --password か環境変数 PDF_PASSWORD で渡す")
+            raise
         self.text = []
         self.footer = []
         for page in self.pdf:
@@ -467,6 +474,7 @@ def main(argv=None) -> int:
     ap.add_argument("--title", default="索引", help="索引の見出し (既定 索引)")
     ap.add_argument("--offset", type=int, help="ノンブルを PDF ページ番号 + この値で決める")
     ap.add_argument("--range-min", type=int, default=2, help="連続ページを範囲にまとめる最小数")
+    ap.add_argument("--password", help="パスワード付き PDF のパスワード (環境変数 PDF_PASSWORD でも渡せる．履歴に残したくなければこちら)")
     ap.add_argument("--check-only", action="store_true", help="点検だけして書き出さない")
     ap.add_argument("--report", action="store_true", help="語ごとのヒットページと節を表示する")
     args = ap.parse_args(argv)
@@ -493,7 +501,7 @@ def main(argv=None) -> int:
     if not pdf.is_file():
         print(f"PDF が見つかりません: {pdf}", file=sys.stderr)
         return 2
-    book = Book(pdf, args.offset)
+    book = Book(pdf, args.offset, args.password if args.password is not None else os.environ.get("PDF_PASSWORD"))
     book.exclude_section(args.title)  # 前の版の索引ページを拾わない
     entries = resolve(entries, book)
 

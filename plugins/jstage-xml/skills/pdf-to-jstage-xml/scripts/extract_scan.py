@@ -37,6 +37,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import layout                                         # noqa: E402
+from pdfopen import add_arg, apply, open_pdf          # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -377,7 +378,9 @@ def main():
     ap.add_argument("--dpi-page", type=int, default=100)
     ap.add_argument("--dpi-fig", type=int, default=300)
     ap.add_argument("--force", action="store_true", help="既にある body.md を上書きする")
+    add_arg(ap)
     args = ap.parse_args()
+    apply(args)
 
     prof = load_profile(args.journal)
     # 体裁の見分け: DTP で組んだ PDF なら新しい号用のスクリプトへ渡す
@@ -420,7 +423,7 @@ def main():
         if era and era.get("category"):
             REPORT.append(f"この巻号の原稿種別の印字は「{era['category']}」のはず (設定の eras より)")
 
-    doc = pymupdf.open(args.pdf)
+    doc = open_pdf(args.pdf)
     # 受付日・受理日は 1 ページ目の脚注にあるが，柱と一緒に外れるうえ OCR が崩す．
     # 誤読 (月の 8→9 など) を直せないので meta.yaml には書かず，候補として report.txt に出す
     meta_hist = (yaml.safe_load(mp.read_text(encoding="utf-8")) or {}).get("history") or {} if mp.exists() else {}

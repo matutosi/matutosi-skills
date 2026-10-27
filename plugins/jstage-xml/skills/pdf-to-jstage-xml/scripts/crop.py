@@ -20,6 +20,9 @@ import pymupdf
 
 import sys  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pdfopen import add_arg, apply, open_pdf  # noqa: E402
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -35,7 +38,9 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--rotate", type=int, default=0, choices=[0, 90, 180, 270],
                     help="切り出した画像を回す角度 (紙面が90度寝ているページで使う)")
+    add_arg(ap)
     args = ap.parse_args()
+    apply(args)
 
     work = Path(args.work)
     if args.pdf:
@@ -50,7 +55,7 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
 
     rect = pymupdf.Rect(*[float(v) for v in args.rect.split(",")])
-    with pymupdf.open(pdf) as doc:
+    with open_pdf(pdf) as doc:
         page = doc[args.page - 1]
         clip = rect & page.rect
         if clip.is_empty:

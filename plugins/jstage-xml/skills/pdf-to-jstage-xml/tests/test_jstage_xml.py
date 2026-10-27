@@ -42,6 +42,58 @@ class TestCompile(unittest.TestCase):
                 compile(p.read_text(encoding="utf-8"), str(p), "exec")
 
 
+@unittest.skipUnless(importlib.util.find_spec("pymupdf"), "PyMuPDF が要る")
+class TestPdfOpen(unittest.TestCase):
+    """パスワード付き PDF を開く (pdfopen.open_pdf)．環境変数 PDF_PASSWORD か --password で渡す．"""
+
+    @classmethod
+    def setUpClass(cls):
+        import pymupdf
+        cls.tmp = tempfile.mkdtemp(prefix="pdfopen_")
+        cls.path = os.path.join(cls.tmp, "locked.pdf")
+        doc = pymupdf.open()
+        doc.new_page().insert_text((72, 72), "abc")
+        doc.save(cls.path, encryption=pymupdf.PDF_ENCRYPT_AES_256, user_pw="dummy-pw", owner_pw="dummy-pw")
+        doc.close()
+        cls.mod = load("pdfopen")
+
+    def setUp(self):
+        self._saved = os.environ.pop("PDF_PASSWORD", None)
+
+    def tearDown(self):
+        os.environ.pop("PDF_PASSWORD", None)
+        if self._saved is not None:
+            os.environ["PDF_PASSWORD"] = self._saved
+
+    def test_no_password_stops_with_message(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.mod.open_pdf(self.path)
+        self.assertIn("パスワード付き", str(cm.exception))
+
+    def test_wrong_password(self):
+        os.environ["PDF_PASSWORD"] = "wrong"
+        with self.assertRaises(SystemExit) as cm:
+            self.mod.open_pdf(self.path)
+        self.assertIn("パスワードが違い", str(cm.exception))
+
+    def test_env_password_opens(self):
+        os.environ["PDF_PASSWORD"] = "dummy-pw"
+        self.assertIn("abc", self.mod.open_pdf(self.path)[0].get_text())
+
+    def test_password_arg_is_copied_to_env(self):
+        import argparse
+        ap = argparse.ArgumentParser()
+        self.mod.add_arg(ap)
+        self.mod.apply(ap.parse_args(["--password", "dummy-pw"]))
+        self.assertIn("abc", self.mod.open_pdf(self.path)[0].get_text())
+
+    def test_plain_pdf_still_opens(self):
+        import pymupdf
+        p = os.path.join(self.tmp, "plain.pdf")
+        d = pymupdf.open(); d.new_page().insert_text((72, 72), "xyz"); d.save(p); d.close()
+        self.assertIn("xyz", self.mod.open_pdf(p)[0].get_text())
+
+
 class TestJaSpace(unittest.TestCase):
     def setUp(self):
         self.js = load("ja_space")

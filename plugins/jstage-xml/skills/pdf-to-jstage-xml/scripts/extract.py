@@ -26,6 +26,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import extract_scan                                   # noqa: E402
 import layout                                         # noqa: E402
+from pdfopen import add_arg, apply, open_pdf          # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -1189,7 +1190,9 @@ def main():
     ap.add_argument("--dpi-page", type=int, default=100)
     ap.add_argument("--force", action="store_true", help="既にある body.md を上書きする (AI が手で直した分は消える)")
     ap.add_argument("--dpi-fig", type=int, default=300)
+    add_arg(ap)
     args = ap.parse_args()
+    apply(args)
 
     prof = load_profile(args.journal)
     # 体裁の見分け: 紙のスキャンなら旧号用のスクリプトへ渡す (どちらを呼んでもよいようにする)
@@ -1203,7 +1206,7 @@ def main():
     protect, IMG = prepare_outputs(out, args.force)
     check_era(prof, args.pdf, out)
 
-    doc = pymupdf.open(args.pdf)
+    doc = open_pdf(args.pdf)
     lay = auto_layout(doc, lay, as_list(prof["sections"]["refs"]))
     tol = lay["size_tol"]
 

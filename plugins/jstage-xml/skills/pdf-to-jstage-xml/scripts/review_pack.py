@@ -18,6 +18,7 @@ from pathlib import Path
 from lxml import etree
 
 import manifest
+from pdfopen import add_arg, apply, open_pdf
 
 import sys  # noqa: E402
 
@@ -109,7 +110,9 @@ def main():
     ap.add_argument("--work", required=True)
     ap.add_argument("--pdf", help="論文の PDF．渡すと検証用に 200dpi のページ画像を review/pages/ に作る")
     ap.add_argument("--dpi", type=int, default=200)
+    add_arg(ap)
     args = ap.parse_args()
+    apply(args)
     xml = Path(args.xml).resolve()
     work = Path(args.work).resolve()
     doc = etree.parse(str(xml), etree.XMLParser(load_dtd=False, no_network=True))
@@ -143,10 +146,9 @@ def main():
     pages = work / "pages"
     if args.pdf:
         # 検証役が小さい字まで読めるように，照合用 (100dpi) より細かいページ画像を作る
-        import pymupdf
         pages = work / "review" / "pages"
         pages.mkdir(parents=True, exist_ok=True)
-        for pg in pymupdf.open(args.pdf):
+        for pg in open_pdf(args.pdf):
             pg.get_pixmap(dpi=args.dpi).save(pages / f"p{pg.number + 1:03d}.png")
     o = [f"# 検証用資料: {xml.name}", "",
          f"- PDF のページ画像: `{pages}` (p001.png, p002.png, …)",

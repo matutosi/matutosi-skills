@@ -168,6 +168,29 @@ class TestExtractMarks(Base):
         self.assertTrue(any(f.startswith("p001_b2") for f in pngs), pngs)
 
     @unittest.skipUnless(HAVE_PDF and HAVE_PDFIUM, "pypdfium2 が要る")
+    def test_password_protected_pdf(self):
+        """パスワード付き PDF: 無い・違うときは分かるメッセージで止まり，--password か環境変数 PDF_PASSWORD で読める．"""
+        r = pypdf.PdfReader(self.p("proof.pdf"))
+        w = pypdf.PdfWriter(clone_from=r)
+        w.encrypt("dummy-pw", algorithm="AES-256")
+        with open(self.p("locked.pdf"), "wb") as fh:
+            w.write(fh)
+        code, out, err = run("extract_marks.py", ["locked.pdf", "--list"], self.d)
+        self.assertNotEqual(code, 0)
+        self.assertIn("パスワード付き", out + err)
+        code, out, err = run("extract_marks.py", ["locked.pdf", "--list", "--password", "wrong"], self.d)
+        self.assertNotEqual(code, 0)
+        self.assertIn("パスワードが違い", out + err)
+        code, out, err = run("extract_marks.py", ["locked.pdf", "--pages", "1", "--password", "dummy-pw"], self.d)
+        self.assertEqual(code, 0, err)
+        pngs = sorted(f for f in os.listdir(self.p("marks")) if f.endswith(".png"))
+        self.assertTrue(any(f.startswith("p001_b1") for f in pngs), pngs)   # 描画 (pypdfium2) も復号できている
+        env = dict(os.environ, PDF_PASSWORD="dummy-pw")
+        r2 = subprocess.run([sys.executable, "-I", os.path.join(SCRIPTS, "extract_marks.py"), "locked.pdf", "--list"],
+                            cwd=self.d, env=env, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+
+    @unittest.skipUnless(HAVE_PDF and HAVE_PDFIUM, "pypdfium2 が要る")
     def test_ink_only_makes_no_body_images(self):
         """--ink-only は，本文の写った帯の画像を作らず，朱書きだけの画像 (_ink.png) だけを出す．"""
         code, out, err = run("extract_marks.py", ["proof.pdf", "--pages", "1", "--ink-only"], self.d)

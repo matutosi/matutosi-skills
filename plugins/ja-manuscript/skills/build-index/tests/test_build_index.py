@@ -335,6 +335,39 @@ class TestBook(unittest.TestCase):
         self.assertTrue(set(after) < set(before))
 
 
+@unittest.skipUnless(HAVE_PDFIUM, "pypdfium2 が無い")
+class TestPasswordPdf(unittest.TestCase):
+    """パスワード付き PDF．"""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import pypdf
+        except ImportError:
+            raise unittest.SkipTest("pypdf が無い (試験用の暗号化 PDF を作れない)")
+        cls.tmp = tempfile.mkdtemp(prefix="bi_pw_")
+        cls.path = os.path.join(cls.tmp, "locked.pdf")
+        w = pypdf.PdfWriter(clone_from=pypdf.PdfReader(os.path.join(EXAMPLE, "sample_book.pdf")))
+        w.encrypt("dummy-pw", algorithm="AES-256")
+        with open(cls.path, "wb") as fh:
+            w.write(fh)
+
+    def test_without_password_stops_with_message(self):
+        with self.assertRaises(SystemExit) as cm:
+            bi.Book(self.path)
+        self.assertIn("パスワード付き", str(cm.exception))
+
+    def test_wrong_password(self):
+        with self.assertRaises(SystemExit) as cm:
+            bi.Book(self.path, password="wrong")
+        self.assertIn("パスワードが違い", str(cm.exception))
+
+    def test_with_password_reads_same_text(self):
+        plain = bi.Book(os.path.join(EXAMPLE, "sample_book.pdf"))
+        locked = bi.Book(self.path, password="dummy-pw")
+        self.assertEqual(plain.text, locked.text)
+
+
 @unittest.skipUnless(HAVE_PDFIUM and HAVE_YAML, "pypdfium2 または pyyaml が無い")
 class TestCli(unittest.TestCase):
     def setUp(self):

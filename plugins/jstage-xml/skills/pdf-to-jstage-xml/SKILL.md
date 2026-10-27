@@ -39,6 +39,11 @@ argument-hint: "<控えの zip・論文.pdf・記事の URL のどれか> [--rev
                             中は <資料コード>/<巻>/<号>/<記事識別子>/ に XML・PDF・Graphics/
   ```
 
+## パスワード付きの PDF
+
+`extract.py`・`extract_scan.py`・`crop.py`・`table_draft.py`・`review_pack.py`・`pdf_fingerprint.py` は，`--password <パスワード>` か環境変数 `PDF_PASSWORD` で渡すと，パスワード付きの PDF も開ける (履歴に残したくなければ環境変数)．
+パスワードが無い・違うときは，その旨を出して止まる．`--password` は環境変数に写されるので，呼び出し先 (`layout.py` など) も同じパスワードで開く．
+
 ## 実行時のオプション
 
 **独立検証 (手順 5) のやり方**を，スキルを呼ぶときに選べる．

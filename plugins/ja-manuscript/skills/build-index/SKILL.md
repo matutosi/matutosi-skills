@@ -128,6 +128,9 @@ entries:
 python ${CLAUDE_SKILL_DIR}/scripts/build_index.py _index_work/terms.yaml -o chapter_98_index.md
 ```
 
+**パスワード付きの PDF** は `--password <パスワード>` か，環境変数 `PDF_PASSWORD` で渡します (履歴に残したくなければ環境変数)．
+
+
 | オプション | 説明 |
 | --- | --- |
 | `-p`, `--pdf` | PDF を明示する (既定は `meta.pdf`) |

@@ -24,6 +24,10 @@ import re
 import pymupdf
 
 import sys  # noqa: E402
+import os  # noqa: E402
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pdfopen import add_arg, apply, open_pdf  # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -115,8 +119,10 @@ def main():
     ap.add_argument("--cols")
     ap.add_argument("--key-col", type=int)
     ap.add_argument("--next-clip")
+    add_arg(ap)
     args = ap.parse_args()
-    doc = pymupdf.open(args.pdf)
+    apply(args)
+    doc = open_pdf(args.pdf)
     left = draft(doc[args.page - 1], args.clip, args)
     if not args.next_clip:
         emit([c for _, c in left[1]], left[0])

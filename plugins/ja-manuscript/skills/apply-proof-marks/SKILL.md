@@ -607,6 +607,7 @@ python ${CLAUDE_SKILL_DIR}/scripts/extract_marks.py p07.jpg p29.jpg --ref manusc
 | `--clean` | auto | 朱書きを消した版も出す(`auto`/`always`/`never`) |
 | `--ink` | auto | 朱書きだけを白地に置いた版も出す(同上) |
 | `--overlap` | 0.10 | `auto` の閾値。**筆跡ごと**の重なり率の最大値で判定する |
+| `--password` | — | **パスワード付き PDF** のパスワード (参照 PDF にも使う)。環境変数 `PDF_PASSWORD` でも渡せる (履歴に残したくなければこちら)。無い・違うときは分かるメッセージで止まる |
 | `--ink-only` | — | **朱書きだけ**を白地に置いた画像 (`pNNN_bK_ink.png`) だけを出す。本文の写った画像は作らず，筆跡の範囲に切り詰める。文字起こしや，本文を見せたくないとき用 (下の「朱書きの文字だけを取り出す」) |
 | `--zoom` | — | 書き込み1つごとに拡大も出す |
 | `--zoom-dpi` | 300 | `--zoom` の拡大の解像度 |

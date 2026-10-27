@@ -42,6 +42,7 @@ ink はその2枚の差分なので、どちらも下の文字と混ざらない
 写真は台形にゆがむので合わないことが多い (スキャン向け)。
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -64,6 +65,33 @@ try:
     import numpy as np
 except ImportError:
     np = None
+
+# パスワード付き PDF 用．main() が --password か環境変数 PDF_PASSWORD から決める
+PASSWORD = None
+
+
+def _need_password(wrong):
+    sys.exit("PDF のパスワードが違います: --password か環境変数 PDF_PASSWORD を確かめる" if wrong else
+             "パスワード付きの PDF です: --password か環境変数 PDF_PASSWORD で渡す "
+             "(履歴に残したくなければ環境変数のほうがよい)")
+
+
+def open_reader(pdf):
+    """pypdf で開く。パスワード付きなら復号する (無い・違うときは分かるメッセージで止める)。"""
+    r = pypdf.PdfReader(str(pdf))
+    if r.is_encrypted and not r.decrypt(PASSWORD or ""):
+        _need_password(bool(PASSWORD))
+    return r
+
+
+def open_pdfium(path):
+    """pypdfium2 で開く。パスワード付きなら PASSWORD で復号する。"""
+    try:
+        return pdfium.PdfDocument(str(path), password=PASSWORD)
+    except pdfium.PdfiumError as e:
+        if "assword" in str(e):
+            _need_password(bool(PASSWORD))
+        raise
 
 
 # ---------------------------------------------------------------- 注釈の取り出し
@@ -132,7 +160,7 @@ def render(pdf, page_no, dpi, strip_annots=False):
 
     strip_annots=True で注釈を描かない(朱書きを消した版)。PDF は書き換えない。
     """
-    doc = pdfium.PdfDocument(str(pdf))
+    doc = open_pdfium(pdf)
     try:
         page = doc[page_no - 1]
         img = page.render(scale=dpi / 72, draw_annots=not strip_annots).to_pil()
@@ -347,7 +375,7 @@ def align_ref(img, ref_pdf, ref_no):
     ORB の特徴点 + RANSAC で相似変換を求め、ECC (アフィン) で詰める。
     """
     cv2 = load_cv2()
-    doc = pdfium.PdfDocument(str(ref_pdf))
+    doc = open_pdfium(ref_pdf)
     try:
         if not 1 <= ref_no <= len(doc):
             return None, 0.0
@@ -621,6 +649,8 @@ def main():
                     help="朱書きだけの版。auto は字に重なった帯だけ")
     ap.add_argument("--overlap", type=float, default=0.10,
                     help="auto の閾値。筆跡の下の字がどれだけ覆われたか(筆跡ごとの最大)")
+    ap.add_argument("--password", help="パスワード付き PDF のパスワード (参照 PDF にも使う)。"
+                    "履歴に残したくなければ環境変数 PDF_PASSWORD にする")
     ap.add_argument("--ink-only", action="store_true",
                     help="朱書きだけを白地に置いた画像 (pNNN_bK_ink.png) だけを出す．本文の写った画像は作らない．"
                          "文字起こしや，本文を見せたくないとき用")
@@ -645,6 +675,8 @@ def main():
     ap.add_argument("--ref-pages",
                     help="--ref の対応ページ (画像・ページの順)。既定はスキャンと同じ番号、画像は 1 から")
     args = ap.parse_args()
+    global PASSWORD
+    PASSWORD = args.password if args.password is not None else os.environ.get("PDF_PASSWORD")
 
     images = [s for s in args.src if Path(s).suffix.lower() in IMAGE_EXT]
     if images:
@@ -660,7 +692,7 @@ def main():
     want = parse_pages(args.pages)
     need_clean = args.clean != "never" or args.ink != "never" or args.ink_only
 
-    reader = pypdf.PdfReader(str(pdf))
+    reader = open_reader(pdf)
     targets = [p for i, p in enumerate(reader.pages, start=1) if not want or i in want]
     if targets and not any(ink_rects(p) for p in targets):
         if all(is_scanned(p) for p in targets):
