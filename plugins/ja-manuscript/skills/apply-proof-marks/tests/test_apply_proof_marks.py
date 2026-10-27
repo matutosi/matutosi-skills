@@ -167,6 +167,15 @@ class TestExtractMarks(Base):
         self.assertTrue(any(f.startswith("p001_b1") for f in pngs), pngs)
         self.assertTrue(any(f.startswith("p001_b2") for f in pngs), pngs)
 
+    @unittest.skipUnless(HAVE_PDF and HAVE_PDFIUM, "pypdfium2 が要る")
+    def test_ink_only_makes_no_body_images(self):
+        """--ink-only は，本文の写った帯の画像を作らず，朱書きだけの画像 (_ink.png) だけを出す．"""
+        code, out, err = run("extract_marks.py", ["proof.pdf", "--pages", "1", "--ink-only"], self.d)
+        self.assertEqual(code, 0, err)
+        pngs = sorted(f for f in os.listdir(self.p("marks")) if f.endswith(".png"))
+        self.assertTrue(pngs, "画像が出ていない")
+        self.assertTrue(all(f.endswith("_ink.png") for f in pngs), pngs)
+
 
 try:
     import numpy  # noqa: F401

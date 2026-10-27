@@ -470,6 +470,21 @@ python ${CLAUDE_SKILL_DIR}/../polish-loop/scripts/calibrate.py \
 キー名は `old`/`new` のままでよい(`calibrate.py` が両形式を受ける)。
 詳しくは `polish-loop` の手順9。**朱書きの `fixes.json` は章ごとに残しておく**。
 
+## 朱書きの文字だけを取り出す (本文との対応は要らないとき)
+
+朱書きの手書きだけを画像にして，その文字起こしをする。**本文は画像にも出力にも入らない。**
+
+```bash
+python ${CLAUDE_SKILL_DIR}/scripts/extract_marks.py _review/foo.pdf --pages 50-70 --ink-only --dpi 300
+python ${CLAUDE_SKILL_DIR}/scripts/extract_marks.py _review/foo.pdf --pages 50-70 --ink-only --zoom --zoom-dpi 400   # 筆跡のかたまりごとの拡大
+```
+
+- 出力は `marks/pNNN_bK_ink.png` (帯ごと) と `manifest.tsv` (ページ・帯・本数)。朱書きの無いページは出ない。
+- 手書きが小さいときは `--dpi 300` 以上にする (既定の 170 では小さい)。
+- 画像 (スキャン・写真) も同じ。色 (または `--ref` との差) の画素だけを白地に置く。図の中の同じ色も拾うので，帯を見て外す。
+- **文字起こしは，モデルが画像を読んで行う** (手書き日本語に使える OCR は無い)。1 帯 1 枚が小さい画像なので，トークンは少ない。
+  結果は `帯の名前<TAB>文字起こし<TAB>読みの確かさ (確/要確認)` の表にし，読めないものは「判読不能」と書く (推測で埋めない)。
+
 ## 画像 (スキャン・写真) から読むとき
 
 朱書きが `/Ink` 注釈ではなく、**紙に書いてスキャンした画像**や**朱書きを焼き込んだ画像**しか無いときは、
@@ -592,6 +607,7 @@ python ${CLAUDE_SKILL_DIR}/scripts/extract_marks.py p07.jpg p29.jpg --ref manusc
 | `--clean` | auto | 朱書きを消した版も出す(`auto`/`always`/`never`) |
 | `--ink` | auto | 朱書きだけを白地に置いた版も出す(同上) |
 | `--overlap` | 0.10 | `auto` の閾値。**筆跡ごと**の重なり率の最大値で判定する |
+| `--ink-only` | — | **朱書きだけ**を白地に置いた画像 (`pNNN_bK_ink.png`) だけを出す。本文の写った画像は作らず，筆跡の範囲に切り詰める。文字起こしや，本文を見せたくないとき用 (下の「朱書きの文字だけを取り出す」) |
 | `--zoom` | — | 書き込み1つごとに拡大も出す |
 | `--zoom-dpi` | 300 | `--zoom` の拡大の解像度 |
 | `--out` | 入力のあるフォルダの `marks/` | 出力先。別の PDF・画像の出力を上書きしたくないときに分ける (上書きするときは知らせる) |

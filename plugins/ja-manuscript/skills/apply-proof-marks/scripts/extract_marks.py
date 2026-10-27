@@ -155,6 +155,16 @@ def ink_only(band, clean_band):
     return Image.fromarray(out.astype("uint8"))
 
 
+def tight(img, margin=12):
+    """白地の画像から，筆跡のある範囲だけを残して切り詰める (余白は margin 画素)．"""
+    a = np.asarray(img.convert("L"))
+    ys, xs = np.where(a < 250)
+    if not len(xs):
+        return img
+    return img.crop((max(0, int(xs.min()) - margin), max(0, int(ys.min()) - margin),
+                     min(img.width, int(xs.max()) + 1 + margin), min(img.height, int(ys.max()) + 1 + margin)))
+
+
 def stroke_overlap(img, clean, rects, H, sy):
     """朱書きが本文の字にどれだけ重なっているかを、筆跡ごとに測って最大値を返す。
 
@@ -493,6 +503,13 @@ def run_pages(pages, outdir, args, unit, ref_nums=None):
             if args.list:
                 continue
             band = img.crop((0, top, img.width, bot))
+            if args.ink_only:   # 画像・スキャン: 本文を除き，色 (または参照との差) の画素だけを白地に置く
+                m = mask[top:bot]
+                a = np.asarray(band)
+                only = np.full_like(a, 255)
+                only[m] = a[m]
+                tight(Image.fromarray(only)).save(outdir / (name + "_ink.png"))
+                continue
             band.save(outdir / (name + ".png"))
             if refimg is not None and args.clean != "never":
                 refimg.crop((0, top, img.width, bot)).save(outdir / (name + "_clean.png"))
@@ -502,7 +519,7 @@ def run_pages(pages, outdir, args, unit, ref_nums=None):
                 only = np.full_like(a, 255)
                 only[m] = a[m]
                 Image.fromarray(only).save(outdir / (name + "_ink.png"))
-        if args.zoom and not args.list and bands:
+        if args.zoom and not args.list and bands and not args.ink_only:   # 画像の拡大は本文も写るので，--ink-only では出さない
             sub = np.zeros_like(mask)
             for top, bot, _ in bands:
                 sub[top:bot] = mask[top:bot]
@@ -604,6 +621,9 @@ def main():
                     help="朱書きだけの版。auto は字に重なった帯だけ")
     ap.add_argument("--overlap", type=float, default=0.10,
                     help="auto の閾値。筆跡の下の字がどれだけ覆われたか(筆跡ごとの最大)")
+    ap.add_argument("--ink-only", action="store_true",
+                    help="朱書きだけを白地に置いた画像 (pNNN_bK_ink.png) だけを出す．本文の写った画像は作らない．"
+                         "文字起こしや，本文を見せたくないとき用")
     ap.add_argument("--zoom", action="store_true",
                     help="筆跡のかたまりごとに拡大画像も出す(手書きが読めないとき)")
     ap.add_argument("--zoom-dpi", type=int, default=300)
@@ -638,7 +658,7 @@ def main():
 
     pdf = Path(args.src[0]).resolve()
     want = parse_pages(args.pages)
-    need_clean = args.clean != "never" or args.ink != "never"
+    need_clean = args.clean != "never" or args.ink != "never" or args.ink_only
 
     reader = pypdf.PdfReader(str(pdf))
     targets = [p for i, p in enumerate(reader.pages, start=1) if not want or i in want]
@@ -677,6 +697,12 @@ def main():
             top = max(0, int((H - y1) * sy))
             bot = min(img.height, int((H - y0) * sy))
             band = img.crop((0, top, img.width, bot))
+            if args.ink_only:   # 本文は出さない．朱書きだけを白地に置いた画像を，筆跡の範囲に切り詰めて保存する
+                only = ink_only(band, clean.crop((0, top, clean.width, bot)))
+                if only is not None:
+                    tight(only).save(outdir / (name + "_ink.png"))
+                rows.append((i, k, round(y0, 1), round(y1, 1), n, name, ""))
+                continue
             band.save(outdir / (name + ".png"))
             ratio = ""
             if clean is not None:
@@ -695,11 +721,13 @@ def main():
 
         if args.zoom:
             big = render(pdf, i, args.zoom_dpi)
+            if args.ink_only:   # 拡大も，本文を除いた朱書きだけの版にする
+                big = ink_only(big, render(pdf, i, args.zoom_dpi, True)) or big
             zy = big.height / H
             for j, c in enumerate(to_clusters(rects), start=1):
                 t = max(0, int((H - c[3] - 16) * zy)); b = min(big.height, int((H - c[1] + 16) * zy))
                 l = max(0, int((c[0] - 90) * zy)); rr = min(big.width, int((c[2] + 90) * zy))
-                big.crop((l, t, rr, b)).save(outdir / ("p%03d_z%d.png" % (i, j)))
+                big.crop((l, t, rr, b)).save(outdir / ("p%03d_z%d%s.png" % (i, j, "_ink" if args.ink_only else "")))
 
     man = outdir / "manifest.tsv"
     write_manifest(man, "page\tband\ty0\ty1\tstrokes\tname\toverlap", rows)
