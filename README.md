@@ -68,6 +68,18 @@ Python の標準ライブラリだけで動きます．
 Export the Exif UserComment of JPEG files to a CSV, edit it in a spreadsheet, and import it back.
 Only the Python standard library is required.
 
+<a id="vegetation-survey"></a>
+
+### vegetation-survey (植生調査票のデータ化)
+
+植生調査票 (PDF・画像) を読み取り，ひとはく植生調査資料DB形式 (47 列) の CSV にするスキル `veg-sheet-to-csv` です．
+「この植生調査票を CSV にして」のように頼むと使われます．手順は [SKILL.md](plugins/vegetation-survey/skills/veg-sheet-to-csv/SKILL.md) にあります．
+
+- 先に選べる項目: 出力の形 (1ファイル／地点と組成の2ファイル)・種名のカナ (全角／半角)・データの無いセル (空欄／NA)・文字コード・不明なコードの仮置き．
+- 調査票の書き方のパターン (被度・群度，階層，地点情報，種名) を `references/patterns.md` にまとめています．入力と出力の例を渡すと，それに合わせます．
+- 実行中に足りない点が見つかれば，直す案を示し，選んだものだけスキルに反映します．
+- Python の標準ライブラリだけで動きます．
+
 <a id="jstage-xml"></a>
 
 ### jstage-xml (J-STAGE の全文 XML)

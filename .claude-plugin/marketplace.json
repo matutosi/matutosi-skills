@@ -20,6 +20,11 @@
       "name": "jstage-xml",
       "source": "./plugins/jstage-xml",
       "description": "学会誌の論文 PDF (原稿なし) から J-STAGE 用の全文 XML (JATS 1.1) を作る．植生学会誌の設定と記録を作例として含む．"
+    },
+    {
+      "name": "vegetation-survey",
+      "source": "./plugins/vegetation-survey",
+      "description": "植生調査票 (PDF・画像) を読み取り，ひとはく植生調査資料DB形式の CSV にする．1ファイル／2ファイル，全角／半角カナ，空欄／NA などを選べる．"
     }
   ]
 }
