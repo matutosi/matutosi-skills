@@ -72,7 +72,7 @@ Only the Python standard library is required.
 
 ### vegetation-survey (植生調査票のデータ化)
 
-植生調査票 (PDF・画像) を読み取り，ひとはく植生調査資料DB形式 (47 列) の CSV にするスキル `veg-sheet-to-csv` です．
+植生調査票 (PDF・画像) を読み取り，植生調査資料DB形式 (47 列) の CSV にするスキル `veg-sheet-to-csv` です．
 「この植生調査票を CSV にして」のように頼むと使われます．手順は [SKILL.md](plugins/vegetation-survey/skills/veg-sheet-to-csv/SKILL.md) にあります．
 
 - 先に選べる項目: 出力の形 (1ファイル／地点と組成の2ファイル)・種名のカナ (全角／半角)・データの無いセル (空欄／NA)・文字コード・不明なコードの仮置き．

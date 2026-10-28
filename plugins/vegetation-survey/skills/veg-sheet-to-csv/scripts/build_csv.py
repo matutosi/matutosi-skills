@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""植生調査票の読み取り結果 (JSON) から，ひとはく植生調査資料DB形式の CSV を作る.
+"""植生調査票の読み取り結果 (JSON) から，植生調査資料DB形式の CSV を作る.
 
     python build_csv.py data.json -o out/調査表 [--layout single|two] [--kana half|full]
                         [--missing blank|na] [--encoding cp932|utf-8-sig|utf-8]
