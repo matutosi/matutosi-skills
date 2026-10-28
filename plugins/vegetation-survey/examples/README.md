@@ -19,3 +19,15 @@ JSON の書き方:
 - 種の被度と群度は `被度・群度` に `"3,4"` や `"+"` と書くと分かれる．
 - `site.出現種数` は CSV の列にならず，種名の数との照合に使う．
 - 複数の調査票は `{"sheets": [{"site": ..., "species": [...]}, ...]}`．
+
+## 試す (入力 → 読み取り → 出力)
+
+| ファイル | 中身 |
+|---|---|
+| `sample_sheet.png` | **入力の例**．架空の植生調査票 (手書き風の画像)．スキルにこの画像を読ませる |
+| `sample.json` | **読み取りの正解**．画像を読んだ結果がこれと一致すればよい |
+| `expected_single.csv` | **出力の例**．`sample.json` から作った既定の CSV (1ファイル・半角カナ・空欄・cp932．テストが1バイトまで照合する) |
+| `make_sample_sheet.py` | `sample.json` から `sample_sheet.png` を作り直す (Pillow と日本語フォントが要る) |
+
+試し方: Claude Code に「`examples/sample_sheet.png` を植生調査票として CSV にして」と頼み，出てきた CSV を `expected_single.csv` と比べる．
+種名の照合 (`check_names.py`) を試すときは，`sample.json` の種名に `コジイ` (異名．標準和名はツブラジイ) が入っている．

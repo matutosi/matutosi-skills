@@ -154,6 +154,12 @@ class BuildTest(unittest.TestCase):
         rc = b.main([path, "-o", out, "--encoding", "utf-8-sig"])
         self.assertEqual(rc, 0)
 
+    def test_golden(self):
+        """examples/expected_single.csv (既定の出力) と1バイトも違わない."""
+        out = self.run_cli()
+        with open(out + ".csv", "rb") as f, open(os.path.join(os.path.dirname(SAMPLE), "expected_single.csv"), "rb") as g:
+            self.assertEqual(f.read(), g.read())
+
     def test_clean(self):
         self.assertEqual(b.build(load())[0], [])
 
