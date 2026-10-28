@@ -17,6 +17,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install Python packages
-        run: python -m pip install pypdf pypdfium2 pillow numpy opencv-python-headless pymupdf lxml pyyaml pykakasi cryptography
+        run: python -m pip install pypdf pypdfium2 pillow numpy opencv-python-headless pymupdf lxml pyyaml pykakasi cryptography openpyxl
       - name: Run tests
         run: python run_tests.py
