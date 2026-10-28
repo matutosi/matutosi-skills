@@ -31,3 +31,6 @@ JSON の書き方:
 
 試し方: Claude Code に「`examples/sample_sheet.png` を植生調査票として CSV にして」と頼み，出てきた CSV を `expected_single.csv` と比べる．
 種名の照合 (`check_names.py`) を試すときは，`sample.json` の種名に `コジイ` (異名．標準和名はツブラジイ) が入っている．
+
+**スキルを実行して比べるときの注意**: スキルは既定で種名を照合し (`check_names.py --fill latin,family`)，空の科名を補う．
+そのため，出てきた CSV と `expected_single.csv` の差は**科名の列だけ** (`expected_single.csv` は照合していないので科名が空)．学名と，その他の列は一致する (2026-10 に確かめた)．
