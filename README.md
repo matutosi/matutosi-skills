@@ -105,6 +105,9 @@ matutosi-skills のプラグインを，すべて新しい版に更新して
 - `build-index`: `pypdfium2`・`pyyaml` (どちらも `pip install` で入る)．見出しのよみの候補を出す補助 (任意) を使うときだけ `pykakasi` も要る
 - ほかの5つ: Python の標準ライブラリだけ
 
+パスワード付きの PDF は，`--password <パスワード>` か環境変数 `PDF_PASSWORD` で渡すと開けます (`apply-proof-marks`・`build-index`．履歴に残したくなければ環境変数)．
+AES で暗号化された PDF を `apply-proof-marks` で開くときは，`pip install cryptography` も要ります．
+
 <a id="jpg-user-comment"></a>
 
 ### jpg-user-comment (JPEG のコメント)
@@ -139,6 +142,7 @@ Only the Python standard library is required.
 - 雑誌ごとの設定は `journals/<資料コード>.yaml` に置きます．ひな形 (`_template`) と，作例として植生学会誌 (`vegsci`) の設定と記録が入っています．
 - 作業ディレクトリ・控え・記事識別子の対応表は，任意のフォルダ (作業の根) に置きます．環境変数 `JSTAGE_ROOT` で渡します (`from_backup.py` と `fix_ja_names.py` は `--root` でも渡せます)．
 - 必要な道具: Python 3.11 以降と `pip install pymupdf lxml pyyaml`．スキャンの号は，PDF に入っている OCR の文字をそのまま使います．論文一覧の取得 (`list_articles.py toc`) には `beautifulsoup4` も要ります．
+- パスワード付きの PDF は，`--password <パスワード>` か環境変数 `PDF_PASSWORD` で渡すと開けます．
 - 論文一覧の取得 (`scripts/list_articles.py`) と，登載前に見た目を確かめる手元のプレビュー (`scripts/preview_tool/`) も入っています．
 - 控えの取り方と調査のまとめは，[support-ac](https://github.com/matutosi/support-ac) の `jstage/` を見てください．
 
@@ -151,6 +155,9 @@ Only the Python standard library is required.
 
 - [plugins/ja-manuscript/examples/](plugins/ja-manuscript/examples/): 誤りをわざと入れた2章の練習原稿と，リライトの草稿．索引づくりの例 (架空の入門書 3 章と組んだ PDF) は [index/](plugins/ja-manuscript/examples/index/)
 - [plugins/jpg-user-comment/examples/](plugins/jpg-user-comment/examples/): JPEG 2枚と，コメントを書いた CSV
+- [plugins/vegetation-survey/examples/](plugins/vegetation-survey/examples/): 架空の植生調査票1枚の画像と，それを読み取った JSON，正解の CSV
+
+`jstage-xml` には `examples/` がありません．雑誌の設定の作例として，植生学会誌の設定と記録 (`journals/vegsci.*`) が入っています．
 
 <a id="tests"></a>
 
@@ -166,6 +173,7 @@ python run_tests.py
 `jstage-xml` のテストは PyMuPDF・PyYAML が無いと一部を飛ばします．
 `build-index` のテストには `pypdfium2`・`pyyaml` が要ります (無ければ PDF を使う試験を飛ばします)．
 `apply-proof-marks` のテストには `pypdf`・`Pillow` が要り，画像の切り出しの試験には `pypdfium2` も，`--ref` の試験には `opencv-python` も要ります (無ければ飛ばす)．
+`vegetation-survey` の照合 (`check_names.py`) のテストのうち，xlsx を読む試験には `openpyxl` が要ります．
 無いときは，その試験だけを飛ばします．
 GitHub では，push のたびに Ubuntu と Windows でテストを回します (`.github/workflows/test.yml`)．
 
