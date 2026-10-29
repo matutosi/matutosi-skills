@@ -30,6 +30,7 @@ JSON の書き方:
 | `make_sample_sheet.py` | `sample.json` から `sample_sheet.png` を作り直す (Pillow と日本語フォントが要る) |
 
 試し方: Claude Code に「`examples/sample_sheet.png` を植生調査票として CSV にして」と頼み，出てきた CSV を `expected_single.csv` と比べる．
+通常の実行と同じく，**先に選択肢の表が示される** (出力の形・カナ・空欄／`NA`・文字コードなど)．「既定で」と返せば，見本と同じ形になる．
 種名の照合 (`check_names.py`) を試すときは，`sample.json` の種名に `コジイ` (異名．標準和名はツブラジイ) が入っている．
 
 **スキルを実行して比べるときの注意**: スキルは既定で種名を照合し (`check_names.py --fill latin,family`)，空の科名を補う．
