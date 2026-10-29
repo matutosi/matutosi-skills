@@ -2,9 +2,9 @@
 
 Claude Code のプラグインのマーケットプレイスです．
 日本語の Markdown 原稿を整形・推敲するスキル，JPEG 写真のコメントを CSV で読み書きするスキル，
-学会誌の論文 PDF から J-STAGE の全文 XML を作るスキルを収めています．
+学会誌の論文 PDF から J-STAGE の全文 XML を作るスキル，植生調査票を読み取って CSV にするスキルを収めています．
 
-A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts, for the Exif UserComment of JPEG files, and for building J-STAGE full-text XML from journal PDFs.
+A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts, for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, and for turning vegetation survey sheets into CSV.
 
 <a id="install"></a>
 
@@ -17,6 +17,17 @@ Claude Code で次を実行してください．
 /plugin install ja-manuscript@matutosi-skills
 /plugin install jpg-user-comment@matutosi-skills
 /plugin install jstage-xml@matutosi-skills
+/plugin install vegetation-survey@matutosi-skills
+```
+
+PowerShell などのターミナルから入れるときは，次のようにします (`/plugin` の代わりに `claude plugin` と書きます)．
+
+```
+claude plugin marketplace add matutosi/matutosi-skills
+claude plugin install ja-manuscript@matutosi-skills
+claude plugin install jpg-user-comment@matutosi-skills
+claude plugin install jstage-xml@matutosi-skills
+claude plugin install vegetation-survey@matutosi-skills
 ```
 
 必要なプラグインだけを入れても構いません．
@@ -28,7 +39,44 @@ Claude Code で次を実行してください．
 GitHub の matutosi/matutosi-skills から ja-manuscript のスキルをインストールして
 ```
 
-プラグイン名 (`ja-manuscript`) を `jpg-user-comment` や `jstage-xml` に替えれば，ほかのプラグインも同じように入れられます．
+プラグイン名 (`ja-manuscript`) を `jpg-user-comment`・`jstage-xml`・`vegetation-survey` に替えれば，ほかのプラグインも同じように入れられます．
+
+<a id="update"></a>
+
+## 新しい版にする / Update
+
+入れたプラグインは自動では新しい版になりません．
+Claude Code で次を実行し，マーケットプレイスの情報を取り直してから，プラグインごとに更新してください．
+
+```
+/plugin marketplace update matutosi-skills
+/plugin update ja-manuscript@matutosi-skills
+/plugin update jpg-user-comment@matutosi-skills
+/plugin update jstage-xml@matutosi-skills
+/plugin update vegetation-survey@matutosi-skills
+```
+
+PowerShell などのターミナルから更新するときは，次のようにします．
+
+```
+claude plugin marketplace update matutosi-skills
+claude plugin update ja-manuscript@matutosi-skills
+claude plugin update jpg-user-comment@matutosi-skills
+claude plugin update jstage-xml@matutosi-skills
+claude plugin update vegetation-survey@matutosi-skills
+```
+
+入れていないプラグインの行は飛ばしてください．
+更新したあとは，Claude Code を開き直すと新しい版が読み込まれます．
+いまの版は `claude plugin list` で確かめられます．
+
+コマンドが分からないときは，Claude Code にふつうの言葉で頼んでも更新してくれます．
+
+```
+matutosi-skills のプラグインを，すべて新しい版に更新して
+```
+
+1つだけ更新するときは，「matutosi-skills の ja-manuscript を新しい版に更新して」のようにプラグイン名を書きます．
 
 <a id="plugins"></a>
 
