@@ -6,7 +6,7 @@ description: 植生調査票 (手書き・印刷の PDF や画像) を読み取�
 # 植生調査票 → CSV
 
 調査票の画像を読んで JSON にまとめ，`scripts/build_csv.py` で CSV にする．
-列の定義は [references/columns.md](references/columns.md)．標準ライブラリだけで動く．
+列の定義は [references/columns.md](references/columns.md)．標準ライブラリだけで動く (**Python 3.8 以上**)．
 
 読み取り (AI の仕事) と CSV の組み立て (スクリプトの仕事) を分ける．
 カナの変換・空欄の扱い・列の並び・文字コード・件数の照合はスクリプトがやるので，JSON には**調査票に書かれたとおり**を入れればよい．

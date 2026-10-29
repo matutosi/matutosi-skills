@@ -130,7 +130,7 @@ Only the Python standard library is required.
 - 調査票の書き方のパターン (被度・群度，階層，地点情報，種名) を `references/patterns.md` にまとめています．入力と出力の例を渡すと，それに合わせます．
 - 実行中に足りない点が見つかれば，直す案を示し，選んだものだけスキルに反映します．
 - 種名は，GBIF Japan の[維管束植物和名チェックリスト](https://gbif.jp/activities/checklist/wamei_checklist_110/) (ver. 1.10，CC BY 4.0) と照合できます (`check_names.py`)．異名の検出・似た名前の候補・空の学名と科名の補完をします．
-- `build_csv.py` は標準ライブラリだけで動きます．照合 (`check_names.py`) には `pip install openpyxl` が要ります．
+- 必要な Python は **3.8 以上**です (スクリプトの構文は 3.6 でも通りますが，3.8 以上を目安にしています)．`build_csv.py` は標準ライブラリだけで動きます．照合 (`check_names.py`) には `pip install openpyxl` が要ります．
 
 <a id="jstage-xml"></a>
 
