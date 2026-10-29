@@ -16,7 +16,7 @@ python $S examples/sample.json -o out/sample --layout two --kana full --missing 
 JSON の書き方:
 
 - `site` に地点の項目，`species` に種の行を入れる．列名は CSV の列名そのまま．
-- 種の被度と群度は `被度・群度` に `"3,4"` や `"+"` と書くと分かれる．
+- 種の被度と群度は `被度・群度` に `"3,4"` や `"+"` と書くと分かれる (`+` や `r` だけのときは群度 1)．
 - `site.出現種数` は CSV の列にならず，種名の数との照合に使う．
 - 複数の調査票は `{"sheets": [{"site": ..., "species": [...]}, ...]}`．
 

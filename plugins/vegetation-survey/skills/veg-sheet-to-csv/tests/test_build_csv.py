@@ -51,7 +51,7 @@ class KanaTest(unittest.TestCase):
 
 class CoverTest(unittest.TestCase):
     def test_split(self):
-        for src, c, g in [("3,4", "3", "4"), ("3・4", "3", "4"), ("+", "+", None), ("2.3", "2", "3")]:
+        for src, c, g in [("3,4", "3", "4"), ("3・4", "3", "4"), ("+", "+", "1"), ("r", "r", "1"), ("3", "3", None), ("2.3", "2", "3")]:
             sp = {"被度・群度": src}
             b.split_cover(sp)
             self.assertEqual(sp["被度階級値"], c)
@@ -75,7 +75,7 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(r["面積測定方法"], "0")
         self.assertEqual(r["緯度"], "")
         last = dict(zip(rows[0], rows[4]))
-        self.assertEqual((last["被度階級値"], last["群度"]), ("+", ""))
+        self.assertEqual((last["被度階級値"], last["群度"]), ("+", "1"))
 
     def test_full_na(self):
         out = self.run_cli("--kana", "full", "--missing", "na", "--unknown-code", "blank")

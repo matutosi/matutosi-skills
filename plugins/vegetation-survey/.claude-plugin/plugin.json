@@ -1,6 +1,6 @@
 {
   "name": "vegetation-survey",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "植生調査票 (PDF・画像) を読み取り，植生調査資料DB形式の CSV にする．1ファイル／2ファイル，全角／半角カナ，空欄／NA などを選べる．",
   "author": { "name": "Toshikazu Matsumura" },
   "license": "MIT",
