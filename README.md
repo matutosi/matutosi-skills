@@ -1,8 +1,20 @@
 # matutosi-skills
 
 Claude Code のプラグインのマーケットプレイスです．
-日本語の Markdown 原稿を整形・推敲するスキル，JPEG 写真のコメントを CSV で読み書きするスキル，
-学会誌の論文 PDF から J-STAGE の全文 XML を作るスキル，植生調査票を読み取って CSV にするスキルを収めています．
+次の4つのプラグイン (計10個のスキル) を収めています．
+
+| プラグイン | スキル | 何をするか |
+|---|---|---|
+| [ja-manuscript](#ja-manuscript) | `apply-proof-marks` | 朱書きした校正 PDF・スキャン・写真を読み，原稿の Markdown に反映する |
+| | `build-index` | 書籍の原稿と PDF から，巻末の索引を作る |
+| | `manuscript-polish` | 入稿前の原稿を1回点検し，問題を一覧にする |
+| | `markdown-table-pad` | Markdown の表の列幅をそろえる |
+| | `polish-loop` | 推敲を，指摘が収束するまで巡ごとに回す |
+| | `rewrite-improve` | リライトの良い点を元原稿に採り入れる |
+| | `sentence-per-line` | 原稿を1文1行に整形する |
+| [jpg-user-comment](#jpg-user-comment) | `jpg-user-comment` | JPEG 写真のコメントを CSV で書き出し，書き戻す |
+| [jstage-xml](#jstage-xml) | `pdf-to-jstage-xml` | 学会誌の論文 PDF から J-STAGE の全文 XML を作る |
+| [vegetation-survey](#vegetation-survey) | `veg-sheet-to-csv` | 植生調査票を読み取って CSV にする |
 
 A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts, for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, and for turning vegetation survey sheets into CSV.
 
