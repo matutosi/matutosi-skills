@@ -14,6 +14,7 @@ site の「出現種数」は列ではなく，種名の数との照合に使う
 
 import argparse
 import csv
+import io
 import json
 import re
 import sys
@@ -97,7 +98,7 @@ def check_sheet(i, sheet, warnings):
         lay = str(sp.get("階層", ""))
         if lay not in LAYERS:
             warnings.append("sheet %d: 階層 %r は %s のどれでもない (%s)" % (i, lay, "/".join(LAYERS), sp.get("種名")))
-        key = (lay, sp.get("種名"))
+        key = (lay, to_full(str(sp.get("種名") or "")))  # カナの全角・半角の違いは同じ名前とみる
         if key in seen:
             warnings.append("sheet %d: 同じ階層に同じ種名が2回ある: %s %s" % (i, lay, sp.get("種名")))
         seen.add(key)
@@ -107,7 +108,7 @@ def check_sheet(i, sheet, warnings):
             warnings.append("sheet %d: 被度階級値が空: %s %s" % (i, lay, sp.get("種名")))
     expected = site.get("出現種数")
     if expected not in (None, ""):
-        n = len({sp.get("種名") for sp in species})
+        n = len({to_full(str(sp.get("種名") or "")) for sp in species})
         if str(expected) != str(n):
             warnings.append("sheet %d: 出現種数 %s と種名の数 %d が違う" % (i, expected, n))
 
@@ -117,6 +118,7 @@ def build(data, kana="half", missing="blank", layout="single", unknown_code="0")
     warnings = []
     na = "NA" if missing == "na" else ""
     site_rows, spec_rows, single_rows = [], [], []
+    used_ids = set()
 
     def fill(v):
         return na if v is None or str(v).strip() == "" else str(v)
@@ -135,6 +137,9 @@ def build(data, kana="half", missing="blank", layout="single", unknown_code="0")
             if not str(site.get(c, "")).strip():
                 site[c] = v
         sid = str(site.get("資料調査番号") or "").strip() or "S%03d" % i
+        if sid in used_ids:
+            warnings.append("sheet %d: 資料調査番号 %s が前の調査票と重なる (2ファイルのとき別の地点が結び付く)" % (i, sid))
+        used_ids.add(sid)
         srow = [fill(site.get(c)) for c in SITE_COLS]
         for sp in sheet["species"]:
             if not str(sp.get("絶滅危惧種フラグ", "")).strip():
@@ -151,11 +156,13 @@ def build(data, kana="half", missing="blank", layout="single", unknown_code="0")
     return warnings, site_rows, spec_rows, single_rows
 
 
-def write_csv(path, header, rows, encoding, eol):
-    with open(path, "w", encoding=encoding, newline="") as f:
-        w = csv.writer(f, lineterminator="\r\n" if eol == "crlf" else "\n")
-        w.writerow(header)
-        w.writerows(rows)
+def render_csv(header, rows, encoding, eol):
+    """CSV を先に全部エンコードする (書けない文字があっても，既存のファイルを壊さない)."""
+    buf = io.StringIO(newline="")
+    w = csv.writer(buf, lineterminator="\r\n" if eol == "crlf" else "\n")
+    w.writerow(header)
+    w.writerows(rows)
+    return buf.getvalue().encode(encoding)
 
 
 def main(argv=None):
@@ -172,7 +179,7 @@ def main(argv=None):
     ap.add_argument("--key-col", default="調査ID", help="2ファイルのときの結合キー列の名前")
     a = ap.parse_args(argv)
 
-    with open(a.json, encoding="utf-8") as f:
+    with open(a.json, encoding="utf-8-sig") as f:
         data = json.load(f)
     warnings, site_rows, spec_rows, single_rows = build(data, a.kana, a.missing, a.layout, a.unknown_code)
     try:
@@ -187,15 +194,15 @@ def main(argv=None):
 
 def write_all(a, site_rows, spec_rows, single_rows):
     if a.layout == "single":
-        path = a.out + ".csv"
-        write_csv(path, ALL_COLS, single_rows, a.encoding, a.eol)
-        print("%s: %d 行 x %d 列" % (path, len(single_rows), len(ALL_COLS)))
+        outs = [(a.out + ".csv", ALL_COLS, single_rows)]
     else:
-        p1, p2 = a.out + "_地点.csv", a.out + "_組成.csv"
-        write_csv(p1, [a.key_col] + SITE_COLS, site_rows, a.encoding, a.eol)
-        write_csv(p2, [a.key_col] + SPECIES_COLS, spec_rows, a.encoding, a.eol)
-        print("%s: %d 行 x %d 列" % (p1, len(site_rows), len(SITE_COLS) + 1))
-        print("%s: %d 行 x %d 列" % (p2, len(spec_rows), len(SPECIES_COLS) + 1))
+        outs = [(a.out + "_地点.csv", [a.key_col] + SITE_COLS, site_rows),
+                (a.out + "_組成.csv", [a.key_col] + SPECIES_COLS, spec_rows)]
+    rendered = [(p, h, r, render_csv(h, r, a.encoding, a.eol)) for p, h, r in outs]  # 全部できてから書く
+    for path, header, rows, blob in rendered:
+        with open(path, "wb") as f:
+            f.write(blob)
+        print("%s: %d 行 x %d 列" % (path, len(rows), len(header)))
 
 
 if __name__ == "__main__":

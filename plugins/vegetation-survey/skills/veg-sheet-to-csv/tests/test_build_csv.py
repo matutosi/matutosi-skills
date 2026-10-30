@@ -154,6 +154,40 @@ class BuildTest(unittest.TestCase):
         rc = b.main([path, "-o", out, "--encoding", "utf-8-sig"])
         self.assertEqual(rc, 0)
 
+    def test_unencodable_keeps_old_file(self):
+        d = load()
+        d["site"]["備考"] = "😀"
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "in.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False)
+        out = os.path.join(tmp, "x")
+        with open(out + ".csv", "wb") as f:
+            f.write(b"OLD")
+        self.assertEqual(b.main([path, "-o", out]), 1)
+        with open(out + ".csv", "rb") as f:
+            self.assertEqual(f.read(), b"OLD")  # 書けなかったときは旧ファイルを壊さない
+
+    def test_bom_json(self):
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "in.json")
+        with open(path, "w", encoding="utf-8-sig") as f:
+            json.dump(load(), f, ensure_ascii=False)
+        self.assertEqual(b.main([path, "-o", os.path.join(tmp, "x")]), 0)
+
+    def test_duplicate_site_id(self):
+        d = load()
+        d["site"]["資料調査番号"] = "A1"
+        warnings = b.build({"sheets": [d, d]}, layout="two")[0]
+        self.assertTrue(any("資料調査番号 A1" in w for w in warnings))
+
+    def test_duplicate_species_across_kana_width(self):
+        d = load()
+        sp = dict(d["species"][0])
+        sp["種名"] = b.to_half(sp["種名"])
+        d["species"].append(sp)
+        self.assertTrue(any("2回" in w for w in b.build(d)[0]))
+
     def test_golden(self):
         """examples/expected_single.csv (既定の出力) と1バイトも違わない."""
         out = self.run_cli()

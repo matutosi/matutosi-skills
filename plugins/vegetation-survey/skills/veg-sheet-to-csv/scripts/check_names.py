@@ -73,10 +73,13 @@ def build_index(xlsx):
 def load_index(xlsx):
     cache = xlsx + ".index.json"
     if os.path.exists(cache) and os.path.getmtime(cache) >= os.path.getmtime(xlsx):
-        with open(cache, encoding="utf-8") as f:
-            idx = json.load(f)
-        if idx.get("v") == INDEX_VERSION:
-            return idx
+        try:
+            with open(cache, encoding="utf-8") as f:
+                idx = json.load(f)
+            if idx.get("v") == INDEX_VERSION:
+                return idx
+        except ValueError:
+            pass  # 書きかけで壊れた索引は作り直す
     idx = build_index(xlsx)
     with open(cache, "w", encoding="utf-8") as f:
         json.dump(idx, f, ensure_ascii=False)
@@ -178,7 +181,10 @@ def resolve_xlsx(a):
             sys.exit("チェックリストが無い: %s\n--download で取得するか，--checklist で xlsx を指定する (出典: %s)" % (path, URL))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         print("ダウンロード:", URL, file=sys.stderr)
-        urllib.request.urlretrieve(URL, path)
+        tmp = path + ".part"  # 途中で切れても，壊れた xlsx を残さない
+        with urllib.request.urlopen(URL, timeout=120) as r, open(tmp, "wb") as f:
+            f.write(r.read())
+        os.replace(tmp, path)
     return path
 
 
@@ -196,7 +202,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     idx = load_index(resolve_xlsx(a))
-    with open(a.json, encoding="utf-8") as f:
+    with open(a.json, encoding="utf-8-sig") as f:
         data = json.load(f)
     fill = tuple(x for x in a.fill.split(",") if x)
     rows, cache = process(data, idx, a.rename, fill, a.source.split(","))

@@ -114,6 +114,24 @@ class ProcessTest(unittest.TestCase):
         self.assertEqual([l.split("\t")[0] for l in lines[1:]], ["ambiguous", "none", "ok"])
 
 
+class RobustTest(unittest.TestCase):
+    def test_broken_index_cache_is_rebuilt(self):
+        try:
+            import openpyxl
+        except ImportError:
+            self.skipTest("openpyxl が無い")
+        wb = openpyxl.Workbook()
+        h = wb.active
+        h.title = "Hub_data"
+        h.append(["all_name", "Hub name"])
+        wb.create_sheet("JN_dataset").append(["ID"])
+        path = os.path.join(tempfile.mkdtemp(), "w.xlsx")
+        wb.save(path)
+        with open(path + ".index.json", "w", encoding="utf-8") as f:
+            f.write('{"v": 1, "hub"')  # 書きかけ
+        self.assertEqual(c.load_index(path)["v"], c.INDEX_VERSION)
+
+
 class XlsxTest(unittest.TestCase):
     def test_build_index_from_xlsx(self):
         try:
