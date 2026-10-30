@@ -18,6 +18,17 @@ Claude Code のプラグインのマーケットプレイスです．
 
 A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts, for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, and for turning vegetation survey sheets into CSV.
 
+<a id="requirements"></a>
+
+## 必要な環境 / Requirements
+
+| プラグイン | Python | 追加のパッケージ (`pip install`) |
+|---|---|---|
+| ja-manuscript | 3.9 以降 | `apply-proof-marks` と `build-index` だけが要ります (下の表) |
+| jpg-user-comment | 3.8 以降 (目安) | なし (標準ライブラリだけ) |
+| jstage-xml | 3.11 以降 | `pymupdf` `lxml` `pyyaml`．論文一覧の取得 (`list_articles.py toc`) には `beautifulsoup4` も |
+| vegetation-survey | 3.8 以降 | 種名の照合 (`check_names.py`) だけ `openpyxl`．CSV を作る `build_csv.py` は標準ライブラリだけ |
+
 <a id="install"></a>
 
 ## 入れ方 / Install
@@ -110,12 +121,13 @@ matutosi-skills のプラグインを，すべて新しい版に更新して
 
 「1文ごとに改行して」「表を整形して」「推敲を回して」「朱書きを反映して」「索引を作って」のように頼むと，対応するスキルが使われます．
 
-必要な道具は次のとおりです．
+スキルごとに要る道具は次のとおりです (Python は 3.9 以降)．
 
-- Python 3.9 以降
-- `apply-proof-marks`: `pypdf`・`pypdfium2`・`numpy`・`Pillow` (どれも `pip install` で入る)．もとの原稿との差で探す `--ref` を使うときだけ `opencv-python` も要る
-- `build-index`: `pypdfium2`・`pyyaml` (どちらも `pip install` で入る)．見出しのよみの候補を出す補助 (任意) を使うときだけ `pykakasi` も要る
-- ほかの5つ: Python の標準ライブラリだけ
+| スキル | 追加のパッケージ (`pip install`) | 任意で足すもの |
+|---|---|---|
+| `apply-proof-marks` | `pypdf` `pypdfium2` `numpy` `Pillow` | もとの原稿との差で探す `--ref` を使うときだけ `opencv-python`．AES で暗号化された PDF を開くときだけ `cryptography` |
+| `build-index` | `pypdfium2` `pyyaml` | 見出しのよみの候補を出す補助に `pykakasi` |
+| ほかの5つ | なし (標準ライブラリだけ) | |
 
 パスワード付きの PDF は，`--password <パスワード>` か環境変数 `PDF_PASSWORD` で渡すと開けます (`apply-proof-marks`・`build-index`．履歴に残したくなければ環境変数)．
 AES で暗号化された PDF を `apply-proof-marks` で開くときは，`pip install cryptography` も要ります．
@@ -138,11 +150,20 @@ Only the Python standard library is required.
 植生調査票 (PDF・画像) を読み取り，植生調査資料DB形式 (47 列) の CSV にするスキル `veg-sheet-to-csv` です．
 「この植生調査票を CSV にして」のように頼むと使われます．手順は [SKILL.md](plugins/vegetation-survey/skills/veg-sheet-to-csv/SKILL.md) にあります．
 
-- 先に選べる項目: 出力の形 (1ファイル／地点と組成の2ファイル)・種名のカナ (全角／半角)・データの無いセル (空欄／NA)・文字コード・不明なコードの仮置き．
+- 先に選べる項目 (実行時に番号つきの表で示します):
+
+  | 項目 | 選べるもの | 既定 |
+  |---|---|---|
+  | 出力の形 | 1ファイル／地点と組成の2ファイル | 1ファイル |
+  | 種名のカナ | 全角／半角 | 半角 |
+  | データの無いセル | 空欄／`NA` | 空欄 |
+  | 文字コード | `cp932`／`utf-8-sig`／`utf-8` | `cp932` |
+  | 不明なコード (面積測定方法・被度の評価方法) | `0`／空欄 | `0` |
+
 - 調査票の書き方のパターン (被度・群度，階層，地点情報，種名) を `references/patterns.md` にまとめています．入力と出力の例を渡すと，それに合わせます．
 - 実行中に足りない点が見つかれば，直す案を示し，選んだものだけスキルに反映します．
 - 種名は，GBIF Japan の[維管束植物和名チェックリスト](https://gbif.jp/activities/checklist/wamei_checklist_110/) (ver. 1.10，CC BY 4.0) と照合できます (`check_names.py`)．異名の検出・似た名前の候補・空の学名と科名の補完をします．
-- 必要な Python は **3.8 以上**です (スクリプトの構文は 3.6 でも通りますが，3.8 以上を目安にしています)．`build_csv.py` は標準ライブラリだけで動きます．照合 (`check_names.py`) には `pip install openpyxl` が要ります．
+- 必要な Python は **3.8 以上**です (スクリプトの構文は 3.6 でも通りますが，3.8 以上を目安にしています)．道具は[必要な環境](#requirements)の表を見てください．
 
 <a id="jstage-xml"></a>
 
@@ -153,7 +174,7 @@ Only the Python standard library is required.
 
 - 雑誌ごとの設定は `journals/<資料コード>.yaml` に置きます．ひな形 (`_template`) と，作例として植生学会誌 (`vegsci`) の設定と記録が入っています．
 - 作業ディレクトリ・控え・記事識別子の対応表は，任意のフォルダ (作業の根) に置きます．環境変数 `JSTAGE_ROOT` で渡します (`from_backup.py` と `fix_ja_names.py` は `--root` でも渡せます)．
-- 必要な道具: Python 3.11 以降と `pip install pymupdf lxml pyyaml`．スキャンの号は，PDF に入っている OCR の文字をそのまま使います．論文一覧の取得 (`list_articles.py toc`) には `beautifulsoup4` も要ります．
+- 必要な道具は[必要な環境](#requirements)の表を見てください．スキャンの号は，PDF に入っている OCR の文字をそのまま使います．
 - パスワード付きの PDF は，`--password <パスワード>` か環境変数 `PDF_PASSWORD` で渡すと開けます．
 - 論文一覧の取得 (`scripts/list_articles.py`) と，登載前に見た目を確かめる手元のプレビュー (`scripts/preview_tool/`) も入っています．
 - 控えの取り方と調査のまとめは，[support-ac](https://github.com/matutosi/support-ac) の `jstage/` を見てください．
@@ -165,9 +186,11 @@ Only the Python standard library is required.
 各プラグインの `examples/` に，手で試すためのサンプルと手順 (README) があります．
 試すときは，フォルダを別の場所に写してから使ってください (原稿や写真を書き換えるため)．
 
-- [plugins/ja-manuscript/examples/](plugins/ja-manuscript/examples/): 誤りをわざと入れた2章の練習原稿と，リライトの草稿．索引づくりの例 (架空の入門書 3 章と組んだ PDF) は [index/](plugins/ja-manuscript/examples/index/)
-- [plugins/jpg-user-comment/examples/](plugins/jpg-user-comment/examples/): JPEG 2枚と，コメントを書いた CSV
-- [plugins/vegetation-survey/examples/](plugins/vegetation-survey/examples/): 架空の植生調査票1枚の画像と，それを読み取った JSON，正解の CSV
+| プラグイン | 場所 | 入っているもの |
+|---|---|---|
+| ja-manuscript | [examples/](plugins/ja-manuscript/examples/) | 誤りをわざと入れた2章の練習原稿と，リライトの草稿．朱書きの校正 PDF の例は [proof/](plugins/ja-manuscript/examples/proof/)，索引づくりの例 (架空の入門書 3 章と組んだ PDF) は [index/](plugins/ja-manuscript/examples/index/) |
+| jpg-user-comment | [examples/](plugins/jpg-user-comment/examples/) | JPEG 2枚と，コメントを書いた CSV |
+| vegetation-survey | [examples/](plugins/vegetation-survey/examples/) | 架空の植生調査票1枚の画像と，それを読み取った JSON，正解の CSV |
 
 `jstage-xml` には `examples/` がありません．雑誌の設定の作例として，植生学会誌の設定と記録 (`journals/vegsci.*`) が入っています．
 
@@ -182,11 +205,17 @@ Only the Python standard library is required.
 python run_tests.py
 ```
 
-`jstage-xml` のテストは PyMuPDF・PyYAML が無いと一部を飛ばします．
-`build-index` のテストには `pypdfium2`・`pyyaml` が要ります (無ければ PDF を使う試験を飛ばします)．
-`apply-proof-marks` のテストには `pypdf`・`Pillow` が要り，画像の切り出しの試験には `pypdfium2` も，`--ref` の試験には `opencv-python` も要ります (無ければ飛ばす)．
-`vegetation-survey` の照合 (`check_names.py`) のテストのうち，xlsx を読む試験には `openpyxl` が要ります．
-無いときは，その試験だけを飛ばします．
+テストに要る道具と，無いときの動きは次のとおりです．
+
+| プラグイン・スキル | テストに要るもの | 無いとき |
+|---|---|---|
+| jstage-xml | `pymupdf` `pyyaml` | 一部を飛ばす |
+| build-index | `pypdfium2` `pyyaml` | PDF を使う試験を飛ばす |
+| apply-proof-marks | `pypdf` `Pillow` | (必須) |
+| 〃 (画像の切り出しの試験) | `pypdfium2` | 飛ばす |
+| 〃 (`--ref` の試験) | `opencv-python` | 飛ばす |
+| vegetation-survey (`check_names.py` の xlsx を読む試験) | `openpyxl` | その試験だけ飛ばす |
+
 GitHub では，push のたびに Ubuntu と Windows でテストを回します (`.github/workflows/test.yml`)．
 
 <a id="license"></a>
