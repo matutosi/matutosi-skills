@@ -50,6 +50,18 @@ class KanaTest(unittest.TestCase):
 
 
 class CoverTest(unittest.TestCase):
+    def test_compact(self):
+        for src, cover, soc in [("+2", "+", "2"), ("r1", "r", "1"), ("32", "3", "2"), ("55", "5", "5"), ("＋３", "+", "3")]:
+            sp = {"被度・群度": src}
+            b.split_cover(sp)
+            self.assertEqual((sp["被度階級値"], sp["群度"]), (cover, soc), src)
+
+    def test_compact_not_split(self):
+        for src in ["62", "1-2"]:  # 6 以上や範囲は，区切りなしの被度・群度とはみなさない
+            sp = {"被度・群度": src}
+            b.split_cover(sp)
+            self.assertEqual((sp["被度階級値"], sp.get("群度")), (src, None))
+
     def test_split(self):
         for src, c, g in [("3,4", "3", "4"), ("3・4", "3", "4"), ("+", "+", "1"), ("r", "r", "1"), ("3", "3", None), ("2.3", "2", "3")]:
             sp = {"被度・群度": src}

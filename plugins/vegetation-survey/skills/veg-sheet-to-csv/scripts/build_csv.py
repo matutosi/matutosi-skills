@@ -69,11 +69,16 @@ def convert_kana(s, mode):
 
 
 def split_cover(sp):
-    """「3,4」「3・4」のような「被度・群度」を 被度階級値と群度に分ける。+ や r だけのときは群度を 1 とする."""
+    """「3,4」「3・4」「+2」「32」のような「被度・群度」を 被度階級値と群度に分ける。+ や r だけのときは群度を 1 とする."""
     cg = sp.pop("被度・群度", None)
     if cg is None or str(cg).strip() == "":
         return
-    parts = [p for p in re.split(r"[,，・.．\s]+", str(cg).strip()) if p]
+    cg = unicodedata.normalize("NFKC", str(cg)).strip()
+    parts = [p for p in re.split(r"[,，・.．\s]+", cg) if p]
+    if len(parts) == 1:
+        m = re.fullmatch(r"([r+]|[1-5])([1-5])", parts[0])  # 区切りなしの「+2」「32」「r1」
+        if m:
+            parts = list(m.groups())
     sp["被度階級値"] = parts[0]
     if len(parts) > 1:
         sp["群度"] = parts[1]
