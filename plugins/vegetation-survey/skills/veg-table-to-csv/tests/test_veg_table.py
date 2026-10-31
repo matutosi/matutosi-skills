@@ -1,0 +1,282 @@
+#!/usr/bin/env python3
+"""veg-table-to-csv のスクリプトの自己テスト.
+
+    python tests/test_veg_table.py
+
+Pillow・PyMuPDF が無いときは，画像を使う試験だけを飛ばす．
+"""
+
+import contextlib
+import csv
+import io
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+
+import check as chk  # noqa: E402
+import improve  # noqa: E402
+import tables  # noqa: E402
+import to_csv  # noqa: E402
+
+EXAMPLE = os.path.join(HERE, "..", "..", "..", "examples", "table")
+
+
+def run(fn, argv):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        rc = fn(argv)
+    return rc, out.getvalue()
+
+
+def workdir():
+    d = tempfile.mkdtemp()
+    shutil.copytree(os.path.join(EXAMPLE, "transcripts"), os.path.join(d, "transcripts"))
+    return d
+
+
+def rows(path):
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+class ParseValueTest(unittest.TestCase):
+    def test_values(self):
+        for raw, cov, soc, const, st in [
+            ("+・2", "+", "2", "", "ok"), ("+", "+", "1", "", "ok"), ("r", "r", "1", "", "ok"),
+            ("4・2", "4", "2", "", "ok"), ("3.4", "3", "4", "", "ok"), ("＋・１", "", "", "", "check"),
+            ("IV(+-3)", "+-3", "", "IV", "ok"), ("V", "", "", "V", "ok"),
+            ("2(3-4)", "2", "3-4", "", "ok"), ("+・2?", "+", "2", "", "check"),
+        ]:
+            self.assertEqual(to_csv.parse_value(raw)[:4], (cov, soc, const, st), raw)
+
+    def test_absent(self):
+        for raw in ("", "・", "-", "."):
+            self.assertIsNone(to_csv.parse_value(raw))
+
+    def test_unreadable(self):
+        self.assertEqual(to_csv.parse_value("?")[3], "check")
+        self.assertEqual(to_csv.parse_value("・?")[4], "非出現か自信なし")
+
+    def test_bracket(self):
+        self.assertIn("括弧付き", to_csv.parse_value("(+)")[4])
+
+
+class DateTest(unittest.TestCase):
+    def test_forms(self):
+        self.assertEqual(to_csv.norm_date("6. Juli 1983"), "1983-07-06")
+        self.assertEqual(to_csv.norm_date("'83 8 3"), "1983-08-03")
+        self.assertEqual(to_csv.norm_date("8 3", "1983"), "1983-08-03")
+        self.assertEqual(to_csv.norm_date("1983年8月3日"), "1983-08-03")
+        self.assertIsNone(to_csv.norm_date("不明"))
+
+
+class ConvertTest(unittest.TestCase):
+    def test_golden(self):
+        """見本の転記表から，examples の正解と1バイトも違わない CSV ができる."""
+        d = workdir()
+        run(to_csv.main, [d])
+        for name in ("sites.csv", "composition.csv"):
+            with open(os.path.join(d, name), "rb") as f, open(os.path.join(EXAMPLE, "expected_" + name), "rb") as g:
+                self.assertEqual(f.read(), g.read(), name)
+
+    def test_no_transcripts(self):
+        with self.assertRaises(SystemExit):
+            run(to_csv.main, [tempfile.mkdtemp()])
+
+    def test_multi_layer(self):
+        d = workdir()
+        body = os.path.join(d, "transcripts", "Tab.1", "body.tsv")
+        with open(body, "a", encoding="utf-8") as f:
+            f.write("sp\t\t\tSasa sp.\tササ属の1種\tS;K\t+\t・\t・\t\n")
+        run(to_csv.main, [d])
+        hit = [r for r in rows(os.path.join(d, "composition.csv")) if r["layer"] == "S;K"]
+        self.assertEqual(hit[0]["status"], "multi")
+
+    def test_note_for_one_plot(self):
+        d = workdir()
+        body = os.path.join(d, "transcripts", "Tab.1", "body.tsv")
+        with open(body, "a", encoding="utf-8") as f:
+            f.write("sp\t\t\tPinus thunbergii\tクロマツ\t\t+\t1・1\t・\t2: 下線\n")
+        run(to_csv.main, [d])
+        hit = {r["plot"]: r["note"] for r in rows(os.path.join(d, "composition.csv")) if r["j_name"] == "クロマツ"}
+        self.assertEqual(hit, {"1": "", "2": "下線"})
+
+
+class CheckTest(unittest.TestCase):
+    def setUp(self):
+        self.d = workdir()
+        run(to_csv.main, [self.d])
+
+    def test_clean(self):
+        rc, out = run(chk.main, [self.d])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("一致 3・不一致 0", out)
+        self.assertNotIn("出現種数の無い表", out)
+
+    def test_count_mismatch(self):
+        p = os.path.join(self.d, "transcripts", "Tab.1", "once.tsv")
+        with open(p, encoding="utf-8") as f:
+            text = f.read()
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("\n".join(text.split("\n")[:2]) + "\n")     # 地点 3 の 1 回出現の種を落とす
+        run(to_csv.main, [self.d])
+        rc, out = run(chk.main, [self.d])
+        self.assertEqual(rc, 1)
+        self.assertIn("出現種数 3 に対し読んだ種 2", out)
+
+    def test_no_count_table(self):
+        p = os.path.join(self.d, "transcripts", "Tab.1", "header.tsv")
+        with open(p, encoding="utf-8") as f:
+            lines = [x for x in f if "出現種数" not in x]
+        with open(p, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        run(to_csv.main, [self.d])
+        self.assertIn("出現種数の無い表 1: Tab.1", run(chk.main, [self.d])[1])
+
+
+class TablesTest(unittest.TestCase):
+    def index(self):
+        p = os.path.join(tempfile.mkdtemp(), "index.tsv")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("file\ttab_numbers\ttitles\tstatus\n")
+            f.write("kinki_001.pdf\t4;6\t4:表題A;6:表題;B\tkeep\n")
+            f.write("kinki_002.pdf\t6;8\t8:表題C\tkeep\n")
+            f.write("old.pdf\t9\t9:外す\told\n")
+            f.write("tohoku_001.pdf\t1\t1:別の地方\tkeep\n")
+        return p
+
+    def test_from_index(self):
+        r = tables.from_index(self.index(), "kinki")
+        self.assertEqual([x["table"] for x in r], ["Tab.4", "Tab.6", "Tab.8"])
+        self.assertEqual(r[1]["title"], "表題;B")              # 表題の中の ; で切らない
+        self.assertEqual(r[1]["page"], "kinki_001")            # 同じ番号は最初のページ
+
+    def test_resume(self):
+        d = tempfile.mkdtemp()
+        run(tables.main, ["init", d, "--index", self.index(), "--prefix", "kinki"])
+        run(tables.main, ["set", d, "Tab.4", "done"])
+        run(tables.main, ["set", d, "Tab.8", "reading"])
+        self.assertTrue(run(tables.main, ["next", d])[1].startswith("Tab.8"))   # 途中の表が先
+        out = run(tables.main, ["show", d])[1]
+        self.assertIn("done 1", out)
+        self.assertIn("番号の抜け: 5 7", out)
+
+    def test_init_keeps_record(self):
+        d = tempfile.mkdtemp()
+        run(tables.main, ["init", d, "--index", self.index(), "--prefix", "kinki"])
+        with self.assertRaises(SystemExit):
+            run(tables.main, ["init", d, "--index", self.index()])
+
+    def test_add_and_unknown(self):
+        d = tempfile.mkdtemp()
+        run(tables.main, ["add", d, "Tab.1", "--kind", "small"])
+        self.assertEqual(tables.load(d)[0]["kind"], "small")
+        with self.assertRaises(SystemExit):
+            run(tables.main, ["set", d, "Tab.2", "done"])
+
+
+class ImproveTest(unittest.TestCase):
+    def test_add_list_set(self):
+        d = tempfile.mkdtemp()
+        run(improve.main, ["add", d, "--kind", "pattern", "--text", "新しい型"])
+        run(improve.main, ["add", d, "--kind", "pattern", "--text", "新しい型"])    # 同じ案は増やさない
+        self.assertEqual(len(improve.load(d)), 1)
+        self.assertIn("1. [pattern] 新しい型", run(improve.main, ["list", d])[1])
+        run(improve.main, ["set", d, "1", "applied"])
+        self.assertIn("0 件", run(improve.main, ["list", d])[1])
+
+    def test_scan_hides_real_data(self):
+        d = workdir()
+        with open(os.path.join(d, "transcripts", "Tab.1", "once.tsv"), "a", encoding="utf-8") as f:
+            f.write("1\tAaa bbb\tアア\t\t7x\n2\tCcc ddd\tイイ\t\t8y\n3\tEee fff\tウウ\t\t9z\n")
+        run(to_csv.main, [d])
+        run(improve.main, ["scan", d])
+        text = improve.load(d)[0]["text"]
+        self.assertIn("9a", text)                             # 値は型にする
+        self.assertNotIn("7x", text)
+        self.assertEqual(str(improve.load(d)[0]["count"]), "3")
+
+    def test_scan_ignores_single(self):
+        d = workdir()
+        with open(os.path.join(d, "transcripts", "Tab.1", "once.tsv"), "a", encoding="utf-8") as f:
+            f.write("1\tAaa bbb\tアア\t\t7x\n")
+        run(to_csv.main, [d])
+        self.assertEqual(improve.scan(d), [])
+
+
+class SpeciesTest(unittest.TestCase):
+    def test_check(self):
+        import check_species as cs
+        idx = {"v": 1, "hub": {"アキグミ": {"family": "", "family_jp": "グミ", "status": ""}},
+               "alias": {"アキグミ": ["アキグミ"]}, "latin": {"アキグミ": {"GL": "Elaeagnus umbellata"}}}
+        got = cs.check([{"j_name": "アキグミ", "s_name": "Elaeagnus umbellata"},
+                        {"j_name": "アキグミ", "s_name": "Elaeagnus umbellata"},
+                        {"j_name": "アキグミ", "s_name": "Vitex rotundifolia"},
+                        {"j_name": "ゼンゼンチガウ", "s_name": ""}], idx)
+        self.assertEqual(got[0]["status"], "none")             # 怪しい行が先
+        ok = {r["s_name"]: r for r in got if r["status"] == "ok"}
+        self.assertEqual(ok["Elaeagnus umbellata"]["count"], 2)
+        self.assertEqual(ok["Elaeagnus umbellata"]["same_genus"], "1")
+        self.assertEqual(ok["Vitex rotundifolia"]["same_genus"], "0")
+
+
+class ImageTest(unittest.TestCase):
+    def setUp(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow が無い")
+        self.Image = Image
+
+    def test_zoom(self):
+        import crop
+        im = self.Image.new("RGB", (1000, 1000), "white")
+        self.assertEqual(crop.ruled(im, (0, 0, 200, 100))[1], 1.0)
+        out, scale = crop.ruled(im, (0, 0, 200, 100), zoom=2)
+        self.assertEqual(scale, 2)
+        self.assertEqual(out.width, 400 + 2 * crop.MARGIN_X)
+        self.assertLess(crop.ruled(im, (0, 0, 1000, 1000), maxside=900, zoom=3)[1], 1)   # --max は超えない
+
+    def test_parse_pages(self):
+        import pages
+        self.assertEqual(pages.parse_pages("2-4,7"), {2, 3, 4, 7})
+        self.assertIsNone(pages.parse_pages(""))
+
+    def test_contact(self):
+        import pages
+        d = tempfile.mkdtemp()
+        for i in range(13):
+            self.Image.new("RGB", (300, 400), "white").save(os.path.join(d, "p%02d.png" % i))
+        src = [os.path.join(d, "p%02d.png" % i) for i in range(13)]
+        out = os.path.join(d, "work")
+        run(pages.main, src + ["--out", out])
+        self.assertTrue(os.path.exists(os.path.join(out, "contact_02.png")))    # 12 コマで次の 1 枚へ
+        self.assertFalse(os.path.exists(os.path.join(out, "contact_03.png")))
+
+    def test_pdf_rotation(self):
+        try:
+            import pymupdf
+        except ImportError:
+            self.skipTest("PyMuPDF が無い")
+        import pages
+        d = tempfile.mkdtemp()
+        png = os.path.join(d, "a.png")
+        self.Image.new("RGB", (200, 100), "white").save(png)
+        doc = pymupdf.open()
+        p = doc.new_page(width=200, height=100)
+        p.insert_image(p.rect, filename=png)
+        p.set_rotation(90)
+        doc.new_page(width=100, height=100).insert_text((10, 50), "text page")
+        doc.save(os.path.join(d, "b.pdf"))
+        got = list(pages.pdf_pages(os.path.join(d, "b.pdf"), {1}))
+        self.assertEqual((got[0][0], got[0][1]), (1, 2))
+        self.assertEqual(got[0][2].size, (100, 200))           # ページの回転を画像にも当てる
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=1)

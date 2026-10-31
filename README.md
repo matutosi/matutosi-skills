@@ -1,7 +1,7 @@
 # matutosi-skills
 
 Claude Code のプラグインのマーケットプレイスです．
-次の4つのプラグイン (計10個のスキル) を収めています．
+次の4つのプラグイン (計11個のスキル) を収めています．
 
 | プラグイン | スキル | 何をするか |
 |---|---|---|
@@ -15,6 +15,7 @@ Claude Code のプラグインのマーケットプレイスです．
 | [jpg-user-comment](#jpg-user-comment) | `jpg-user-comment` | JPEG 写真のコメントを CSV で書き出し，書き戻す |
 | [jstage-xml](#jstage-xml) | `pdf-to-jstage-xml` | 学会誌の論文 PDF から J-STAGE の全文 XML を作る |
 | [vegetation-survey](#vegetation-survey) | `veg-sheet-to-csv` | 植生調査票を読み取って CSV にする |
+| | `veg-table-to-csv` | 組成表 (ページ内の小さい表・折り込み) を AI が読み，地点情報と組成の CSV にする |
 
 A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts, for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, and for turning vegetation survey sheets into CSV.
 
@@ -27,7 +28,7 @@ A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts, 
 | ja-manuscript | 3.9 以降 | `apply-proof-marks` と `build-index` だけが要ります (下の表) |
 | jpg-user-comment | 3.8 以降 (目安) | なし (標準ライブラリだけ) |
 | jstage-xml | 3.11 以降 | `pymupdf` `lxml` `pyyaml`．論文一覧の取得 (`list_articles.py toc`) には `beautifulsoup4` も |
-| vegetation-survey | 3.8 以降 | 種名の照合 (`check_names.py`) だけ `openpyxl`．CSV を作る `build_csv.py` は標準ライブラリだけ |
+| vegetation-survey | `veg-sheet-to-csv` は 3.8 以降，`veg-table-to-csv` は 3.9 以降 | `veg-table-to-csv` は `Pillow`，PDF を読むときは `pymupdf`．種名の照合だけ `openpyxl`．`veg-sheet-to-csv` の `build_csv.py` は標準ライブラリだけ |
 
 <a id="install"></a>
 
@@ -165,6 +166,14 @@ Only the Python standard library is required.
 - 種名は，GBIF Japan の[維管束植物和名チェックリスト](https://gbif.jp/activities/checklist/wamei_checklist_110/) (ver. 1.10，CC BY 4.0) と照合できます (`check_names.py`)．異名の検出・似た名前の候補・空の学名と科名の補完をします．
 - 必要な Python は **3.8 以上**です (スクリプトの構文は 3.6 でも通りますが，3.8 以上を目安にしています)．道具は[必要な環境](#requirements)の表を見てください．
 
+組成表を読むスキル `veg-table-to-csv` もあります．
+「この組成表を CSV にして」のように頼むと使われます．手順は [SKILL.md](plugins/vegetation-survey/skills/veg-table-to-csv/SKILL.md) にあります．
+
+- **読むのは AI，切り出し・変換・検算はスクリプト**です．AI は画像を印字のまま転記表 (TSV) に書き，スクリプトが値を分解して縦持ちの `sites.csv`・`composition.csv` にし，出現種数と照合します．
+- 本文・写真と同じ紙面の小さい表，2 段組，表頭の無い表，1 枚に複数の表が載った折り込みを読めます．本は，縮小画像の一覧から表のあるページを選びます．
+- 表ごとに進み具合を `tables.tsv` に記録するので，途中から再開できます．
+- 実行中の気づきを `improvements.tsv` に貯め，スキルの直し方の案として示します．選んだものだけ反映します．
+
 <a id="jstage-xml"></a>
 
 ### jstage-xml (J-STAGE の全文 XML)
@@ -190,7 +199,7 @@ Only the Python standard library is required.
 |---|---|---|
 | ja-manuscript | [examples/](plugins/ja-manuscript/examples/) | 誤りをわざと入れた2章の練習原稿と，リライトの草稿．朱書きの校正 PDF の例は [proof/](plugins/ja-manuscript/examples/proof/)，索引づくりの例 (架空の入門書 3 章と組んだ PDF) は [index/](plugins/ja-manuscript/examples/index/) |
 | jpg-user-comment | [examples/](plugins/jpg-user-comment/examples/) | JPEG 2枚と，コメントを書いた CSV |
-| vegetation-survey | [examples/](plugins/vegetation-survey/examples/) | 架空の植生調査票1枚の画像と，それを読み取った JSON，正解の CSV |
+| vegetation-survey | [examples/](plugins/vegetation-survey/examples/) | 架空の植生調査票1枚の画像と，それを読み取った JSON，正解の CSV．架空の組成表の画像と転記表，正解の CSV は [table/](plugins/vegetation-survey/examples/table/) |
 
 `jstage-xml` には `examples/` がありません．雑誌の設定の作例として，植生学会誌の設定と記録 (`journals/vegsci.*`) が入っています．
 
@@ -215,6 +224,7 @@ python run_tests.py
 | 〃 (画像の切り出しの試験) | `pypdfium2` | 飛ばす |
 | 〃 (`--ref` の試験) | `opencv-python` | 飛ばす |
 | vegetation-survey (`check_names.py` の xlsx を読む試験) | `openpyxl` | その試験だけ飛ばす |
+| vegetation-survey (`veg-table-to-csv` の画像の試験) | `Pillow` `pymupdf` | 飛ばす |
 
 GitHub では，push のたびに Ubuntu と Windows でテストを回します (`.github/workflows/test.yml`)．
 

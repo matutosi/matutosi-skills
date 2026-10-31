@@ -20,6 +20,24 @@ JSON の書き方:
 - `site.出現種数` は CSV の列にならず，種名の数との照合に使う．
 - 複数の調査票は `{"sheets": [{"site": ..., "species": [...]}, ...]}`．
 
+## 組成表の見本 (`table/`．スキル `veg-table-to-csv`)
+
+| ファイル | 中身 |
+|---|---|
+| `table/sample_table.png` | **入力の例**．本文に挟まれた小さい組成表 (架空) |
+| `table/transcripts/Tab.1/` | **読み取りの正解**．画像を読んで書く転記表 |
+| `table/expected_sites.csv`・`table/expected_composition.csv` | **出力の例**．転記表から `to_csv.py` で作った CSV |
+| `table/make_sample_table.py` | 転記表から画像を作り直す (Pillow と日本語フォントが要る) |
+
+試し方: Claude Code に「`examples/table/sample_table.png` の組成表を CSV にして」と頼む．先に選択肢の表が示される．
+読み取りを除いた変換と検算だけなら，次で試せる．
+
+```bash
+S=skills/veg-table-to-csv/scripts
+python $S/to_csv.py examples/table
+python $S/check.py examples/table
+```
+
 ## 試す (入力 → 読み取り → 出力)
 
 | ファイル | 中身 |

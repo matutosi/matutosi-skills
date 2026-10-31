@@ -1,0 +1,12 @@
+﻿file,table,plot,group_ja,group_de,s_name,j_name,layer,cover,sociability,constancy,value_raw,source,status,note
+sample_table,Tab.1,1,群落区分種,Trennart d. Gesellschaft,Elaeagnus umbellata,アキグミ,,3,3,,3・3,body,ok,
+sample_table,Tab.1,2,群落区分種,Trennart d. Gesellschaft,Elaeagnus umbellata,アキグミ,,2,2,,2・2,body,ok,
+sample_table,Tab.1,1,群落区分種,Trennart d. Gesellschaft,Vitex rotundifolia,ハマゴウ,,+,1,,+,body,ok,
+sample_table,Tab.1,2,群落区分種,Trennart d. Gesellschaft,Vitex rotundifolia,ハマゴウ,,1,2,,1・2,body,ok,
+sample_table,Tab.1,3,群落区分種,Trennart d. Gesellschaft,Vitex rotundifolia,ハマゴウ,,4,4,,4・4,body,ok,
+sample_table,Tab.1,1,随伴種,Begleiter,Ischaemum anthephoroides,ケカモノハシ,,1,1,,1・1,body,ok,
+sample_table,Tab.1,3,随伴種,Begleiter,Ischaemum anthephoroides,ケカモノハシ,,+,2,,+・2,body,ok,
+sample_table,Tab.1,1,随伴種,Begleiter,Carex kobomugi,コウボウムギ,,+,1,,+,body,ok,
+sample_table,Tab.1,2,随伴種,Begleiter,Carex kobomugi,コウボウムギ,,+,1,,+,body,ok,
+sample_table,Tab.1,1,,,Artemisia princeps,ヨモギ,,+,1,,+,once,ok,
+sample_table,Tab.1,3,,,Calystegia soldanella,ハマヒルガオ,,1,1,,1・1,once,ok,

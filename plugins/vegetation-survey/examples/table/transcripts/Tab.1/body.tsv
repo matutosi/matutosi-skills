@@ -1,0 +1,7 @@
+kind	group_ja	group_de	s_name	j_name	layer	1	2	3	note
+group	群落区分種	Trennart d. Gesellschaft
+sp			Elaeagnus umbellata	アキグミ		3・3	2・2	・
+sp			Vitex rotundifolia	ハマゴウ		+	1・2	4・4
+group	随伴種	Begleiter
+sp			Ischaemum anthephoroides	ケカモノハシ		1・1	・	+・2
+sp			Carex kobomugi	コウボウムギ		+	+	・
