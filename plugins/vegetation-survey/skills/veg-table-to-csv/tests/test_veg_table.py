@@ -107,6 +107,50 @@ class ConvertTest(unittest.TestCase):
         self.assertEqual(hit, {"1": "", "2": "下線"})
 
 
+class UnderlineTest(unittest.TestCase):
+    def layers(self, line):
+        d = workdir()
+        with open(os.path.join(d, "transcripts", "Tab.1", "body.tsv"), "a", encoding="utf-8") as f:
+            f.write(line)
+        run(to_csv.main, [d])
+        return {r["plot"]: (r["layer"], r["cover"], r["status"])
+                for r in rows(os.path.join(d, "composition.csv")) if r["j_name"] == "シュロ"}
+
+    def test_note_marks_layer(self):
+        got = self.layers("sp\t\t\tTrachycarpus fortunei\tシュロ\tS;K\t1・2\t+\t・\t2: 下線; 印字は S,K (K に下線)\n")
+        self.assertEqual(got, {"1": ("S", "1", "ok"), "2": ("K", "+", "ok")})
+
+    def test_plus_minus(self):
+        got = self.layers("sp\t\t\tTrachycarpus fortunei\tシュロ\tS;K\t+\t±\t・\t印字は S,K (S に下線)\n")
+        self.assertEqual(got, {"1": ("K", "+", "ok"), "2": ("S", "+", "ok")})
+
+    def test_no_mark_stays_multi(self):
+        got = self.layers("sp\t\t\tTrachycarpus fortunei\tシュロ\tS;K\t+\t・\t・\t\n")
+        self.assertEqual(got["1"][2], "multi")
+
+    def test_three_layers(self):
+        got = self.layers("sp\t\t\tTrachycarpus fortunei\tシュロ\tB2;S;K\t+\t±\t・\t印字は B2,S,K (K に下線)\n")
+        self.assertEqual((got["1"][0], got["1"][2], got["2"][0]), ("B2;S", "multi", "K"))
+
+
+class SparseTest(unittest.TestCase):
+    def test_expand(self):
+        import sparse
+        d = tempfile.mkdtemp()
+        src = os.path.join(d, "s.txt")
+        with open(src, "w", encoding="utf-8") as f:
+            f.write("#table Tab.7 3\ng|随伴種|Begleiter\nAaa bbb|アア|K|2:+\n||S|*+ ・ 1・2\n")
+        sparse.main([src, d])
+        with open(os.path.join(d, "transcripts", "Tab.007", "body.tsv"), encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[2].split("\t")[5:9], ["K", "・", "+", "・"])
+        self.assertEqual(lines[3].split("\t")[5:9], ["S", "+", "・", "1・2"])
+
+    def test_plot_list(self):
+        self.assertEqual(to_csv.plot_list("1,7-9"), ["1", "7", "8", "9"])
+        self.assertEqual(to_csv.plot_list("in 1"), ["in 1"])
+
+
 class CheckTest(unittest.TestCase):
     def setUp(self):
         self.d = workdir()
@@ -241,6 +285,25 @@ class ImageTest(unittest.TestCase):
         self.assertEqual(scale, 2)
         self.assertEqual(out.width, 400 + 2 * crop.MARGIN_X)
         self.assertLess(crop.ruled(im, (0, 0, 1000, 1000), maxside=900, zoom=3)[1], 1)   # --max は超えない
+
+    def test_shear_estimate(self):
+        import crop
+        from PIL import ImageDraw
+        im = self.Image.new("L", (800, 400), "white")
+        d = ImageDraw.Draw(im)
+        for y in range(40, 360, 40):                           # 右へ 24 px 下がる行
+            for x in range(0, 800, 10):
+                d.rectangle((x, y + x * 24 // 800, x + 4, y + x * 24 // 800 + 4), fill="black")
+        self.assertLessEqual(abs(crop.estimate_shear(im) - 24), 4)
+
+    def test_dense(self):
+        import crop
+        d = tempfile.mkdtemp()
+        src = os.path.join(d, "t.png")
+        self.Image.new("RGB", (1000, 600), "white").save(src)
+        run(crop.main, [src, "--box", "400", "0", "1000", "600", "--pad", "0", "--dense", "10", "--plots", "20",
+                        "--label", "0", "390", "--tiles", "2x1", "--shear", "0", "--out", d, "--name", "x"])
+        self.assertTrue(os.path.exists(os.path.join(d, "x_r2_p11-20.png")))
 
     def test_parse_pages(self):
         import pages

@@ -12,7 +12,8 @@
     notes.tsv   注記．plot item_ja item_de value unit value_raw status note
 
 値の分解 (`+・2` → 被度 `+`・群度 `2`，`+` → 群度 `1` を補う，`IV(+-3)` → 常在度) は
-ここで行う．読めない値・末尾に `?` を付けた値は status=check，階層が `S;K` のように
+ここで行う．階層が `S;K` の行は，note の `(K に下線)` と値の下線 (`2: 下線` か `±`) で 1 つに決める．
+読めない値・末尾に `?` を付けた値は status=check，階層が `S;K` のように
 1 つに決まらない行は status=multi にする．
 """
 import argparse
@@ -23,6 +24,7 @@ import sys
 
 SEP = r'\s*[・･·•∙.,;:-]\s*'
 COV = r'[54321+r]'
+UNDER_LAYER = re.compile(r'\(\s*([A-Za-z]+\d?)\s*に下線\s*\)')
 ABSENT = {'', '・', '･', '·', '•', '∙', '.', '-', '—', '–'}
 ROMAN = r'(?:V|IV|III|II|I)'
 FIX = str.maketrans({'＋': '+', '十': '+', '，': ',', '．': '.', '－': '-', '―': '-', '—': '-',
@@ -41,13 +43,15 @@ COMP_COLS = ['file', 'table', 'plot', 'group_ja', 'group_de', 's_name', 'j_name'
 def parse_value(raw):
     """印字の値を (cover, sociability, constancy, status, note) に分ける．非出現は None"""
     s = raw.translate(FIX).strip()
+    underlined = '±' in s                             # ± は下線付きの +
+    s = s.replace('±', '+')
     unsure = s.endswith('?')
     s = s.rstrip('?').strip()
     if s in ABSENT:
         if unsure:                                    # ? だけ (読めない) か ・? (非出現か怪しい)
             return ('', '', '', 'check', '読めない' if not s else '非出現か自信なし')
         return None
-    notes = []
+    notes = ['下線'] if underlined else []
     m = re.fullmatch(r'\((.+)\)', s)
     if m:                                             # (+) 括弧付き
         s = m.group(1).strip()
@@ -95,6 +99,29 @@ def merge(status, note, row, plot=None):
     if ';' in row.get('layer', '') and status == 'ok':
         status = 'multi'                              # 値はあるが階層が 1 つに決まらない
     return status, ';'.join(notes)
+
+
+def cell_layer(row, plot):
+    """複数の階層の行で，そのセルの階層を返す．下線の値は下線の階層，それ以外は残りの階層"""
+    layers = row.get('layer', '').split(';')
+    m = UNDER_LAYER.search(row.get('note', ''))
+    if len(layers) < 2 or not m or m.group(1) not in layers:
+        return row.get('layer', '')
+    marked = '±' in row.get(plot, '') or '下線' in cell_note(row.get('note', ''), plot).split(';')
+    if marked:
+        return m.group(1)
+    return ';'.join(x for x in layers if x != m.group(1))
+
+
+def plot_list(spec):
+    """注記の地点の指定 `1,7-9` を ['1', '7', '8', '9'] にする．形が違えばそのまま"""
+    if not re.fullmatch(r'\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*', spec):
+        return [spec]
+    out = []
+    for part in spec.split(','):
+        lo, _, hi = part.partition('-')
+        out += [str(i) for i in range(int(lo), int(hi or lo) + 1)]
+    return out
 
 
 def read_tsv(path):
@@ -191,7 +218,7 @@ def build(tdir):
 
     for r in read_tsv(os.path.join(tdir, 'notes.tsv')):
         # plot が空 = 全地点に共通．地点ごとに展開する (地点が分からなければ空のまま)
-        for p in ([r.get('plot', '')] if r.get('plot', '') or not all_plots else all_plots):
+        for p in (plot_list(r.get('plot', '')) if r.get('plot', '') or not all_plots else all_plots):
             sites.append(dict(file=file, table=table, plot=p, item_ja=r.get('item_ja', ''),
                               item_de=r.get('item_de', ''), value=r.get('value', ''),
                               unit=r.get('unit', ''), value_raw=r.get('value_raw', ''),
@@ -213,9 +240,10 @@ def build(tdir):
                 if pv is None:
                     continue
                 cov, soc, const, st, note = pv
-                st, note = merge(st, note, r, p)
+                layer = cell_layer(r, p)
+                st, note = merge(st, note, dict(r, layer=layer), p)
                 comp.append(dict(file=file, table=table, plot=p, group_ja=g_ja, group_de=g_de,
-                                 s_name=s, j_name=j, layer=r.get('layer', ''), cover=cov,
+                                 s_name=s, j_name=j, layer=layer, cover=cov,
                                  sociability=soc, constancy=const, value_raw=r.get(p, ''),
                                  source='body', status=st, note=note))
 
