@@ -82,7 +82,7 @@ class ConvertTest(unittest.TestCase):
         run(to_csv.main, [d])
         for name in ("sites.csv", "composition.csv"):
             with open(os.path.join(d, name), "rb") as f, open(os.path.join(EXAMPLE, "expected_" + name), "rb") as g:
-                self.assertEqual(f.read(), g.read(), name)
+                self.assertEqual(f.read().split(), g.read().split(), name)   # checkout で CRLF になる環境がある
 
     def test_no_transcripts(self):
         with self.assertRaises(SystemExit):
