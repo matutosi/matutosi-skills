@@ -20,6 +20,7 @@
 - **密な表** (地点が多く横に収まらない表) は `--dense N` を使う．`--box` は値の列だけを囲む．
   行の傾きを直し，`--label X0 X1` の範囲 (種名・階層) を各画像の左に貼り，地点を N 列ずつの画像に分ける．
   列の上に地点の番号を書くので，**種名と値が 1 枚に入り，番号で列を取り違えない**．縦の分割は `--tiles 6x1`．
+  列の位置は `・` の並びから測る．測れないときは警告を出し，`--box` を地点の数で等分する (左右には `--pad` を足さない)．
 
     python scripts/crop.py <表.png> --box 5180 1730 7260 7200 --dense 10 --plots 20 --label 3950 5170 --tiles 6x1 --out <置き場>
 """
@@ -104,13 +105,82 @@ def estimate_shear(im, limit=60, step=4):
     return best
 
 
-def dense_tile(im, box, label, plots, first, last, y_range, grid_top=26):
-    """1 枚分: 左に種名・階層，右に first〜last 地点の値．(画像, 値の左端からの幅) を返す"""
-    x0, _, x1, _ = box
-    w = (x1 - x0) / plots
+def _profile(im):
+    """列ごとの字の量 (0〜1)"""
+    bw = im.convert('L').point(lambda v: 255 if v < 128 else 0)
+    return [v / 255 for v in bw.resize((bw.width, 1), Image.BOX).tobytes()]
+
+
+def _comb(prof, plots, pitch, start):
+    return sum(prof[min(len(prof) - 1, round(start + i * pitch))] for i in range(plots))
+
+
+def measure_columns(im, plots, rough=None):
+    """値の列の中心の x を，`・` の縦の並びから測る．(中心の列, 理由) を返す．測れなければ (None, 理由)
+
+    罫線を除き，等間隔の櫛がいちばん多く字に当たる位置を探す．
+    列の数が合わない・峰がはっきりしないときは測れないことにする．"""
+    raw = _profile(im)
+    n = len(raw)
+    left, right = 0, n
+    for x, v in enumerate(raw):                       # 値の両側の縦の罫線の内側だけを見る
+        if v > .5 and x < n / 3:
+            left = x + 1
+        if v > .5 and x > n * 2 / 3:
+            right = min(right, x)
+    if rough:
+        left, right = max(left, rough[0]), min(right, rough[1])
+    width = right - left
+    if plots < 2 or width < plots * 4:
+        return None, '範囲が狭い'
+    cap = sorted(raw[left:right])[int(width * .9)]
+    capped = [min(v, cap) for v in raw[left:right]]
+    prof = [sum(capped[max(0, x - 2):x + 3]) / 5 for x in range(width)]
+    pmax = width / (plots - 1)
+    best = (-1.0, 0.0, 0)
+
+    def search(pitches, starts_of):
+        nonlocal best
+        for pitch in pitches:
+            for start in starts_of(pitch):
+                s = _comb(prof, plots, pitch, start)
+                if s > best[0]:
+                    best = (s, pitch, start)
+
+    search([pmax * (.5 + .5 * i / 100) for i in range(101)],
+           lambda p: range(0, max(1, int(width - p * (plots - 1))), 2))
+    _, pitch0, start0 = best
+    search([pitch0 + .02 * i for i in range(-25, 26)],
+           lambda p: [s for s in range(max(0, start0 - 3), start0 + 4) if s + p * (plots - 1) < width])
+    _, pitch, start = best
+
+    def runs(x):                                      # 縦に並ぶ字の数．値の列は行の数だけあり，罫線は少ない
+        if not 0 <= x < width:
+            return 0
+        x = round(left + x)
+        strip = gray.crop((max(0, x - 4), 0, x + 5, gray.height)).resize((1, gray.height), Image.BOX).tobytes()
+        return sum(1 for u, v in zip(strip, strip[1:]) if u >= 225 > v)
+
+    gray = im.convert('L')
+    count = [runs(start + i * pitch) for i in range(plots)]
+    typical = sorted(count)[plots // 2]
+    if count[-1] < typical / 2 and runs(start - pitch) >= typical / 2:     # 櫛の端が罫線に乗った
+        start -= pitch
+    elif count[0] < typical / 2 and runs(start + plots * pitch) >= typical / 2:
+        start += pitch
+    count = [runs(start + i * pitch) for i in range(plots)]
+    typical = sorted(count)[plots // 2]
+    if not typical or min(count) < typical / 2:
+        return None, '字の無い列がある'
+    if max(runs(start - pitch), runs(start + plots * pitch)) >= typical / 2:
+        return None, '範囲の外にも列がある'
+    return [left + start + i * pitch for i in range(plots)], ''
+
+
+def dense_tile(im, edges, label, first, last, y_range, grid_top=26):
+    """1 枚分: 左に種名・階層，右に first〜last 地点の値．edges は地点の境 (地点の数 + 1 個) の x"""
     top, bottom = y_range
-    left = int(x0 + (first - 1) * w)
-    right = min(x1, int(x0 + last * w) + 1)
+    left, right = int(edges[first - 1]), int(edges[last]) + 1
     names = im.crop((label[0], top, label[1], bottom))
     vals = im.crop((left, top, right, bottom))
     out = Image.new('RGB', (names.width + 12 + vals.width, vals.height + grid_top), 'white')
@@ -119,7 +189,7 @@ def dense_tile(im, box, label, plots, first, last, y_range, grid_top=26):
     d = ImageDraw.Draw(out)
     f = _font(20)
     for i in range(first, last + 1):
-        cx = names.width + 12 + round((i - first) * w)
+        cx = names.width + 12 + round(edges[i - 1] - left)
         d.line([(cx, 0), (cx, out.height)], fill=(170, 210, 255))
         d.text((cx + 6, 1), str(i), fill=(200, 0, 0), font=f)
     return out
@@ -176,7 +246,19 @@ def main(argv=None):
         x0, y0, x1, y1 = box
         dy = a.shear if a.shear is not None else estimate_shear(im.crop(box))
         whole = shear(im.crop((a.label[0], y0, x1, y1)), dy * (x1 - a.label[0]) / (x1 - x0))
-        shifted = (x0 - a.label[0], 0, x1 - a.label[0], y1 - y0)
+        origin = a.label[1]                           # 値の側の探す範囲の左端 (--pad で広げた範囲より左へは行かない)
+        search = whole.crop((max(x0, origin) - a.label[0], 0, x1 - a.label[0], y1 - y0))
+        centers, why = measure_columns(search, a.plots)
+        if centers:
+            w = (centers[-1] - centers[0]) / (a.plots - 1)
+            base = max(x0, origin) - a.label[0]
+            edges = [base + c - w / 2 for c in centers] + [base + centers[-1] + w / 2]
+            print(f'列を測った: 第 1 列の中心 x={round(base + centers[0] + a.label[0])}，間隔 {w:.1f} px')
+        else:
+            w = (a.box[2] - a.box[0]) / a.plots       # 等分は --pad を足す前の --box で行う
+            edges = [a.box[0] - a.label[0] + i * w for i in range(a.plots + 1)]
+            print(f'警告: 列を測れなかった ({why})．--box を {a.plots} 等分した．--box の左右を第 1 列と最後の列の外側に'
+                  '合わせ，1 枚目で札と値の列が合っているかを確かめる')
         rows = int(a.tiles.lower().split('x')[0])
         h = (y1 - y0) / rows
         print(f'行の傾き {dy} px を直した')
@@ -184,7 +266,7 @@ def main(argv=None):
             top, bottom = max(0, int(r * h - a.overlap)), min(y1 - y0, int((r + 1) * h + a.overlap))
             for first in range(1, a.plots + 1, a.dense):
                 last = min(a.plots, first + a.dense - 1)
-                tile = dense_tile(whole, shifted, (0, a.label[1] - a.label[0]), a.plots, first, last, (top, bottom))
+                tile = dense_tile(whole, edges, (0, a.label[1] - a.label[0]), first, last, (top, bottom))
                 out, scale = ruled(tile, (0, 0, tile.width, tile.height), a.max, True, a.zoom, y0 + top - 26)
                 path = os.path.join(a.out, f'{stem}_r{r + 1}_p{first:02d}-{last:02d}.png')
                 out.save(path)

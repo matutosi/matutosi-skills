@@ -305,6 +305,87 @@ class ImageTest(unittest.TestCase):
                         "--label", "0", "390", "--tiles", "2x1", "--shear", "0", "--out", d, "--name", "x"])
         self.assertTrue(os.path.exists(os.path.join(d, "x_r2_p11-20.png")))
 
+    def _dots(self, pitch=60, n=10, left=100):
+        from PIL import ImageDraw
+        im = self.Image.new("L", (800, 600), "white")
+        d = ImageDraw.Draw(im)
+        d.line([(40, 0), (40, 600)], fill=0, width=2)          # 階層の右の罫線
+        d.line([(left + n * pitch, 0), (left + n * pitch, 600)], fill=0, width=2)
+        for y in range(20, 590, 30):
+            for i in range(n):
+                x = left + i * pitch
+                d.ellipse((x - 3, y - 3, x + 3, y + 3), fill=0)
+        return im
+
+    def test_measure_columns(self):
+        import crop
+        centers, _ = crop.measure_columns(self._dots(), 10)
+        self.assertLessEqual(abs(centers[0] - 100), 3)
+        self.assertLessEqual(abs(centers[-1] - 640), 3)
+
+    def test_measure_columns_wrong_count(self):
+        import crop
+        self.assertIsNone(crop.measure_columns(self._dots(), 9)[0])          # 地点の数が違えば測らない
+        self.assertIsNone(crop.measure_columns(self.Image.new("L", (800, 600), "white"), 10)[0])
+
+    def test_dense_ignores_pad_when_dividing(self):
+        import crop, contextlib, io
+        d = tempfile.mkdtemp()
+        src = os.path.join(d, "t.png")
+        self.Image.new("RGB", (1000, 600), "white").save(src)       # 字が無いので等分に戻る
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            crop.main([src, "--box", "400", "100", "900", "500", "--dense", "10", "--plots", "10",
+                       "--label", "0", "390", "--shear", "0", "--out", d, "--name", "x"])
+        self.assertIn("列を測れなかった", out.getvalue())
+        tile = self.Image.open(os.path.join(d, "x_r1_p01-10.png"))
+        self.assertLess(tile.width, 1040 + 2 * crop.MARGIN_X)       # --pad を足すと 660 px になる
+
+    def _cells(self, d, wrong):
+        """点の表 (3 行 x 10 地点) と，地点 3 の値を地点 wrong に書いた転記を作る"""
+        from PIL import ImageDraw
+        im = self.Image.new("L", (800, 300), "white")
+        draw = ImageDraw.Draw(im)
+        draw.line([(40, 0), (40, 300)], fill=0, width=2)
+        for r, y in enumerate((60, 120, 180)):
+            draw.rectangle((10, y - 8, 25, y + 8), fill=0)                 # 階層の字
+            for i in range(10):
+                x = 100 + i * 60
+                if r == 1 and i == 2:
+                    draw.rectangle((x - 12, y - 3, x + 12, y + 3), fill=0)  # 値
+                    draw.rectangle((x - 3, y - 12, x + 3, y + 12), fill=0)
+                else:
+                    draw.ellipse((x - 3, y - 3, x + 3, y + 3), fill=0)
+        src = os.path.join(d, "t.png")
+        im.save(src)
+        body = os.path.join(d, "transcripts", "Tab.001")
+        os.makedirs(body)
+        plots = [str(i) for i in range(1, 11)]
+        with open(os.path.join(body, "body.tsv"), "w", encoding="utf-8", newline="") as f:
+            f.write("\t".join(["kind", "group_ja", "group_de", "s_name", "j_name", "layer"] + plots + ["note"]) + "\n")
+            for r in range(3):
+                cells = ["・"] * 10
+                if r == 1:
+                    cells[wrong - 1] = "+"
+                f.write("\t".join(["sp", "", "", "A b", "ナ%d" % r, "K"] + cells + [""]) + "\n")
+        return src
+
+    def _check_cells(self, wrong):
+        import check_cells, contextlib, io
+        d = tempfile.mkdtemp()
+        src = self._cells(d, wrong)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            check_cells.main([src, d, "Tab.1", "--box", "50", "30", "790", "210", "--layer", "5", "30",
+                              "--shear", "0", "--wmin", "13"])
+        return out.getvalue()
+
+    def test_check_cells_finds_neighbour(self):
+        self.assertIn("地点 4 の値は地点 3", self._check_cells(4))
+
+    def test_check_cells_clean(self):
+        self.assertIn("候補 0 件", self._check_cells(3))
+
     def test_parse_pages(self):
         import pages
         self.assertEqual(pages.parse_pages("2-4,7"), {2, 3, 4, 7})
