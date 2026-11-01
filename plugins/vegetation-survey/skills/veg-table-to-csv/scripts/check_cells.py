@@ -9,6 +9,7 @@
 - セルの字の幅が `・` より広ければ「値あり」とする．**`+` と `1` の読み違いは見つけられない**．
 - 候補は画像に戻って確かめる．下線・点線の枠・ごみを値と見ることがある．
 - 境の幅は既定で，字のあるセルの幅の中央値の 1.5 倍．`・` と値の幅が近い表は `--wmin` で変えて，結果が動くかを見る．
+- `--extra` は，画像だけに値があるセルを種・地点・座標の一覧で出す．読み落としの手がかりだが，枠の線も拾う．
 """
 import argparse
 import csv
@@ -156,6 +157,7 @@ def main(argv=None):
     ap.add_argument('--layer', type=int, nargs=2, required=True, metavar=('X0', 'X1'), help='階層の列の範囲')
     ap.add_argument('--wmin', type=int, help='これ以上の幅を「値あり」とする (既定は自動)')
     ap.add_argument('--shear', type=int, help='行の傾き (省くと自動で測る)')
+    ap.add_argument('--extra', action='store_true', help='画像だけに値があるセルを，種・地点・座標の一覧で出す')
     a = ap.parse_args(argv)
 
     body, plots = read_body(os.path.join(a.out, 'transcripts', table_dir(a.table), 'body.tsv'))
@@ -174,12 +176,12 @@ def main(argv=None):
         print(f'警告: 列を測れなかった ({why})．--box を {plots} 等分した')
     bw = part.point(lambda v: 255 if v < 128 else 0)
     rows, pitch = find_rows(im.crop((a.layer[0], y0, a.layer[1], y1)))
-    if len(rows) < len(body):                         # 傾いた罫線が階層の範囲に掛かると，行がつながる
+    if not len(body) <= len(rows) <= len(body) * 2:   # 傾いた罫線が階層の範囲に掛かると，行がつながるか，細切れになる
         rows, pitch = find_rows_by_values(bw, centers, pitch_x * .3)
         print('階層の字では行を測れないので，値の列の字の並びで測った')
     print(f'行: 測った {len(rows)}・転記 {len(body)}．地点 {plots}')
-    if len(rows) < len(body):
-        sys.exit('測った行が転記より少ない．--box を値の列だけに合わせる')
+    if not len(body) <= len(rows) <= len(body) * 2:
+        sys.exit('測った行の数が転記と合わない．--box を値の列だけに合わせる')
     width = cell_widths(bw, rows, pitch, centers, pitch_x * .3)
     filled = sorted(v for row in width for v in row if v)
     wmin = a.wmin or round(filled[len(filled) // 2] * 1.5)
@@ -187,6 +189,7 @@ def main(argv=None):
     typed = [t for _, _, t in body]
     match = align(typed, seen)
     seen = [seen[j] for j in match]
+    ys = [y0 + sum(rows[j]) // 2 for j in match]
     only_t = sum(t and not m for r, s in zip(typed, seen) for t, m in zip(r, s))
     only_m = sum(m and not t for r, s in zip(typed, seen) for t, m in zip(r, s))
     print(f'境の幅 {wmin} px．転記だけの値 {only_t}・画像だけの値 {only_m}')
@@ -198,6 +201,10 @@ def main(argv=None):
         names.append(name)
     for r, p, q in found:
         print(f'[候補] {names[r]} {body[r][1]}: 地点 {p + 1} の値は地点 {q + 1} かもしれない')
+    if a.extra:
+        for r, (t, m) in enumerate(zip(typed, seen)):
+            for p in (i for i, (tv, mv) in enumerate(zip(t, m)) if mv and not tv):
+                print(f'[画像だけ] {names[r]} {body[r][1]}: 地点 {p + 1} (x={x0 + round(centers[p])} y={ys[r]})')
     print(f'候補 {len(found)} 件 (画像で確かめる．転記は書き換えていない)')
 
 

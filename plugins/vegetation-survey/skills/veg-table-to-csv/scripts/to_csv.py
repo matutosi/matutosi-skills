@@ -40,8 +40,10 @@ COMP_COLS = ['file', 'table', 'plot', 'group_ja', 'group_de', 's_name', 'j_name'
              'status', 'note']
 
 
-def parse_value(raw):
-    """印字の値を (cover, sociability, constancy, status, note) に分ける．非出現は None"""
+def parse_value(raw, n_plots=0):
+    """印字の値を (cover, sociability, constancy, status, note) に分ける．非出現は None
+
+    n_plots は列の調査区数．調査区の少ない列は常在度を出現地点数で印字する (`2(3)`・`1`)"""
     s = raw.translate(FIX).strip()
     underlined = '±' in s                             # ± は下線付きの +
     s = s.replace('±', '+')
@@ -57,7 +59,10 @@ def parse_value(raw):
         s = m.group(1).strip()
         notes.append('括弧付き')
     out = None
-    m = re.fullmatch(rf'({ROMAN})(?:\s*\(\s*({COV})(?:\s*-\s*({COV}))?\s*\))?', s)
+    m = re.fullmatch(rf'([1-9]\d*)(?:\s*\(\s*({COV})(?:\s*-\s*({COV}))?\s*\))?', s) if n_plots else None
+    if m and int(m.group(1)) <= n_plots:              # 出現地点数 2(3-4)
+        out = ((m.group(2) or '') + ('-' + m.group(3) if m.group(3) else ''), '', m.group(1))
+    m = None if out else re.fullmatch(rf'({ROMAN})(?:\s*\(\s*({COV})(?:\s*-\s*({COV}))?\s*\))?', s)
     if m:                                             # 常在度 IV(+-3)
         cov = m.group(2) or ''
         if m.group(3):
@@ -140,6 +145,14 @@ def read_tsv(path):
 
 def plots_of(head, fixed):
     return [h for h in head if h not in fixed and h]
+
+
+def plots_per_column(header):
+    """表頭の「調査区数」の行から，常在度の列の調査区数を返す．{列: 数}"""
+    for r in header:
+        if r.get('item_ja') == '調査区数' or r.get('item_de', '').lower().startswith('zahl d. aufn'):
+            return {p: int(v) for p, v in r.items() if p.isdigit() and v.isdigit()}
+    return {}
 
 
 def norm_site(item_ja, item_de, raw, year=None):
@@ -230,6 +243,7 @@ def build(tdir):
     if body:
         plots = plots_of(list(body[0].keys()), fixed_body)
         g_ja = g_de = s_prev = j_prev = ''
+        n_plots = plots_per_column(header)
         for r in body:
             if r.get('kind') == 'group':
                 g_ja, g_de = r.get('group_ja', ''), r.get('group_de', '')
@@ -239,7 +253,7 @@ def build(tdir):
                 s, j = s_prev, j_prev
             s_prev, j_prev = s, j
             for p in plots:
-                pv = parse_value(r.get(p, ''))
+                pv = parse_value(r.get(p, ''), n_plots.get(p, 0))
                 if pv is None:
                     continue
                 cov, soc, const, st, note = pv

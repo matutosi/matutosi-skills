@@ -55,6 +55,18 @@ class ParseValueTest(unittest.TestCase):
         ]:
             self.assertEqual(to_csv.parse_value(raw)[:4], (cov, soc, const, st), raw)
 
+    def test_count_of_plots(self):
+        for raw, cov, const in [("2(3-4)", "3-4", "2"), ("1(+)", "+", "1"), ("3(+-2)", "+-2", "3"),
+                                ("2", "", "2"), ("V(+-2)", "+-2", "V")]:
+            self.assertEqual(to_csv.parse_value(raw, 3)[:3], (cov, "", const), raw)
+        self.assertEqual(to_csv.parse_value("5(1)", 3)[3], "check")      # 調査区数より多い
+        self.assertEqual(to_csv.parse_value("2(3-4)")[:3], ("2", "3-4", ""))    # 調査区数が無ければ今までどおり
+
+    def test_plots_per_column(self):
+        self.assertEqual(to_csv.plots_per_column([{"item_ja": "調査区数", "item_de": "", "1": "3", "2": "12", "note": ""}]),
+                         {"1": 3, "2": 12})
+        self.assertEqual(to_csv.plots_per_column([{"item_ja": "調査番号;調査区数", "item_de": "", "1": "6"}]), {})
+
     def test_absent(self):
         for raw in ("", "・", "-", "."):
             self.assertIsNone(to_csv.parse_value(raw))
@@ -343,6 +355,8 @@ class ImageTest(unittest.TestCase):
             for x in range(0, 800, 10):
                 d.rectangle((x, y + x * 24 // 800, x + 4, y + x * 24 // 800 + 4), fill="black")
         self.assertLessEqual(abs(crop.estimate_shear(im) - 24), 4)
+        self.assertLessEqual(abs(crop.estimate_shear(im, 16, 4, 28) - 24), 4)      # 帯ごとは近くだけを探す
+        self.assertLessEqual(abs(crop.estimate_shear(im, 8, 4, -40) + 40), 8)      # 範囲の外へは出ない
 
     def test_dense(self):
         import crop
@@ -436,15 +450,19 @@ class ImageTest(unittest.TestCase):
                 f.write("\t".join(["sp", "", "", "A b", "ナ%d" % r, "K"] + cells + [""]) + "\n")
         return src
 
-    def _check_cells(self, wrong):
+    def _check_cells(self, wrong, *extra):
         import check_cells, contextlib, io
         d = tempfile.mkdtemp()
         src = self._cells(d, wrong)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             check_cells.main([src, d, "Tab.1", "--box", "50", "30", "790", "210", "--layer", "5", "30",
-                              "--shear", "0", "--wmin", "13"])
+                              "--shear", "0", "--wmin", "13", *extra])
         return out.getvalue()
+
+    def test_check_cells_lists_image_only(self):
+        self.assertIn("[画像だけ] ナ1 K: 地点 3 (x=220 y=120)", self._check_cells(4, "--extra"))
+        self.assertNotIn("[画像だけ]", self._check_cells(3, "--extra"))
 
     def test_check_cells_finds_neighbour(self):
         self.assertIn("地点 4 の値は地点 3", self._check_cells(4))

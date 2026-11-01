@@ -94,11 +94,13 @@ def shear(im, dy):
                         fillcolor='white')
 
 
-def estimate_shear(im, limit=60, step=4):
-    """行の濃淡がいちばん鋭くなる傾き (dy) を探す．値の列だけの画像を渡す"""
+def estimate_shear(im, limit=80, step=4, center=0):
+    """行の濃淡がいちばん鋭くなる傾き (dy) を探す．値の列だけの画像を渡す
+
+    1 行分ずれた傾きでも行がそろって見えるので，帯ごとに測るときは center の近くだけを探す"""
     g = im.convert('L')
-    best, best_var = 0, -1.0
-    for dy in range(-limit, limit + 1, step):
+    best, best_var = center, -1.0
+    for dy in range(center - limit, center + limit + 1, step):
         var = ImageStat.Stat(shear(g, dy).resize((1, g.height), Image.BOX)).var[0]
         if var > best_var:
             best, best_var = dy, var
@@ -271,9 +273,15 @@ def main(argv=None):
         print(f'行の傾き {dy} px を直した')
         for r in range(rows):
             top, bottom = max(0, int(r * h - a.overlap)), min(y1 - y0, int((r + 1) * h + a.overlap))
+            band = im.crop((a.label[0], y0 + top, x1, y0 + bottom))   # 傾きは表の中で一様でないので，帯ごとに測る
+            dy_r = dy if a.shear is not None or rows == 1 else estimate_shear(
+                band.crop((x0 - a.label[0], 0, band.width, band.height)), 16, 4, dy)
+            band = shear(band, dy_r * (x1 - a.label[0]) / (x1 - x0))
+            if rows > 1:
+                print(f'帯 {r + 1}: 行の傾き {dy_r} px')
             for first in range(1, a.plots + 1, a.dense):
                 last = min(a.plots, first + a.dense - 1)
-                tile = dense_tile(whole, edges, (0, label_w), first, last, (top, bottom))
+                tile = dense_tile(band, edges, (0, label_w), first, last, (0, bottom - top))
                 out, scale = ruled(tile, (0, 0, tile.width, tile.height), a.max, True, a.zoom, y0 + top - 26)
                 path = os.path.join(a.out, f'{stem}_r{r + 1}_p{first:02d}-{last:02d}.png')
                 out.save(path)

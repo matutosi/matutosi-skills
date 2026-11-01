@@ -36,7 +36,7 @@ COMP_COLS = ['file', 'table', 'plot', 'group_ja', 'group_de', 's_name', 'j_name'
 
 COVER = re.compile(r'^(?:[54321+r])(?:-(?:[54321+r]))?$')     # 範囲 (+-3) も認める
 SOC = re.compile(r'^[1-5](?:-[1-5])?$')
-CONST = re.compile(r'^(?:V|IV|III|II|I|\+|r)$')
+CONST = re.compile(r'^(?:V|IV|III|II|I|\+|r|\d+)$')    # 数字は出現地点数
 LAYER = re.compile(r'^(?:(?:[TBSKH][12]?|M)(?:;(?:[TBSKH][12]?|M))*)$')
 JNAME = re.compile(r'^[゠-ヿー・一-鿿\dA-Za-z .()（）の？?]+$')
 COUNT_JA = ('出現種数', '種数')
@@ -89,7 +89,7 @@ def main(argv=None):
         if sc and not SOC.match(sc):
             bad('値', f'{where}: 群度 {sc!r} が 1〜5 でない')
         if ct and not CONST.match(ct):
-            bad('値', f'{where}: 常在度 {ct!r} が I〜V・+・r でない')
+            bad('値', f'{where}: 常在度 {ct!r} が I〜V・+・r・数字でない')
         if ly and not LAYER.match(ly):
             bad('値', f'{where}: 階層 {ly!r} の形が違う (T1 T2 B1 B2 S K H M．複数は ;)')
         jn = r.get('j_name', '').strip()
