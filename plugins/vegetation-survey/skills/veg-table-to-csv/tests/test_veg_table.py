@@ -554,6 +554,60 @@ class ImageTest(unittest.TestCase):
     def test_check_cells_clean(self):
         self.assertIn("候補 0 件", self._check_cells(3))
 
+    def _grid(self):
+        try:
+            import check_grid
+        except (ImportError, SystemExit):
+            self.skipTest("numpy と scipy が無い")
+        return check_grid
+
+    def test_grid_match_rows_skips_extra_row(self):
+        check_grid = self._grid()
+        typed = [["d", "v"], ["v", "d"]]
+        image = [["d", "x", "v"], ["v", "x", "d"]]                  # [列][行]．真ん中の行は転記に無い
+        self.assertEqual(check_grid.match_rows(typed, image), [(0, 0), (1, 2)])
+
+    def test_grid_cell_type(self):
+        check_grid = self._grid()
+        dot = (0, 0, 8, 8, 40)
+        is_dot = lambda q: q[2] <= 12 and q[3] <= 9
+        self.assertEqual(check_grid.cell_type([], is_dot, 26), "x")
+        self.assertEqual(check_grid.cell_type([dot], is_dot, 26), "d")
+        self.assertEqual(check_grid.cell_type([(0, 0, 20, 20, 90)], is_dot, 26), "v")
+        self.assertEqual(check_grid.cell_type([(0, 0, 12, 20, 60), (24, 0, 12, 20, 60)], is_dot, 26), "c")
+
+    def test_grid_finds_wrong_column(self):
+        check_grid = self._grid()
+        from PIL import ImageDraw
+        d = tempfile.mkdtemp()
+        im = self.Image.new("L", (500, 900), "white")
+        draw = ImageDraw.Draw(im)
+        for r in range(40):
+            y = 40 + r * 20
+            for c in range(8):
+                x = 60 + c * 50
+                if r == 10 and c == 2:
+                    draw.rectangle((x - 9, y - 1, x + 9, y + 1), fill=0)   # 値
+                    draw.rectangle((x - 1, y - 8, x + 1, y + 8), fill=0)
+                else:
+                    draw.ellipse((x - 4, y - 3, x + 4, y + 3), fill=0)
+        src = os.path.join(d, "t.png")
+        im.save(src)
+        body = os.path.join(d, "transcripts", "Tab.001")
+        os.makedirs(body)
+        with open(os.path.join(body, "body.tsv"), "w", encoding="utf-8", newline="") as f:
+            f.write("\t".join(["kind", "group_ja", "group_de", "s_name", "j_name", "layer"]
+                              + [str(i) for i in range(1, 9)] + ["note"]) + "\n")
+            for r in range(40):
+                cells = ["・"] * 8
+                if r == 10:
+                    cells[3] = "+"                                  # 隣の地点に書いた
+                f.write("\t".join(["sp", "", "", "A b", "ナ%d" % r, "K"] + cells + [""]) + "\n")
+        _, out = run(check_grid.main, [src, d, "Tab.1", "--box", "30", "20", "480", "840"])
+        self.assertIn("対応した行 40", out)
+        self.assertIn("ナ10 K: 地点 3 転記 d・画像 v", out)
+        self.assertIn("ナ10 K: 地点 4 転記 v・画像 d", out)
+
     def test_dense_has_no_full_lines(self):
         import crop
         im = self.Image.new("RGB", (1000, 100), "white")
