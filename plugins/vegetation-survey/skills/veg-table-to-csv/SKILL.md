@@ -295,6 +295,18 @@ python <skill>/scripts/check_species.py <出力> --download
 読み違いなら転記表を直す．**印字がそのとおりなら直さない** (旧名・誤植は印字のまま)．
 CSV を照合の結果で書き換えない．
 
+**AI が決められない和名などは，ユーザに画像を見て判断してもらう** (`scripts/review.py`)．
+項目を TSV に書いて積み，ブラウザを開いてもらい，答えを転記へ反映する．
+
+```bash
+python <skill>/scripts/review.py import <出力> <一覧.tsv>   # 列: table field current candidates page x0 y0 x1 y1 note
+python <skill>/scripts/review.py serve <出力>               # ユーザが開く．左に画像，右に入力欄．欄から離れると保存
+python <skill>/scripts/review.py apply <出力>               # 答えを body.tsv・once.tsv・sparse*.txt へ反映
+```
+
+見てほしい範囲は，名前の行の上下を数行広めに取る (ブラウザの `上へ`・`下へ` で動かせる)．
+`apply` のあとは `to_csv.py` と `check_species.py` を流す．
+
 ### 9. 報告
 
 ユーザに次を伝える．

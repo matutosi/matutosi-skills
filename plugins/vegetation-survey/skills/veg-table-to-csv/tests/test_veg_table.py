@@ -329,6 +329,71 @@ class SpeciesTest(unittest.TestCase):
         self.assertEqual(ok["Vitex rotundifolia"]["same_genus"], "0")
 
 
+class ReviewTest(unittest.TestCase):
+    def setUp(self):
+        try:
+            import review
+        except ImportError:
+            self.skipTest("Pillow が無い")
+        self.review = review
+        self.d = tempfile.mkdtemp()
+        tdir = os.path.join(self.d, "transcripts", "Tab.007")
+        os.makedirs(tdir)
+        with open(os.path.join(tdir, "body.tsv"), "w", encoding="utf-8", newline="") as f:
+            f.write("kind\tgroup_ja\tgroup_de\ts_name\tj_name\tlayer\t1\tnote\n")
+            f.write("sp\t\t\tAaa bbb\tアイウ\tK\t+\t\nsp\t\t\tCcc ddd\tアイウエ\tK\t+\t\n")
+        with open(os.path.join(tdir, "once.tsv"), "w", encoding="utf-8", newline="") as f:
+            f.write("plot\ts_name\tj_name\tlayer\tvalue\tnote\n1\tAaa bbb\tアイウ\tK\t+\t\n")
+        with open(os.path.join(tdir, "sparse.txt"), "w", encoding="utf-8", newline="") as f:
+            f.write("#table Tab.7 1\ng|アイウ|x\nAaa bbb|アイウ|K|1:+\n")
+        self.src = os.path.join(self.d, "in.tsv")
+        with open(self.src, "w", encoding="utf-8", newline="") as f:
+            f.write("table\tfield\tcurrent\tcandidates\tpage\tx0\ty0\tx1\ty1\tnote\n")
+            f.write("Tab.7\tj_name\tアイウ\tアイオ;アイカ\tp.png\t0\t0\t100\t50\t濁点\n")
+            f.write("Tab.7\tj_name\tアイウ\t\tp.png\t0\t0\t100\t50\t\n")      # 同じ項目は足さない
+            f.write("Tab.7\tlayer\tK\t\tp.png\t0\t0\t100\t50\t\n")
+
+    def test_import_and_save(self):
+        self.assertEqual(self.review.import_rows(self.d, self.src), (2, 2))
+        self.assertEqual(self.review.import_rows(self.d, self.src), (0, 2))
+        self.review.save_row(self.d, {"id": 1, "answer": " アイオ\t", "memo": "", "state": "fix"})
+        row = self.review.read_queue(self.d)[0]
+        self.assertEqual((row["answer"], row["state"], row["candidates"]), ("アイオ", "fix", "アイオ;アイカ"))
+        with self.assertRaises(ValueError):
+            self.review.save_row(self.d, {"id": 1, "state": "wrong"})
+        with self.assertRaises(LookupError):
+            self.review.save_row(self.d, {"id": 9, "state": "ok"})
+
+    def test_apply_only_exact_names(self):
+        self.review.import_rows(self.d, self.src)
+        self.review.save_row(self.d, {"id": 1, "answer": "アイオ", "state": "fix"})
+        self.review.save_row(self.d, {"id": 2, "answer": "S", "state": "fix"})
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(self.review.apply_rows(self.d), (1, 0, 1))
+        self.assertIn("[手で直す]", out.getvalue())
+        tdir = os.path.join(self.d, "transcripts", "Tab.007")
+        with open(os.path.join(tdir, "body.tsv"), encoding="utf-8") as f:
+            body = f.read()
+        self.assertIn("Aaa bbb\tアイオ\t", body)
+        self.assertIn("Ccc ddd\tアイウエ\t", body)                  # 語の一部は直さない
+        with open(os.path.join(tdir, "once.tsv"), encoding="utf-8") as f:
+            self.assertIn("アイオ", f.read())
+        with open(os.path.join(tdir, "sparse.txt"), encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("Aaa bbb|アイオ|K|1:+", text)
+        self.assertIn("g|アイウ|x", text)                           # 見出しは直さない
+        self.assertEqual(self.review.read_queue(self.d)[0]["state"], "applied")
+
+    def test_render_and_move(self):
+        from PIL import Image
+        Image.new("L", (400, 400), "white").save(os.path.join(self.d, "p.png"))
+        self.review.import_rows(self.d, self.src)
+        row = self.review.read_queue(self.d)[0]
+        pages = self.review.Pages(self.d)
+        self.assertTrue(self.review.render(pages, row).startswith(b"\x89PNG"))
+        self.assertTrue(self.review.render(pages, row, dy=100).startswith(b"\x89PNG"))
+
+
 class ImageTest(unittest.TestCase):
     def setUp(self):
         try:
