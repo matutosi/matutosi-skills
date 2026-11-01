@@ -26,7 +26,7 @@ A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts, 
 | プラグイン | Python | 追加のパッケージ (`pip install`) |
 |---|---|---|
 | ja-manuscript | 3.9 以降 | `apply-proof-marks` と `build-index` だけが要ります (下の表) |
-| jpg-user-comment | 3.8 以降 (目安) | なし (標準ライブラリだけ) |
+| jpg-user-comment | 3.8 以降 (目安) | なし (標準ライブラリだけ．`comment_server.py` は `Pillow` があれば画像を縮小する) |
 | jstage-xml | 3.11 以降 | `pymupdf` `lxml` `pyyaml`．論文一覧の取得 (`list_articles.py toc`) には `beautifulsoup4` も |
 | vegetation-survey | `veg-sheet-to-csv` は 3.8 以降，`veg-table-to-csv` は 3.9 以降 | `veg-table-to-csv` は `Pillow`，PDF を読むときは `pymupdf`．種名の照合だけ `openpyxl`．`veg-sheet-to-csv` の `build_csv.py` は標準ライブラリだけ |
 
@@ -139,9 +139,10 @@ AES で暗号化された PDF を `apply-proof-marks` で開くときは，`pip 
 
 JPEG の Exif UserComment (タグ 0x9286) を，ファイル名とコメントの2列の CSV で書き出し，書き戻します．
 表計算ソフトでコメントをまとめて編集したいときに使えます．
-Python の標準ライブラリだけで動きます．
+写真を見ながらブラウザで直すこともできます (`comment_server.py`．左に写真，右にコメント欄が並びます)．
+Python の標準ライブラリだけで動きます (Pillow があれば，ブラウザの画像の縮小と回転が効きます)．
 
-Export the Exif UserComment of JPEG files to a CSV, edit it in a spreadsheet, and import it back.
+Export the Exif UserComment of JPEG files to a CSV, edit it in a spreadsheet or in the browser next to each photo, and import it back.
 Only the Python standard library is required.
 
 <a id="vegetation-survey"></a>

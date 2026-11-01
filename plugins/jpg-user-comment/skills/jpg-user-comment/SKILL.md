@@ -7,6 +7,7 @@ description: Read and write the Exif UserComment (tag 0x9286) of JPEG files usin
 
 JPEG の Exif **UserComment** (tag 0x9286) を CSV (`filename,comment`) で読み書きする。
 `scripts/jpg_comment.py` は Python 標準ライブラリのみで動作する (Pillow / piexif は不要)。
+CSV を写真を見ながら直すときは `scripts/comment_server.py` を使う (「ブラウザで写真を見ながら直す」の節)。
 
 ## 使い方
 
@@ -80,6 +81,27 @@ photos/DSC_0003.jpg,
 - どのモードでも、**CSV に行が無いファイルには触れない**。
 - 迷ったらまず `-n` (dry-run) で、何がどう書かれるかを見る。
 
+## ブラウザで写真を見ながら直す
+
+`scripts/comment_server.py` は，CSV のコメントを，写真を見ながらブラウザで直すサーバ．
+左に写真，右にコメント欄が縦に並び，欄から離れた時点で CSV に書き戻す．**写真そのものは書き換えない**．
+
+```bash
+python "$S" export photos/ -o comments.csv                              # CSV を作る
+python ${CLAUDE_SKILL_DIR}/scripts/comment_server.py comments.csv       # ブラウザが開く (Ctrl+C で終わる)
+python ${CLAUDE_SKILL_DIR}/scripts/comment_server.py comments.csv --base photos/ --port 8765 --no-browser
+python "$S" import comments.csv --overwrite-all                         # 直した内容を写真へ書き戻す
+```
+
+- **書き戻しは `--overwrite-all`**．既定の `--append` だと，もとのコメントに継ぎ足される．
+  消したコメントも反映したいので，`--overwrite` でなくこちらを使う．先に `-n` で確かめる．
+- 画像の幅の切り替え，「空のものだけ」「？が付くものだけ」の絞り込み，上のコメントの複写，`？` の削除，
+  コメントでの画像検索，表示だけの回転ができる．
+- 「写真を削除」は CSV の隣の `_trash/` へ移すだけで，`_trash/deleted.csv` に記録する．ブラウザを閉じるまで元に戻せる．
+- 見せる写真と書き換える行は，CSV に載っているものだけ．サーバは 127.0.0.1 だけで待ち受ける．
+- `filename` の解決は `import` と同じ (絶対パスか `--base` 基準の相対パス．既定は CSV と同じディレクトリ)．
+- 標準ライブラリだけで動く．Pillow があれば縮小と回転が効き，無ければ原寸のまま送る．
+
 ## 写真を見てコメントを付けるとき: 手がかりを先にもらう
 
 写真の中身を見てコメント (種名・場所・行事) を付けるときは，**ユーザから手がかりをもらうと精度が大きく上がる**．
@@ -107,7 +129,7 @@ photos/DSC_0003.jpg,
 - 識別子が `ASCII` や**空 (0 埋め)** の場合、中身は UTF-8 とは限らない。日本語の写真は **cp932 (Shift-JIS)** で書かれていることが多いので、`utf-8` → `cp932` → `euc_jp` の順に**厳密に解けた最初の符号化**を採る (`FALLBACK_ENCODINGS`)。UTF-8 決め打ちだと日本語が全て U+FFFD に化ける。
 - 書き込みは一時ファイル経由の `os.replace` なので、途中で失敗しても元ファイルは壊れない。
 - 読み出しは**先頭 128KB だけ**を読んで Exif APP1 を探す (`HEADER_SCAN`)。そこで決着しなければ全体を読み直して元の経路で解釈するので、結果は変わらない。写真 1 枚が数 MB あっても I/O は頭だけで済む。
-- **Pillow / piexif は使わない**。写真 200 枚 (計 495MB) で計測すると 標準ライブラリ 0.08 秒 に対し Pillow は 0.13 秒 で、外部依存を足しても速くならない。
+- `jpg_comment.py` は **Pillow / piexif を使わない**。写真 200 枚 (計 495MB) で計測すると 標準ライブラリ 0.08 秒 に対し Pillow は 0.13 秒 で、外部依存を足しても速くならない。
 - Exif は 1 セグメント 64KB までのため、極端に長いコメントはエラーになる。
 - UserComment は Windows エクスプローラーの「コメント」欄 (XPComment, tag 0x9C9C) とは**別のタグ**。エクスプローラー表示が目的の場合はその旨を確認する。
 

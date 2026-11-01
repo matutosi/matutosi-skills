@@ -70,6 +70,97 @@ class Base(unittest.TestCase):
         return target
 
 
+class TestCommentServer(Base):
+    def setUp(self):
+        super().setUp()
+        import comment_server
+        self.cs = comment_server
+        self.path("a.jpg")
+        self.path("b.jpg")
+        self.path("outside.jpg")
+        self.csv = os.path.join(self.dir, "c.csv")
+        with open(self.csv, "w", encoding="utf-8-sig", newline="") as handle:
+            handle.write('filename,comment\r\na.jpg,"桜, 京都"\r\nb.jpg,\r\n')
+        self.store = comment_server.Store(self.csv)
+
+    def text(self):
+        with open(self.csv, encoding="utf-8-sig", newline="") as handle:
+            return handle.read()
+
+    def test_rows_and_save(self):
+        self.assertEqual([r["comment"] for r in self.store.rows()], ["桜, 京都", ""])
+        self.assertTrue(self.store.save("b.jpg", "改行\nを含む"))
+        self.assertFalse(self.store.save("c.jpg", "x"))
+        self.assertIn('b.jpg,"改行\nを含む"', self.text())
+        self.assertTrue(self.text().startswith("filename,comment"))
+
+    def test_no_header(self):
+        with open(self.csv, "w", encoding="utf-8", newline="") as handle:
+            handle.write("a.jpg,甲\r\n")
+        self.assertEqual(self.store.rows()[0]["comment"], "甲")
+        self.store.save("a.jpg", "乙")
+        self.assertEqual(self.text(), "a.jpg,乙\r\n")
+
+    def test_only_listed_photos_are_served(self):
+        self.assertIsNotNone(self.store.image_path("a.jpg"))
+        self.assertIsNone(self.store.image_path("outside.jpg"))
+        self.assertIsNone(self.store.image_path(os.path.join(self.dir, "outside.jpg")))
+
+    def test_delete_and_restore(self):
+        index, trash, comment = self.store.delete("a.jpg")
+        self.assertEqual((index, comment), (0, "桜, 京都"))
+        self.assertTrue(os.path.isfile(trash))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "a.jpg")))
+        self.assertEqual(self.store.image_path(trash), trash)
+        self.assertEqual([r["path"] for r in self.store.rows()], ["b.jpg"])
+        self.store.restore("a.jpg", trash, comment, index)
+        self.assertEqual([r["path"] for r in self.store.rows()], ["a.jpg", "b.jpg"])
+        self.assertTrue(os.path.isfile(os.path.join(self.dir, "a.jpg")))
+        with self.assertRaises(LookupError):
+            self.store.restore("a.jpg", os.path.join(self.dir, "outside.jpg"), "", 0)
+
+    def _server(self):
+        import threading
+        from http.server import ThreadingHTTPServer
+        server = ThreadingHTTPServer(("127.0.0.1", 0), self.cs.make_handler(self.store))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return "http://127.0.0.1:%d" % server.server_address[1]
+
+    def test_http(self):
+        import json
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+        base = self._server()
+        with urllib.request.urlopen(base + "/") as res:
+            self.assertIn("c.csv", res.read().decode("utf-8"))
+        with urllib.request.urlopen(base + "/api/rows") as res:
+            self.assertEqual(len(json.load(res)), 2)
+        with urllib.request.urlopen(base + "/img?p=a.jpg&w=0") as res:
+            self.assertEqual(res.read(), PLAIN_JPEG)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(base + "/img?p=" + urllib.parse.quote("outside.jpg"))
+        self.assertEqual(ctx.exception.code, 404)
+        ctx.exception.close()
+        body = json.dumps({"path": "b.jpg", "comment": "ススキ"}).encode("utf-8")
+        req = urllib.request.Request(base + "/api/save", data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as res:
+            self.assertTrue(json.load(res)["ok"])
+        self.assertIn("b.jpg,ススキ", self.text())
+        req = urllib.request.Request(base + "/api/save", data=body, headers={"Origin": "http://example.com"})
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req)
+        self.assertEqual(ctx.exception.code, 403)
+        ctx.exception.close()
+
+    def test_edited_csv_goes_back_to_photo(self):
+        self.store.save("b.jpg", "ススキ 穂")
+        self.assertEqual(jc.main(["import", self.csv, "--overwrite-all"]) or 0, 0)
+        self.assertEqual(jc.read_comment(os.path.join(self.dir, "b.jpg")), "ススキ 穂")
+
+
 class TestCodec(Base):
     def test_ascii_and_unicode_prefix(self):
         self.assertEqual(jc.encode_user_comment("abc", "<")[:8], b"ASCII\x00\x00\x00")
