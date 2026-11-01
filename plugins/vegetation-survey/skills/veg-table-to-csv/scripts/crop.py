@@ -190,10 +190,11 @@ def measure_columns(im, plots, rough=None):
     return [left + start + i * pitch for i in range(plots)], ''
 
 
-def dense_tile(im, edges, label, first, last, y_range, grid_top=26):
+def dense_tile(im, edges, label, first, last, y_range, grid_top=26, lines=False):
     """1 枚分: 左に種名・階層，右に first〜last 地点の値．edges は地点の境 (地点の数 + 1 個) の x
 
-    境に掛かる値が欠けないよう，隣の組と接する側は列の幅の 2 割だけ広く切る"""
+    境に掛かる値が欠けないよう，隣の組と接する側は列の幅の 2 割だけ広く切る．
+    列の線は `+` を隠したり偽の `+` を作ったりするので，札の高さだけに引く (lines で全体に引く)"""
     top, bottom = y_range
     margin = round((edges[1] - edges[0]) * .2)
     left = int(edges[first - 1]) - (margin if first > 1 else 0)
@@ -207,7 +208,7 @@ def dense_tile(im, edges, label, first, last, y_range, grid_top=26):
     f = _font(20)
     for i in range(first, last + 1):
         cx = names.width + 12 + round(edges[i - 1] - left)
-        d.line([(cx, 0), (cx, out.height)], fill=(170, 210, 255))
+        d.line([(cx, 0), (cx, out.height if lines else grid_top)], fill=(170, 210, 255))
         d.text((cx + 6, 1), str(i), fill=(200, 0, 0), font=f)
     return out
 
@@ -292,8 +293,8 @@ def main(argv=None):
                 print(f'帯 {r + 1}: 行の傾き {dy_r} px')
             for first in range(1, a.plots + 1, a.dense):
                 last = min(a.plots, first + a.dense - 1)
-                tile = dense_tile(band, edges, (0, label_w), first, last, (0, bottom - top))
-                out, scale = ruled(tile, (0, 0, tile.width, tile.height), a.max, True, a.zoom, y0 + top - 26)
+                tile = dense_tile(band, edges, (0, label_w), first, last, (0, bottom - top), lines=a.grid)
+                out, scale = ruled(tile, (0, 0, tile.width, tile.height), a.max, a.grid, a.zoom, y0 + top - 26)
                 path = os.path.join(a.out, f'{stem}_r{r + 1}_p{first:02d}-{last:02d}.png')
                 out.save(path)
                 warn = '  ← 0.6 未満．--dense を小さくする' if scale < 0.6 else ''

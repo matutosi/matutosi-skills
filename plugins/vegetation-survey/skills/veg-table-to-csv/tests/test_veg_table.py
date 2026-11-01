@@ -535,6 +535,15 @@ class ImageTest(unittest.TestCase):
     def test_check_cells_clean(self):
         self.assertIn("候補 0 件", self._check_cells(3))
 
+    def test_dense_has_no_full_lines(self):
+        import crop
+        im = self.Image.new("RGB", (1000, 100), "white")
+        edges = [100 + i * 50 for i in range(11)]
+        tile = crop.dense_tile(im, edges, (0, 90), 1, 10, (0, 100))
+        self.assertEqual(tile.getpixel((102, 80)), (255, 255, 255))         # 値の高さに線を引かない
+        full = crop.dense_tile(im, edges, (0, 90), 1, 10, (0, 100), lines=True)
+        self.assertNotEqual(full.getpixel((102, 80)), (255, 255, 255))
+
     def test_find_rows_ignores_rule(self):
         import check_cells
         from PIL import ImageDraw
