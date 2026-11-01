@@ -54,6 +54,8 @@ def parse_value(raw, n_plots=0):
             return ('', '', '', 'check', '読めない' if not s else '非出現か自信なし')
         return None
     notes = ['下線'] if underlined else []
+    if s in ('O', '○', '◯'):                          # コケ層などの出現の印 (被度なし)
+        return ('O', '', '', 'check' if unsure else 'ok', ';'.join(notes + (['読みに自信なし'] if unsure else [])))
     m = re.fullmatch(r'\((.+)\)', s)
     if m:                                             # (+) 括弧付き
         s = m.group(1).strip()

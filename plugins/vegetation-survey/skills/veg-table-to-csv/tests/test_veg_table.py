@@ -67,6 +67,10 @@ class ParseValueTest(unittest.TestCase):
                          {"1": 3, "2": 12})
         self.assertEqual(to_csv.plots_per_column([{"item_ja": "調査番号;調査区数", "item_de": "", "1": "6"}]), {})
 
+    def test_presence_mark(self):
+        self.assertEqual(to_csv.parse_value("O")[:4], ("O", "", "", "ok"))
+        self.assertEqual(to_csv.parse_value("○")[:4], ("O", "", "", "ok"))
+
     def test_absent(self):
         for raw in ("", "・", "-", "."):
             self.assertIsNone(to_csv.parse_value(raw))
@@ -212,6 +216,21 @@ class CheckTest(unittest.TestCase):
             w = csv.DictWriter(f, fieldnames=list(data[0]), lineterminator="\n")
             w.writeheader()
             w.writerows(data)
+
+    def test_clues(self):
+        comp = [{"source": "once", "table": "T", "plot": p} for p in ("1", "2", "1")]
+        out = chk.clues(comp, {"T": {5: (20, 10), 6: (10, 20), 8: (8, 14), 9: (10, 5)}})
+        self.assertIn("in 1 が 1 回出現の段落の 2 か所", out[0])
+        self.assertTrue(any("地点 5 と 6 の印字の種数を入れ替える" in x for x in out))
+        self.assertFalse(chk.clues([], {"T": {5: (11, 10)}}))
+        out = chk.clues([], {"T": {3: (12, 8), 4: (5, 9)}})
+        self.assertTrue(any("見出しの欠け" in x for x in out) or any("入れ替える" in x for x in out))
+
+    def test_presence_mark_is_valid(self):
+        def mark(data):
+            data[0].update(cover="O", sociability="")
+        self._edit_csv("composition.csv", mark)
+        self.assertNotIn("被度", run(chk.main, [self.d])[1])
 
     def test_plot_outside_header(self):
         def add(data):

@@ -34,7 +34,7 @@ COMP_COLS = ['file', 'table', 'plot', 'group_ja', 'group_de', 's_name', 'j_name'
              'layer', 'cover', 'sociability', 'constancy', 'value_raw', 'source',
              'status', 'note']
 
-COVER = re.compile(r'^(?:[54321+r])(?:-(?:[54321+r]))?$')     # 範囲 (+-3) も認める
+COVER = re.compile(r'^(?:O|[54321+r](?:-[54321+r])?)$')       # 範囲 (+-3) と出現の印 O も認める
 SOC = re.compile(r'^[1-5](?:-[1-5])?$')
 CONST = re.compile(r'^(?:V|IV|III|II|I|\+|r|\d+)$')    # 数字は出現地点数
 LAYER = re.compile(r'^(?:(?:[TBSKH][12]?|M)(?:;(?:[TBSKH][12]?|M))*)$')
@@ -46,6 +46,31 @@ COUNT_DE = ('artenzahl',)
 def read(path):
     with open(path, encoding='utf-8-sig', newline='') as f:
         return list(csv.DictReader(f))
+
+
+def clues(comp, diffs):
+    """種数のずれの原因の手がかり．問題の件数には数えない"""
+    out = []
+    order = defaultdict(list)                         # 1 回出現の段落に地点が出てくる順
+    for r in comp:
+        if r.get('source') == 'once' and r['plot'].isdigit():
+            if not order[r['table']] or order[r['table']][-1] != r['plot']:
+                order[r['table']].append(r['plot'])
+    for table, plots in order.items():
+        twice = sorted({p for p in plots if plots.count(p) > 1}, key=int)
+        if len(twice) <= 3:                           # 多ければ，維管束とコケで段落が 2 周している
+            out += [f'{table}: in {p} が 1 回出現の段落の 2 か所にある．見出しの誤りを疑う' for p in twice]
+    for table, d in diffs.items():
+        big = sorted(p for p, (got, want) in d.items() if abs(got - want) >= 3)
+        for i, a in enumerate(big):
+            for b in big[i + 1:]:
+                (ga, wa), (gb, wb) = d[a], d[b]
+                if abs(ga - wb) <= 2 and abs(gb - wa) <= 2:
+                    out.append(f'{table}: 地点 {a} と {b} の印字の種数を入れ替えると合う')
+                elif b == a + 1 and (ga - wa) * (gb - wb) < 0 and abs(ga - wa + gb - wb) <= 1:
+                    out.append(f'{table}: 地点 {a} ({ga - wa:+d}) と {b} ({gb - wb:+d}) は差が打ち消し合う．'
+                               'in N: の見出しの欠けを疑う')
+    return out
 
 
 def main(argv=None):
@@ -140,6 +165,7 @@ def main(argv=None):
         if r.get('source') == 'body':
             body_only[key].add(sp)
     n_ok = n_ng = n_const = 0
+    diffs = defaultdict(dict)                         # 表 → 地点 → (読んだ種, 印字の種数)
     with_count = set()
     wants = defaultdict(list)                         # 維管束とコケのように 2 行あれば 2 つ
     for r in sites:
@@ -161,6 +187,8 @@ def main(argv=None):
             n_ok += 1
         else:
             n_ng += 1
+            if key[1].isdigit():
+                diffs[key[0]][int(key[1])] = (got, want)
             alt = (f"種×階層 {len(by_layer.get(key, ()))}・本体だけの種 {len(body_only.get(key, ()))}・"
                    f"見出し×種×和名 {len(by_row.get(key, ()))}")
             sum_note = f' ({len(vals)} 行の合計)' if len(vals) > 1 else ''
@@ -178,6 +206,8 @@ def main(argv=None):
 
     for kind, msg in probs:
         print(f'[{kind}] {msg}')
+    for msg in clues(comp, diffs):
+        print(f'[手がかり] {msg}')
     n_check = sum(1 for r in comp + sites if r.get('status', '').strip() == 'check')
     n_multi = sum(1 for r in comp if r.get('status', '').strip() == 'multi')
     print(f'--- sites {len(sites)} 行・composition {len(comp)} 行 '
