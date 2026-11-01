@@ -482,9 +482,32 @@ class ImageTest(unittest.TestCase):
 
     def test_find_rows_by_values(self):
         import check_cells
-        bw = self._dots().point(lambda v: 255 if v < 128 else 0)    # 20 行 x 10 地点 (両端に罫線)
+        bw = self._dots().point(lambda v: 255 if v < 128 else 0)    # 19 行 x 10 地点 (両端に罫線)
         centers = [100 + i * 60 for i in range(10)]
         self.assertEqual(len(check_cells.find_rows_by_values(bw, centers, 18)[0]), 19)
+
+    def test_find_rows_fills_gap(self):
+        import check_cells
+        from PIL import ImageDraw
+        bw = self._dots().point(lambda v: 255 if v < 128 else 0)
+        ImageDraw.Draw(bw).rectangle((50, 134, 700, 146), fill=0)   # 1 行分の字が消えた
+        centers = [100 + i * 60 for i in range(10)]
+        self.assertEqual(len(check_cells.find_rows_by_values(bw, centers, 18)[0]), 19)
+
+    def test_row_shifts(self):
+        import check_cells
+        typed = [[False] * 10 for _ in range(3)]
+        seen = [[False] * 10 for _ in range(3)]
+        typed[1][2] = typed[1][3] = True
+        seen[0][2] = seen[0][3] = True                              # 画像では 1 行上にある
+        self.assertEqual(check_cells.row_shifts(typed, seen), [(1, 0, -1)])
+        seen = [row[:] for row in typed]
+        self.assertEqual(check_cells.row_shifts(typed, seen), [])
+
+    def test_shear_bands_keeps_size(self):
+        import crop
+        im = self.Image.new("L", (300, 240), "white")
+        self.assertEqual(crop.shear_bands(im, 8, bands=4).size, im.size)
 
     def test_parse_pages(self):
         import pages

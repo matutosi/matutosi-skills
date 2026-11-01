@@ -4,7 +4,8 @@
 
 - `--box` は値の列を囲む範囲，`--layer` は階層の列の範囲 (x だけ)．`crop.py --dense` と同じ画像の座標を使う．
 - 行は階層の字の並び，列は `・` の並び (`crop.measure_columns`) から測る．列を測れなければ `--box` を等分する．
-  階層の字で行を測れなければ，値の列の字の並びで測る．
+  階層の字で行を測れなければ，値の列の字の並びで測る．`--layer` を省くと，初めから値の列で測る．
+- `[行のずれ]` は，転記の値が同じ行より上下の行の画像に合う組．種数では見つからないずれの候補で，右の列では行の測り違いも混じる．
 - **地点の間に常在度の列が混ざる表は，列が等間隔でないので使えない**．
 - セルの字の幅が `・` より広ければ「値あり」とする．**`+` と `1` の読み違いは見つけられない**．
 - 候補は画像に戻って確かめる．下線・点線の枠・ごみを値と見ることがある．
@@ -69,7 +70,24 @@ def find_rows_by_values(bw, centers, half):
         strip = bw.crop((int(cx - half), 0, int(cx + half), h)).resize((1, h), Image.BOX).tobytes()
         for y, v in enumerate(strip):
             count[y] += v > 0
-    return pick_rows(c >= len(centers) / 3 for c in count)
+    smooth = [sum(count[max(0, y - 2):y + 3]) for y in range(h)]
+    floor = len(centers) * 5 / 4
+    peaks = [y for y in range(1, h - 1) if smooth[y] >= floor and smooth[y] >= smooth[y - 1] and smooth[y] > smooth[y + 1]]
+    if len(peaks) < 2:
+        return [], 0
+    gaps = sorted(b - a for a, b in zip(peaks, peaks[1:]))
+    pitch = gaps[len(gaps) * 3 // 4]                  # 字の中の小さい峰を除くため，上の方の間隔を取る
+    kept = []
+    for y in sorted(peaks, key=lambda v: -smooth[v]):   # 高い峰から，行の間隔より近い峰を捨てる
+        if all(abs(y - k) >= pitch * .7 for k in kept):
+            kept.append(y)
+    kept.sort()
+    filled = kept[:1]
+    for y in kept[1:]:                                # 字の少ない行で峰が抜けた所は，間隔から補う．余った行は align が飛ばす
+        n = round((y - filled[-1]) / pitch)
+        filled += [filled[-1] + (y - filled[-1]) * i // n for i in range(1, n)] + [y]
+    half_h = pitch // 2
+    return [(max(0, y - half_h), min(h, y + half_h)) for y in filled], pitch
 
 
 def pick_rows(flags):
@@ -145,6 +163,25 @@ def candidates(typed, seen):
     return out
 
 
+def row_shifts(typed, seen, group=10):
+    """地点 group 列ずつ，転記の値が同じ行より上下の行の画像に合う所を探す．(行, 始めの地点, 向き) の並び"""
+    def hits(r, m, cols):
+        return sum(typed[r][p] and m[p] for p in cols)
+
+    out = []
+    n = len(typed[0]) if typed else 0
+    for start in range(0, n, group):
+        cols = range(start, min(n, start + group))
+        for r in range(len(typed)):
+            own = hits(r, seen[r], cols)
+            total = sum(typed[r][p] for p in cols)
+            for d in (-1, 1):
+                if 0 <= r + d < len(seen) and total >= 2 and hits(r, seen[r + d], cols) - own >= 2:
+                    out.append((r, start, d))
+                    break
+    return out
+
+
 def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, 'reconfigure'):
@@ -154,7 +191,8 @@ def main(argv=None):
     ap.add_argument('out')
     ap.add_argument('table', help='表の名前 (Tab.9 など)')
     ap.add_argument('--box', type=int, nargs=4, required=True, metavar=('X0', 'Y0', 'X1', 'Y1'))
-    ap.add_argument('--layer', type=int, nargs=2, required=True, metavar=('X0', 'X1'), help='階層の列の範囲')
+    ap.add_argument('--layer', type=int, nargs=2, metavar=('X0', 'X1'),
+                    help='階層の列の範囲 (省くと値の列の字の並びで行を測る)')
     ap.add_argument('--wmin', type=int, help='これ以上の幅を「値あり」とする (既定は自動)')
     ap.add_argument('--shear', type=int, help='行の傾き (省くと自動で測る)')
     ap.add_argument('--extra', action='store_true', help='画像だけに値があるセルを，種・地点・座標の一覧で出す')
@@ -165,8 +203,8 @@ def main(argv=None):
     x0, y0, x1, y1 = a.box
     part = im.crop(tuple(a.box))
     dy = a.shear if a.shear is not None else crop.estimate_shear(part)
-    part = crop.shear(part, dy)
-    centers, why = crop.measure_columns(part, plots)
+    centers, why = crop.measure_columns(crop.shear(part, dy), plots)
+    part = crop.shear(part, dy) if a.shear is not None else crop.shear_bands(part, dy)
     if centers:
         pitch_x = (centers[-1] - centers[0]) / (plots - 1)
         print(f'列を測った: 第 1 列の中心 x={round(x0 + centers[0])}，間隔 {pitch_x:.1f} px')
@@ -175,10 +213,10 @@ def main(argv=None):
         centers = [(i + .5) * pitch_x for i in range(plots)]
         print(f'警告: 列を測れなかった ({why})．--box を {plots} 等分した')
     bw = part.point(lambda v: 255 if v < 128 else 0)
-    rows, pitch = find_rows(im.crop((a.layer[0], y0, a.layer[1], y1)))
+    rows, pitch = find_rows(im.crop((a.layer[0], y0, a.layer[1], y1))) if a.layer else ([], 0)
     if not len(body) <= len(rows) <= len(body) * 2:   # 傾いた罫線が階層の範囲に掛かると，行がつながるか，細切れになる
         rows, pitch = find_rows_by_values(bw, centers, pitch_x * .3)
-        print('階層の字では行を測れないので，値の列の字の並びで測った')
+        print('値の列の字の並びで行を測った')
     print(f'行: 測った {len(rows)}・転記 {len(body)}．地点 {plots}')
     if not len(body) <= len(rows) <= len(body) * 2:
         sys.exit('測った行の数が転記と合わない．--box を値の列だけに合わせる')
@@ -201,6 +239,10 @@ def main(argv=None):
         names.append(name)
     for r, p, q in found:
         print(f'[候補] {names[r]} {body[r][1]}: 地点 {p + 1} の値は地点 {q + 1} かもしれない')
+    shifts = row_shifts(typed, seen)
+    for r, start, d in shifts:
+        print(f"[行のずれ] {names[r]} {body[r][1]}: 地点 {start + 1} からの組は 1 行{'上' if d < 0 else '下'}の画像に合う (y={ys[r]})")
+    print(f'行のずれ {len(shifts)} 件')
     if a.extra:
         for r, (t, m) in enumerate(zip(typed, seen)):
             for p in (i for i, (tv, mv) in enumerate(zip(t, m)) if mv and not tv):

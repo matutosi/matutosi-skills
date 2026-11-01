@@ -107,6 +107,17 @@ def estimate_shear(im, limit=80, step=4, center=0):
     return best
 
 
+def shear_bands(im, dy, bands=8, near=16):
+    """傾きを帯ごとに dy の近くで測って直した画像を返す．傾きは表の中で一様でない"""
+    out = Image.new(im.mode, im.size, 'white')
+    h = im.height / bands
+    for i in range(bands):
+        top, bottom = int(i * h), int((i + 1) * h)
+        band = im.crop((0, top, im.width, bottom))
+        out.paste(shear(band, estimate_shear(band, near, 4, dy)), (0, top))
+    return out
+
+
 def _profile(im):
     """列ごとの字の量 (0〜1)"""
     bw = im.convert('L').point(lambda v: 255 if v < 128 else 0)
