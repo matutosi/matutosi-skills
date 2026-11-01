@@ -7,9 +7,12 @@
 1. 列がそろっているか
 2. 値の形: 被度 (`5 4 3 2 1 + r`)・群度 (`1`〜`5`)・常在度 (`I`〜`V`)・階層・和名
 3. 同じ (表・地点・学名・和名・階層) の重複
-4. composition の地点が sites にあるか
+4. composition の地点が sites にあるか．本体の外 (1 回出現・注記) の地点が表頭にあるか
+   (表頭に無い番号は，誤植とは限らず，表の右端の切れを疑う)
 5. **地点ごとの種数と，表頭の「出現種数」(Artenzahl) が合うか** (いちばん効く検算)．
    種は学名 (無ければ和名) で数え，階層が違っても 1 種と数える．1 回出現の種も含める．
+   出現種数が 2 行 (維管束とコケなど) に分かれる表は，2 行の合計と比べる．
+   常在度の列は地点ではないので比べない．
    合わないときは，別の数え方 (種 × 階層，本体だけ，見出し × 種 × 和名) の数も並べる．
    `--list 表:地点` で，その地点で数えた種の一覧を出せる．
    どれかと合えば読みではなく数え方の違い，どれとも合わなければ読み落としか行のずれを疑う
@@ -33,7 +36,7 @@ COMP_COLS = ['file', 'table', 'plot', 'group_ja', 'group_de', 's_name', 'j_name'
 
 COVER = re.compile(r'^(?:[54321+r])(?:-(?:[54321+r]))?$')     # 範囲 (+-3) も認める
 SOC = re.compile(r'^[1-5](?:-[1-5])?$')
-CONST = re.compile(r'^(?:V|IV|III|II|I)$')
+CONST = re.compile(r'^(?:V|IV|III|II|I|\+|r)$')
 LAYER = re.compile(r'^(?:(?:[TBSKH][12]?|M)(?:;(?:[TBSKH][12]?|M))*)$')
 JNAME = re.compile(r'^[゠-ヿー・一-鿿\dA-Za-z .()（）の？?]+$')
 COUNT_JA = ('出現種数', '種数')
@@ -86,7 +89,7 @@ def main(argv=None):
         if sc and not SOC.match(sc):
             bad('値', f'{where}: 群度 {sc!r} が 1〜5 でない')
         if ct and not CONST.match(ct):
-            bad('値', f'{where}: 常在度 {ct!r} が I〜V でない')
+            bad('値', f'{where}: 常在度 {ct!r} が I〜V・+・r でない')
         if ly and not LAYER.match(ly):
             bad('値', f'{where}: 階層 {ly!r} の形が違う (T1 T2 B1 B2 S K H M．複数は ;)')
         jn = r.get('j_name', '').strip()
@@ -110,24 +113,35 @@ def main(argv=None):
     for k in sorted({(r['table'], r['plot']) for r in comp}):
         if k not in plots:
             bad('地点', f'composition の {k} が sites.csv に無い')
+    head = defaultdict(set)
+    for r in sites:
+        if r.get('source') == 'header' and r.get('plot', '').strip():
+            head[r['table']].add(r['plot'])
+    outside = {(r['table'], r['plot']) for r in comp + sites
+               if r['table'] in head and r['plot'].isdigit() and r['plot'] not in head[r['table']]}
+    for t, p in sorted(outside):
+        bad('地点', f'{t} の地点 {p} は表頭に無い．誤植と決めず，表の右端が切れていないかを確かめる')
 
     # 5. 出現種数
     counted = defaultdict(set)          # 種 (本体 + 1 回出現)
     by_layer = defaultdict(set)         # 種 × 階層
     body_only = defaultdict(set)        # 種 (本体だけ)
     by_row = defaultdict(set)           # 見出し × 学名 × 和名 (同じ種が 2 つの見出しに載ると 2)
+    const_cols = set()
     for r in comp:
-        if r.get('constancy', '').strip():
-            continue                                  # 常在度の列は地点ではない
         key = (r['table'], r['plot'])
+        if r.get('constancy', '').strip():
+            const_cols.add(key)
+            continue                                  # 常在度の列は地点ではない
         sp = r['s_name'].strip().lower() or r['j_name'].strip()
         counted[key].add(sp)
         by_layer[key].add((sp, r['layer'].strip()))
         by_row[key].add((r.get('group_ja', ''), sp, r['j_name'].strip()))
         if r.get('source') == 'body':
             body_only[key].add(sp)
-    n_ok = n_ng = 0
+    n_ok = n_ng = n_const = 0
     with_count = set()
+    wants = defaultdict(list)                         # 維管束とコケのように 2 行あれば 2 つ
     for r in sites:
         ja, de = r.get('item_ja', ''), r.get('item_de', '').lower()
         if not (any(w in ja for w in COUNT_JA) or any(w in de for w in COUNT_DE)):
@@ -136,16 +150,21 @@ def main(argv=None):
             want = int(float(r['value']))
         except ValueError:
             continue
-        key = (r['table'], r['plot'])
         with_count.add(r['table'])
-        got = len(counted.get(key, ()))
+        wants[(r['table'], r['plot'])].append(want)
+    for key, vals in wants.items():
+        if key in const_cols and key not in counted:
+            n_const += 1
+            continue
+        want, got = sum(vals), len(counted.get(key, ()))
         if got == want:
             n_ok += 1
         else:
             n_ng += 1
             alt = (f"種×階層 {len(by_layer.get(key, ()))}・本体だけの種 {len(body_only.get(key, ()))}・"
                    f"見出し×種×和名 {len(by_row.get(key, ()))}")
-            bad('種数', f"{r['table']} 地点 {r['plot']}: 出現種数 {want} に対し読んだ種 {got} "
+            sum_note = f' ({len(vals)} 行の合計)' if len(vals) > 1 else ''
+            bad('種数', f"{key[0]} 地点 {key[1]}: 出現種数 {want}{sum_note} に対し読んだ種 {got} "
                         f"({got - want:+d})．別の数え方: {alt}")
 
     # 6. 1 回出現の種が本体にも
@@ -166,6 +185,8 @@ def main(argv=None):
           f'1 回出現 {sum(r.get("source") == "once" for r in comp)})')
     print(f'--- 出現種数の照合: 一致 {n_ok}・不一致 {n_ng}．問題 {len(probs)} 件．'
           f'status=check {n_check} 行・multi {n_multi} 行')
+    if n_const:
+        print(f'--- 常在度の列 {n_const} 列は，出現種数と比べていない')
     if n_ng:
         print('    合わない地点は `--list 表:地点` で数えた種の一覧を出し，画像の列と突き合わせる')
     no_count = sorted({r['table'] for r in comp} - with_count)

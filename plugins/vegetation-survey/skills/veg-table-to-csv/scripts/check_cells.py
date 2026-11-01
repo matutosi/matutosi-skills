@@ -4,6 +4,8 @@
 
 - `--box` は値の列を囲む範囲，`--layer` は階層の列の範囲 (x だけ)．`crop.py --dense` と同じ画像の座標を使う．
 - 行は階層の字の並び，列は `・` の並び (`crop.measure_columns`) から測る．列を測れなければ `--box` を等分する．
+  階層の字で行を測れなければ，値の列の字の並びで測る．
+- **地点の間に常在度の列が混ざる表は，列が等間隔でないので使えない**．
 - セルの字の幅が `・` より広ければ「値あり」とする．**`+` と `1` の読み違いは見つけられない**．
 - 候補は画像に戻って確かめる．下線・点線の枠・ごみを値と見ることがある．
 - 境の幅は既定で，字のあるセルの幅の中央値の 1.5 倍．`・` と値の幅が近い表は `--wmin` で変えて，結果が動くかを見る．
@@ -14,7 +16,7 @@ import os
 import re
 import sys
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 import crop
 
@@ -48,10 +50,30 @@ def runs(flags):
 
 
 def find_rows(im):
-    """階層の字の並びから行を拾う．(行の上下の並び, 行の間隔) を返す"""
+    """階層の字の並びから行を拾う．縦の罫線は除く．(行の上下の並び, 行の間隔) を返す"""
     w, h = im.size
-    dark = im.convert('L').point(lambda v: 255 if v < 128 else 0).resize((1, h), Image.BOX).tobytes()
-    rows = runs(v > 0 for v in dark)
+    bw = im.convert('L').point(lambda v: 255 if v < 128 else 0)
+    draw = ImageDraw.Draw(bw)
+    for x, v in enumerate(bw.resize((w, 1), Image.BOX).tobytes()):
+        if v > 127:                                   # 高さの半分以上が黒い列は罫線
+            draw.line([(x, 0), (x, h)], fill=0)
+    return pick_rows(v > 0 for v in bw.resize((1, h), Image.BOX).tobytes())
+
+
+def find_rows_by_values(bw, centers, half):
+    """値の列の字の並びから行を拾う．傾いた罫線があっても，列の中心の近くだけを見るので掛からない"""
+    h = bw.height
+    count = [0] * h
+    for cx in centers:
+        strip = bw.crop((int(cx - half), 0, int(cx + half), h)).resize((1, h), Image.BOX).tobytes()
+        for y, v in enumerate(strip):
+            count[y] += v > 0
+    return pick_rows(c >= len(centers) / 3 for c in count)
+
+
+def pick_rows(flags):
+    """字のある高さの並びから行の上下を決める．(行の上下の並び, 行の間隔) を返す"""
+    rows = runs(flags)
     if len(rows) < 2:
         return [], 0
     height = sorted(b - t for t, b in rows)[len(rows) // 2]
@@ -123,8 +145,9 @@ def candidates(typed, seen):
 
 
 def main(argv=None):
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='replace')
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('image')
     ap.add_argument('out')
@@ -149,11 +172,14 @@ def main(argv=None):
         pitch_x = (x1 - x0) / plots
         centers = [(i + .5) * pitch_x for i in range(plots)]
         print(f'警告: 列を測れなかった ({why})．--box を {plots} 等分した')
+    bw = part.point(lambda v: 255 if v < 128 else 0)
     rows, pitch = find_rows(im.crop((a.layer[0], y0, a.layer[1], y1)))
+    if len(rows) < len(body):                         # 傾いた罫線が階層の範囲に掛かると，行がつながる
+        rows, pitch = find_rows_by_values(bw, centers, pitch_x * .3)
+        print('階層の字では行を測れないので，値の列の字の並びで測った')
     print(f'行: 測った {len(rows)}・転記 {len(body)}．地点 {plots}')
     if len(rows) < len(body):
-        sys.exit('測った行が転記より少ない．--layer を階層の字だけに合わせる')
-    bw = part.point(lambda v: 255 if v < 128 else 0)
+        sys.exit('測った行が転記より少ない．--box を値の列だけに合わせる')
     width = cell_widths(bw, rows, pitch, centers, pitch_x * .3)
     filled = sorted(v for row in width for v in row if v)
     wmin = a.wmin or round(filled[len(filled) // 2] * 1.5)

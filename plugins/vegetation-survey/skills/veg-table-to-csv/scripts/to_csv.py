@@ -66,6 +66,9 @@ def parse_value(raw):
     m = None if out else re.fullmatch(rf'({COV})\s*\(\s*([1-5])\s*-\s*([1-5])\s*\)', s)
     if m:                                             # 2(3-4) 単独地点の群度の範囲
         out = (m.group(1), f'{m.group(2)}-{m.group(3)}', '')
+    m = None if out else re.fullmatch(rf'([+r])\s*\(\s*({COV})(?:\s*-\s*({COV}))?\s*\)', s)
+    if m:                                             # 常在度が + や r: +(+) / +(1)
+        out = (m.group(2) + ('-' + m.group(3) if m.group(3) else ''), '', m.group(1))
     m = None if out else re.fullmatch(rf'({COV})(?:{SEP}([1-5]))?', s)
     if m:                                             # 4・2 / + / r
         out = (m.group(1), m.group(2) or '1', '')

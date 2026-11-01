@@ -178,9 +178,13 @@ def measure_columns(im, plots, rough=None):
 
 
 def dense_tile(im, edges, label, first, last, y_range, grid_top=26):
-    """1 枚分: 左に種名・階層，右に first〜last 地点の値．edges は地点の境 (地点の数 + 1 個) の x"""
+    """1 枚分: 左に種名・階層，右に first〜last 地点の値．edges は地点の境 (地点の数 + 1 個) の x
+
+    境に掛かる値が欠けないよう，隣の組と接する側は列の幅の 2 割だけ広く切る"""
     top, bottom = y_range
-    left, right = int(edges[first - 1]), int(edges[last]) + 1
+    margin = round((edges[1] - edges[0]) * .2)
+    left = int(edges[first - 1]) - (margin if first > 1 else 0)
+    right = int(edges[last]) + 1 + (margin if last < len(edges) - 1 else 0)
     names = im.crop((label[0], top, label[1], bottom))
     vals = im.crop((left, top, right, bottom))
     out = Image.new('RGB', (names.width + 12 + vals.width, vals.height + grid_top), 'white')
@@ -259,6 +263,9 @@ def main(argv=None):
             edges = [a.box[0] - a.label[0] + i * w for i in range(a.plots + 1)]
             print(f'警告: 列を測れなかった ({why})．--box を {a.plots} 等分した．--box の左右を第 1 列と最後の列の外側に'
                   '合わせ，1 枚目で札と値の列が合っているかを確かめる')
+        label_w = min(a.label[1] - a.label[0], int(edges[0]))   # 第 1 列を種名の側に写さない
+        if label_w < a.label[1] - a.label[0]:
+            print(f'--label の右端が第 1 列に掛かるので，x={a.label[0] + label_w} で止めた')
         rows = int(a.tiles.lower().split('x')[0])
         h = (y1 - y0) / rows
         print(f'行の傾き {dy} px を直した')
@@ -266,7 +273,7 @@ def main(argv=None):
             top, bottom = max(0, int(r * h - a.overlap)), min(y1 - y0, int((r + 1) * h + a.overlap))
             for first in range(1, a.plots + 1, a.dense):
                 last = min(a.plots, first + a.dense - 1)
-                tile = dense_tile(whole, edges, (0, a.label[1] - a.label[0]), first, last, (top, bottom))
+                tile = dense_tile(whole, edges, (0, label_w), first, last, (top, bottom))
                 out, scale = ruled(tile, (0, 0, tile.width, tile.height), a.max, True, a.zoom, y0 + top - 26)
                 path = os.path.join(a.out, f'{stem}_r{r + 1}_p{first:02d}-{last:02d}.png')
                 out.save(path)

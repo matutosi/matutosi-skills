@@ -38,7 +38,8 @@ def expand(line, n):
 
 
 def write(root, table, n, rows):
-    d = os.path.join(root, 'transcripts', table_dir(table))
+    top = root if os.path.basename(os.path.normpath(root)) == 'transcripts' else os.path.join(root, 'transcripts')
+    d = os.path.join(top, table_dir(table))
     os.makedirs(d, exist_ok=True)
     head = ['kind', 'group_ja', 'group_de', 's_name', 'j_name', 'layer']
     head += [str(i) for i in range(1, n + 1)] + ['note']

@@ -51,6 +51,7 @@ class ParseValueTest(unittest.TestCase):
             ("4・2", "4", "2", "", "ok"), ("3.4", "3", "4", "", "ok"), ("＋・１", "", "", "", "check"),
             ("IV(+-3)", "+-3", "", "IV", "ok"), ("V", "", "", "V", "ok"),
             ("2(3-4)", "2", "3-4", "", "ok"), ("+・2?", "+", "2", "", "check"),
+            ("+(+)", "+", "", "+", "ok"), ("+(1)", "1", "", "+", "ok"), ("r(+-1)", "+-1", "", "r", "ok"),
         ]:
             self.assertEqual(to_csv.parse_value(raw)[:4], (cov, soc, const, st), raw)
 
@@ -146,6 +147,15 @@ class SparseTest(unittest.TestCase):
         self.assertEqual(lines[2].split("\t")[5:9], ["K", "・", "+", "・"])
         self.assertEqual(lines[3].split("\t")[5:9], ["S", "+", "・", "1・2"])
 
+    def test_output_to_transcripts(self):
+        import sparse
+        d = tempfile.mkdtemp()
+        src = os.path.join(d, "s.txt")
+        with open(src, "w", encoding="utf-8") as f:
+            f.write("#table Tab.7 1\nAaa bbb|アア|K|1:+\n")
+        sparse.main([src, os.path.join(d, "transcripts")])       # 置き場でなく transcripts を渡しても同じ所へ
+        self.assertTrue(os.path.exists(os.path.join(d, "transcripts", "Tab.007", "body.tsv")))
+
     def test_plot_list(self):
         self.assertEqual(to_csv.plot_list("1,7-9"), ["1", "7", "8", "9"])
         self.assertEqual(to_csv.plot_list("in 1"), ["in 1"])
@@ -181,6 +191,44 @@ class CheckTest(unittest.TestCase):
             f.writelines(lines)
         run(to_csv.main, [self.d])
         self.assertIn("出現種数の無い表 1: Tab.1", run(chk.main, [self.d])[1])
+
+    def _edit_csv(self, name, change):
+        p = os.path.join(self.d, name)
+        data = rows(p)
+        change(data)
+        with open(p, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(data[0]), lineterminator="\n")
+            w.writeheader()
+            w.writerows(data)
+
+    def test_plot_outside_header(self):
+        def add(data):
+            data.append(dict(data[-1], plot="99", source="note"))
+        self._edit_csv("sites.csv", add)
+        rc, out = run(chk.main, [self.d])
+        self.assertEqual(rc, 1)
+        self.assertIn("地点 99 は表頭に無い", out)
+
+    def test_two_count_rows_are_summed(self):
+        def split(data):
+            for r in [x for x in data if "出現種数" in x["item_ja"]]:
+                n = int(r["value"])
+                r["value"] = str(n - 1)
+                data.append(dict(r, item_ja="出現種数 (コケ植物)", value="1"))
+        self._edit_csv("sites.csv", split)
+        rc, out = run(chk.main, [self.d])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("一致 3・不一致 0", out)
+
+    def test_constancy_column_is_not_counted(self):
+        def mark(data):
+            for r in data:
+                if r["plot"] == "1":
+                    r["cover"], r["sociability"], r["constancy"] = "", "", "V"
+        self._edit_csv("composition.csv", mark)
+        rc, out = run(chk.main, [self.d])
+        self.assertIn("常在度の列 1 列", out)
+        self.assertNotIn("地点 1:", out)
 
 
 class TablesTest(unittest.TestCase):
@@ -305,6 +353,24 @@ class ImageTest(unittest.TestCase):
                         "--label", "0", "390", "--tiles", "2x1", "--shear", "0", "--out", d, "--name", "x"])
         self.assertTrue(os.path.exists(os.path.join(d, "x_r2_p11-20.png")))
 
+    def test_dense_label_stops_at_first_column(self):
+        import crop
+        d = tempfile.mkdtemp()
+        src = os.path.join(d, "t.png")
+        self.Image.new("RGB", (1000, 600), "white").save(src)       # 字が無いので等分に戻る
+        _, out = run(crop.main, [src, "--box", "400", "0", "1000", "600", "--pad", "0", "--dense", "10", "--plots", "10",
+                                 "--label", "0", "450", "--shear", "0", "--out", d, "--name", "x"])
+        self.assertIn("x=400 で止めた", out)
+
+    def test_dense_tile_keeps_value_heads(self):
+        import crop
+        im = self.Image.new("RGB", (1000, 100), "white")
+        edges = [100 + i * 50 for i in range(21)]
+        whole = crop.dense_tile(im, edges, (0, 90), 11, 20, (0, 100)).width
+        self.assertEqual(whole, 90 + 12 + 10 * 50 + 1 + 10)         # 左だけ 2 割広い
+        first = crop.dense_tile(im, edges, (0, 90), 1, 10, (0, 100)).width
+        self.assertEqual(first, 90 + 12 + 10 * 50 + 1 + 10)         # 右だけ 2 割広い
+
     def _dots(self, pitch=60, n=10, left=100):
         from PIL import ImageDraw
         im = self.Image.new("L", (800, 600), "white")
@@ -385,6 +451,22 @@ class ImageTest(unittest.TestCase):
 
     def test_check_cells_clean(self):
         self.assertIn("候補 0 件", self._check_cells(3))
+
+    def test_find_rows_ignores_rule(self):
+        import check_cells
+        from PIL import ImageDraw
+        im = self.Image.new("L", (60, 300), "white")
+        draw = ImageDraw.Draw(im)
+        draw.line([(40, 0), (40, 300)], fill=0, width=2)            # 階層の範囲に掛かる罫線
+        for y in (60, 120, 180):
+            draw.rectangle((10, y - 8, 25, y + 8), fill=0)
+        self.assertEqual(len(check_cells.find_rows(im)[0]), 3)
+
+    def test_find_rows_by_values(self):
+        import check_cells
+        bw = self._dots().point(lambda v: 255 if v < 128 else 0)    # 20 行 x 10 地点 (両端に罫線)
+        centers = [100 + i * 60 for i in range(10)]
+        self.assertEqual(len(check_cells.find_rows_by_values(bw, centers, 18)[0]), 19)
 
     def test_parse_pages(self):
         import pages
