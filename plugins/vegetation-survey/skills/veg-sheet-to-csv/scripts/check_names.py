@@ -182,7 +182,8 @@ def resolve_xlsx(a):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         print("ダウンロード:", URL, file=sys.stderr)
         tmp = path + ".part"  # 途中で切れても，壊れた xlsx を残さない
-        with urllib.request.urlopen(URL, timeout=120) as r, open(tmp, "wb") as f:
+        req = urllib.request.Request(URL, headers={"User-Agent": "veg-sheet-to-csv"})  # Python の既定の名前は 403 で断られる
+        with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
             f.write(r.read())
         os.replace(tmp, path)
     return path
