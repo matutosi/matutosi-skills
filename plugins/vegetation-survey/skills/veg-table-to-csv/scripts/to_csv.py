@@ -109,7 +109,7 @@ def merge(status, note, row, plot=None):
     """行の status 列・note (地点の指定つき)・複数の階層を，セルの status と note に重ねる"""
     extra = cell_note(row.get('note', ''), plot) if plot is not None else row.get('note', '')
     notes = [x for x in (note, extra) if x]
-    if row.get('status', '').strip() == 'check' or extra.startswith('check'):
+    if row.get('status', '').strip() == 'check' or any(x.strip().startswith('check') for x in extra.split(';')):
         status = 'check'
     if ';' in row.get('layer', '') and status == 'ok':
         status = 'multi'                              # 値はあるが階層が 1 つに決まらない
