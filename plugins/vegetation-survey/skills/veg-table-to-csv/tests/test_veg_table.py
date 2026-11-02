@@ -135,6 +135,16 @@ class ConvertTest(unittest.TestCase):
         hit = {r["plot"]: r["note"] for r in rows(os.path.join(d, "composition.csv")) if r["j_name"] == "クロマツ"}
         self.assertEqual(hit, {"1": "", "2": "下線"})
 
+    def test_check_after_other_note(self):
+        """check が備考の途中 (`2: 下線; 2: check …`) にあっても status=check になる"""
+        d = workdir()
+        body = os.path.join(d, "transcripts", "Tab.1", "body.tsv")
+        with open(body, "a", encoding="utf-8") as f:
+            f.write("sp\t\t\tPinus thunbergii\tクロマツ\t\t+\t1・1\t・\t2: 下線; 2: check 下線か筋か\n")
+        run(to_csv.main, [d])
+        hit = {r["plot"]: r["status"] for r in rows(os.path.join(d, "composition.csv")) if r["j_name"] == "クロマツ"}
+        self.assertEqual(hit, {"1": "ok", "2": "check"})
+
 
 class UnderlineTest(unittest.TestCase):
     def layers(self, line):
@@ -187,6 +197,19 @@ class SparseTest(unittest.TestCase):
     def test_plot_list(self):
         self.assertEqual(to_csv.plot_list("1,7-9"), ["1", "7", "8", "9"])
         self.assertEqual(to_csv.plot_list("in 1"), ["in 1"])
+
+
+class SpeciesKeyTest(unittest.TestCase):
+    def test_subsp_and_var(self):
+        """subsp./ssp.・v./var.・空白の違いは同じ種として数える"""
+        k = lambda s: chk.spkey({"s_name": s, "j_name": ""})
+        self.assertEqual(k("Rubus rosaefolius subsp. x"), k("Rubus rosaefolius ssp. x"))
+        self.assertEqual(k("Parnassia foliosa var.nummularia"), k("Parnassia foliosa v. nummularia"))
+        self.assertNotEqual(k("Eurya japonica"), k("Eurya emarginata"))
+
+    def test_japanese_spaces(self):
+        """学名の無い行は和名の全角空白を除いて数える"""
+        self.assertEqual(chk.spkey({"s_name": "", "j_name": "ツ　ゲ"}), "ツゲ")
 
 
 class CheckTest(unittest.TestCase):

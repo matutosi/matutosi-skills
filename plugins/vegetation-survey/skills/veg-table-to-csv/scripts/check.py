@@ -43,6 +43,16 @@ COUNT_JA = ('出現種数', '種数')
 COUNT_DE = ('artenzahl',)
 
 
+def spkey(r):
+    """種を数える鍵．学名を小文字にし，`subsp.`・`ssp.` や `v.`・`var.` の書き分け，空白の違いを同一視する"""
+    s = r['s_name'].strip().lower()
+    if not s:
+        return r['j_name'].strip().replace('　', '')
+    s = re.sub(r'\bsubsp\.', 'ssp.', s)
+    s = re.sub(r'\bv\.', 'var.', s)
+    return re.sub(r'\s+', '', s)
+
+
 def read(path):
     with open(path, encoding='utf-8-sig', newline='') as f:
         return list(csv.DictReader(f))
@@ -158,7 +168,7 @@ def main(argv=None):
         if r.get('constancy', '').strip():
             const_cols.add(key)
             continue                                  # 常在度の列は地点ではない
-        sp = r['s_name'].strip().lower() or r['j_name'].strip()
+        sp = spkey(r)
         counted[key].add(sp)
         by_layer[key].add((sp, r['layer'].strip()))
         by_row[key].add((r.get('group_ja', ''), sp, r['j_name'].strip()))
@@ -172,6 +182,8 @@ def main(argv=None):
         ja, de = r.get('item_ja', ''), r.get('item_de', '').lower()
         if not (any(w in ja for w in COUNT_JA) or any(w in de for w in COUNT_DE)):
             continue
+        if '印字' in ja:
+            continue                                  # 「出現種数の印字」は備考の行で，照合に足さない
         try:
             want = int(float(r['value']))
         except ValueError:
@@ -196,11 +208,11 @@ def main(argv=None):
                         f"({got - want:+d})．別の数え方: {alt}")
 
     # 6. 1 回出現の種が本体にも
-    body = {(r['table'], r['plot'], r['s_name'].strip().lower() or r['j_name'].strip())
+    body = {(r['table'], r['plot'], spkey(r))
             for r in comp if r.get('source') == 'body'}
     for r in comp:
         if r.get('source') == 'once':
-            k = (r['table'], r['plot'], r['s_name'].strip().lower() or r['j_name'].strip())
+            k = (r['table'], r['plot'], spkey(r))
             if k in body:
                 bad('1回出現', f'{k} が本体にもある')
 
