@@ -12,7 +12,8 @@
     notes.tsv   注記．plot item_ja item_de value unit value_raw status note
 
 値の分解 (`+・2` → 被度 `+`・群度 `2`，`+` → 群度 `1` を補う，`IV(+-3)` → 常在度) は
-ここで行う．階層が `S;K` の行は，note の `(K に下線)` と値の下線 (`2: 下線` か `±`) で 1 つに決める．
+ここで行う．群度の印字が無いときの補い方は `--soc-default` で選ぶ
+(`one` = 常に 1 (既定)．`cover` = 被度が 2〜5 なら被度と同じ値，`+`・`r`・`1` は 1)．階層が `S;K` の行は，note の `(K に下線)` と値の下線 (`2: 下線` か `±`) で 1 つに決める．
 読めない値・末尾に `?` を付けた値は status=check，階層が `S;K` のように
 1 つに決まらない行は status=multi にする．
 """
@@ -78,12 +79,16 @@ def parse_value(raw, n_plots=0):
         out = (m.group(2) + ('-' + m.group(3) if m.group(3) else ''), '', m.group(1))
     m = None if out else re.fullmatch(rf'({COV})(?:{SEP}([1-5]))?', s)
     if m:                                             # 4・2 / + / r
-        out = (m.group(1), m.group(2) or '1', '')
+        soc = m.group(2)
+        if not soc:
+            soc = m.group(1) if SOC_DEFAULT == 'cover' and m.group(1) in '2345' else '1'
+        out = (m.group(1), soc, '')
     if out is None:
         return ('', '', '', 'check', ';'.join(notes + [f'値として読めない: {raw}']))
     return out + ('check' if unsure else 'ok', ';'.join(notes + (['読みに自信なし'] if unsure else [])))
 
 
+SOC_DEFAULT = 'one'                                   # 群度の印字が無いときの補い方: one | cover
 PLOTS_SEEN = set()
 
 
@@ -289,7 +294,11 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('dir')
+    ap.add_argument('--soc-default', choices=('one', 'cover'), default='one',
+                    help='群度の印字が無いときの補い方．one=常に 1 (既定)．cover=被度 2〜5 なら被度と同じ値')
     a = ap.parse_args(argv)
+    global SOC_DEFAULT
+    SOC_DEFAULT = a.soc_default
     root = os.path.join(a.dir, 'transcripts')
     if not os.path.isdir(root):
         sys.exit(f'転記表が無い: {root}')

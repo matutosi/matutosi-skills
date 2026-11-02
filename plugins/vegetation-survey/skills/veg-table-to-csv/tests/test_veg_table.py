@@ -79,6 +79,18 @@ class ParseValueTest(unittest.TestCase):
         self.assertEqual(to_csv.parse_value("?")[3], "check")
         self.assertEqual(to_csv.parse_value("・?")[4], "非出現か自信なし")
 
+    def test_soc_default_cover(self):
+        old = to_csv.SOC_DEFAULT
+        try:
+            to_csv.SOC_DEFAULT = "cover"
+            for raw, soc in (("3", "3"), ("4", "4"), ("2", "2"), ("1", "1"), ("+", "1"), ("r", "1"),
+                             ("3・2", "2"), ("+・2", "2")):
+                self.assertEqual(to_csv.parse_value(raw)[1], soc, raw)
+            to_csv.SOC_DEFAULT = "one"
+            self.assertEqual(to_csv.parse_value("3")[1], "1")
+        finally:
+            to_csv.SOC_DEFAULT = old
+
     def test_bracket(self):
         self.assertIn("括弧付き", to_csv.parse_value("(+)")[4])
 
