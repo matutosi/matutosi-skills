@@ -249,10 +249,10 @@ def build(tdir):
                               unit=r.get('unit', ''), value_raw=r.get('value_raw', ''),
                               source='note', status=r.get('status') or 'ok', note=r.get('note', '')))
 
+    n_plots = plots_per_column(header)                 # 常在度の列の調査区数 {列: 数} (1 回出現でも使う)
     if body:
         plots = plots_of(list(body[0].keys()), fixed_body)
         g_ja = g_de = s_prev = j_prev = ''
-        n_plots = plots_per_column(header)
         for r in body:
             if r.get('kind') == 'group':
                 g_ja, g_de = r.get('group_ja', ''), r.get('group_de', '')
@@ -274,7 +274,7 @@ def build(tdir):
                                  source='body', status=st, note=note))
 
     for r in read_tsv(os.path.join(tdir, 'once.tsv')):
-        pv = parse_value(r.get('value', '')) or ('', '', '', 'check', '値が空')
+        pv = parse_value(r.get('value', ''), n_plots.get(r.get('plot', ''), 0)) or ('', '', '', 'check', '値が空')
         cov, soc, const, st, note = pv
         st, note = merge(st, note, r)
         comp.append(dict(file=file, table=table, plot=r.get('plot', ''), group_ja='', group_de='',
