@@ -3,6 +3,11 @@
     python scripts/review_html.py <項目.json> <出力.html> [--title 題] [--choices val,none,skip]
     python scripts/review_html.py <置き場>/user_review.tsv <出力.html>   # 読みながら積んだ項目から作る
 
+`--split` を付けると，区分ごとに review_A.html〜review_D.html に分ける (out は置き場のディレクトリ)．
+区分は kind の頭の記号 (`A. 読めない値` など) か，kind の語で決まる:
+A 値の読み (読めない値・常在度の値) / B 下線・階層・種名 / C 行と種の割り当て (推定の割り当て・印字の重複・
+見出しの欠け・出現種数) / D 表頭と注記．A の項目は「今の転記でよい・値を入力・値の印字は無い」で答える．
+
 user_review.tsv の列: table plot j_name kind what page x0 y0 x1 y1 (座標はページ画像の原寸．page は
 work/ のページ名か画像のパス．置き場からの相対)．範囲を赤枠で囲み，周りを広げて切る．
 
@@ -138,6 +143,26 @@ def make_image(base, spec):
 
 CONFIRM = [{'value': 'a', 'label': '今の転記でよい'},
            {'value': 'b', 'label': '違う (正しい読み・扱いをメモに)'}]
+VALUE = [{'value': 'a', 'label': '今の転記でよい'},
+         {'value': 'val', 'label': '値を入力', 'input': True},
+         {'value': 'none', 'label': '値の印字は無い (出現なし)'}]
+GROUPS = {'A': '値の読み', 'B': '下線・階層・種名', 'C': '行と種の割り当て', 'D': '表頭と注記'}
+
+
+def group_of(kind):
+    """user_review.tsv の kind から区分 (A〜D) を決める．`A. 読めない値` の形ならその記号，そうでなければ語で寄せる"""
+    k = (kind or '').strip()
+    if k[:1] in GROUPS and k[1:2] in ('.', '．', ' ', ':'):
+        return k[:1]
+    if any(w in k for w in ('表頭', '注記', '調査地', '出典', '単位')):
+        return 'D'
+    if any(w in k for w in ('読めない', '常在度の値', '値の読み', 'かすれ')):
+        return 'A'
+    if any(w in k for w in ('下線', '階層', '種名', '学名', '取り消し')):
+        return 'B'
+    return 'C'
+
+
 TSV_COLS = ['table', 'plot', 'j_name', 'kind', 'what', 'page', 'x0', 'y0', 'x1', 'y1']
 PAD = 150
 
@@ -150,8 +175,10 @@ def from_tsv(path):
         for i, r in enumerate(csv.DictReader(f, delimiter='	'), 1):
             page = r['page'] if r['page'].lower().endswith(('.png', '.jpg')) else os.path.join('work', r['page'] + '.png')
             x0, y0, x1, y1 = (int(float(r[k])) for k in ('x0', 'y0', 'x1', 'y1'))
-            items.append({'id': f'U{i:02d}', 'title': ' '.join(x for x in (r['table'], '地点 ' + r['plot'] if r['plot'] else '', r['j_name']) if x),
-                          'layer': r.get('kind', ''), 'note': r['what'], 'options': CONFIRM,
+            g = group_of(r.get('kind', ''))
+            items.append({'id': f'U{i:02d}', 'group': g,
+                          'title': ' '.join(x for x in (r['table'], '地点 ' + r['plot'] if r['plot'] else '', r['j_name']) if x),
+                          'layer': r.get('kind', ''), 'note': r['what'], 'options': VALUE if g == 'A' else CONFIRM,
                           'images': [{'page': page, 'crop': [max(0, x0 - PAD), max(0, y0 - PAD), x1 + PAD, y1 + PAD],
                                       'caption': r['table'], 'marks': [{'box': [x0, y0, x1, y1]}]}]})
     return items
@@ -229,6 +256,8 @@ def main(argv=None):
     ap.add_argument('out')
     ap.add_argument('--title', default='確認')
     ap.add_argument('--choices', default='val,none,skip', help='val,none,skip のうち出すもの (カンマ区切り)')
+    ap.add_argument('--split', action='store_true',
+                    help='区分 (A 値の読み・B 下線・階層・種名・C 行と種の割り当て・D 表頭と注記) ごとに別の HTML にする．out は置き場のディレクトリ')
     a = ap.parse_args(argv)
     choices = [c for c in a.choices.split(',') if c in LABELS]
     if a.items.lower().endswith('.tsv'):
@@ -237,19 +266,30 @@ def main(argv=None):
         with open(a.items, encoding='utf-8-sig') as f:
             items = json.load(f)
     base = os.path.dirname(os.path.abspath(a.items))
+    if a.split:
+        os.makedirs(a.out, exist_ok=True)
+        for g, name in GROUPS.items():
+            sub = [it for it in items if it.get('group', group_of(it.get('layer', ''))) == g]
+            if sub:
+                write_page(base, sub, choices, os.path.join(a.out, f'review_{g}.html'), f'{a.title} {g}. {name}')
+        return 0
+    write_page(base, items, choices, a.out, a.title)
+    return 0
+
+
+def write_page(base, items, choices, out, title):
     cards = ''.join(card(base, it, choices) for it in items)
     n = len(items)
     page = (f'<!doctype html><html lang="ja"><head><meta charset="utf-8">'
-            f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(a.title)}</title>'
+            f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)}</title>'
             f'<style>{CSS}</style></head><body>'
-            f'<div id="bar"><b>{html.escape(a.title)} ({n} 件)</b>　回答済み <span id="n">0</span> / {n}　'
+            f'<div id="bar"><b>{html.escape(title)} ({n} 件)</b>　回答済み <span id="n">0</span> / {n}　'
             f'<button id="dl">回答を JSON で保存</button></div>'
             f'<p>赤枠・赤線が該当の位置です．画像を見て，値を入力するか，印字に無いとき・判断できないときは選んでください．'
             f'入力は自動で保存され，閉じても残ります．</p>{cards}<script>{JS}</script></body></html>')
-    with open(a.out, 'w', encoding='utf-8') as f:
+    with open(out, 'w', encoding='utf-8') as f:
         f.write(page)
-    print(f'{n} 件 → {a.out} ({os.path.getsize(a.out) / 1e6:.1f} MB)')
-    return 0
+    print(f'{n} 件 → {out} ({os.path.getsize(out) / 1e6:.1f} MB)')
 
 
 if __name__ == '__main__':

@@ -125,6 +125,23 @@ class ReviewHtmlTest(unittest.TestCase):
         self.assertIn("data:image/png;base64,", s)
         self.assertIn("下の値はどちらの種か", s)
 
+    def test_split_by_group(self):
+        """--split で区分ごとの HTML に分ける．A の項目には値の入力欄が付く"""
+        import review_html
+        from PIL import Image
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "work"))
+        Image.new("RGB", (800, 600), "white").save(os.path.join(d, "work", "p001.png"))
+        with open(os.path.join(d, "user_review.tsv"), "w", encoding="utf-8") as f:
+            f.write("table\tplot\tj_name\tkind\twhat\tpage\tx0\ty0\tx1\ty1\n")
+            f.write("Tab.1\t3\tヨシ\t読めない値\tかすれ\tp001\t300\t200\t400\t260\n")
+            f.write("Tab.1\t4\tヨシ\tB. 下線の対応\t下線\tp001\t300\t200\t400\t260\n")
+            f.write("Tab.1\t5\t\t表頭の値\t入れ替わり\tp001\t300\t200\t400\t260\n")
+        out = os.path.join(d, "ui")
+        run(review_html.main, [os.path.join(d, "user_review.tsv"), out, "--split"])
+        self.assertEqual(sorted(os.listdir(out)), ["review_A.html", "review_B.html", "review_D.html"])
+        self.assertIn('data-opt="val"', open(os.path.join(out, "review_A.html"), encoding="utf-8").read())
+
     def test_row_col_labels(self):
         """rows・cols を書くと，種名と地点番号の余白が付いて画像が大きくなる"""
         import review_html
