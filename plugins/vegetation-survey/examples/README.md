@@ -51,5 +51,16 @@ python $S/check.py examples/table
 通常の実行と同じく，**先に選択肢の表が示される** (出力の形・カナ・空欄／`NA`・文字コードなど)．「既定で」と返せば，見本と同じ形になる．
 種名の照合 (`check_names.py`) を試すときは，`sample.json` の種名に `コジイ` (異名．標準和名はツブラジイ) が入っている．
 
+**読み取りを画面で直す** (`review.py`): 調査票の画像と並べて，読み取った JSON をブラウザで直せる．
+保存すると JSON を書き換えるので，**`examples/` を別の場所に写してから**試す．
+
+```bash
+python skills/veg-sheet-to-csv/scripts/review.py serve examples/sample.json --image examples/sample_sheet.png
+```
+
+左に調査票の画像 (ホイールで拡大縮小・ドラッグで移動)，右に地点情報と種の表が出る．
+`sample.json` の種の行に `"要確認": "被度が 1 か 7 か"` のように書くと，その行に色が付く．
+`check_names.py --report names.tsv` の結果を `--names names.tsv` で渡すと，照合で見つからない種にも色が付く．
+
 **スキルを実行して比べるときの注意**: スキルは既定で種名を照合し (`check_names.py --fill latin,family`)，空の科名を補う．
 そのため，出てきた CSV と `expected_single.csv` の差は**科名の列だけ** (`expected_single.csv` は照合していないので科名が空)．学名と，その他の列は一致する (2026-10 に確かめた)．
