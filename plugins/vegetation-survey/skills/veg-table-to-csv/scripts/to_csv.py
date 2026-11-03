@@ -77,6 +77,8 @@ def parse_value(raw, n_plots=0):
     m = None if out else re.fullmatch(rf'([+r])\s*\(\s*({COV})(?:\s*-\s*({COV}))?\s*\)', s)
     if m:                                             # 常在度が + や r: +(+) / +(1)
         out = (m.group(2) + ('-' + m.group(3) if m.group(3) else ''), '', m.group(1))
+    if out is None and n_plots and s in ('+', 'r'):  # 常在度の列の + / r だけ: I より低い常在度の印 (被度ではない)
+        out = ('', '', s)
     m = None if out else re.fullmatch(rf'({COV})(?:{SEP}([1-5]))?', s)
     if m:                                             # 4・2 / + / r
         soc = m.group(2)
