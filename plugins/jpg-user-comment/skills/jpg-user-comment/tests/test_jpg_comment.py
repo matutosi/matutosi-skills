@@ -7,6 +7,7 @@
 import base64
 import os
 import shutil
+import stat
 import struct
 import sys
 import tempfile
@@ -632,6 +633,68 @@ class TestImportModes(Base):
         path = self.path("a.jpg")
         jc.write_comment(path, "消える")
         self.run_cli(["import", self.csv("filename,comment\na.jpg,\n"), "--overwrite-all"])
+        self.assertEqual(jc.read_comment(path), "")
+
+    def test_overwrite_all_skips_when_same(self):
+        path = self.path("a.jpg")
+        jc.write_comment(path, "同じ")
+        os.utime(path, (1000000000, 1000000000))
+        self.run_cli(["import", self.csv("filename,comment\na.jpg,同じ \n"), "--overwrite-all"])
+        self.assertEqual(os.path.getmtime(path), 1000000000)
+        self.assertEqual(jc.read_comment(path), "同じ")
+
+    def test_overwrite_skips_when_same(self):
+        path = self.path("a.jpg")
+        jc.write_comment(path, "同じ")
+        os.utime(path, (1000000000, 1000000000))
+        self.run_cli(["import", self.csv("filename,comment\na.jpg,同じ\n"), "--overwrite"])
+        self.assertEqual(os.path.getmtime(path), 1000000000)
+
+    def test_overwrite_all_whitespace_comment_deletes(self):
+        path = self.path("a.jpg")
+        jc.write_comment(path, "消える")
+        self.run_cli(["import", self.csv("filename,comment\na.jpg, \n"), "--overwrite-all"])
+        self.assertEqual(jc.read_comment(path), "")
+
+    def test_overwrite_all_deletes_whitespace_only_tag(self):
+        path = self.path("a.jpg")
+        jc.write_comment(path, "  ")
+        self.run_cli(["import", self.csv("filename,comment\na.jpg,\n"), "--overwrite-all"])
+        self.assertEqual(jc.read_comment(path), "")
+
+    def test_overwrite_all_outdir_writes_even_when_same(self):
+        path = self.path("a.jpg")
+        jc.write_comment(path, "同じ")
+        out = os.path.join(self.dir, "out")
+        self.run_cli(["import", self.csv("filename,comment\na.jpg,同じ\n"),
+                      "--overwrite-all", "--outdir", out])
+        self.assertEqual(jc.read_comment(os.path.join(out, "a.jpg")), "同じ")
+
+    # ---- 読み取り専用・失敗時の後始末
+
+    def test_writes_readonly_file_and_keeps_attribute(self):
+        path = self.path("a.jpg")
+        os.chmod(path, stat.S_IREAD)
+        try:
+            self.run_cli(["import", self.csv("filename,comment\na.jpg,書ける\n"), "--overwrite"])
+            self.assertEqual(jc.read_comment(path), "書ける")
+            self.assertFalse(os.access(path, os.W_OK))
+        finally:
+            os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+
+    def test_failed_write_leaves_no_tmp(self):
+        path = self.path("a.jpg")
+        original = jc.replace_keeping_readonly
+
+        def boom(tmp, target):
+            raise OSError("書き込みに失敗")
+        jc.replace_keeping_readonly = boom
+        try:
+            with self.assertRaises(OSError):
+                jc.write_comment(path, "x")
+        finally:
+            jc.replace_keeping_readonly = original
+        self.assertFalse(os.path.exists(path + ".tmp"))
         self.assertEqual(jc.read_comment(path), "")
 
     # ---- 排他

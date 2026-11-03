@@ -12,6 +12,7 @@ CSV は 1 行目が見出し `filename,comment` の UTF-8 (BOM 付き, Excel 互
 import argparse
 import csv
 import os
+import stat
 import struct
 import sys
 
@@ -487,9 +488,30 @@ def write_comment(path, comment, out_path=None):
         segments[index] = (0xE1, payload)
     target = out_path or path
     tmp = target + ".tmp"
-    with open(tmp, "wb") as handle:
-        handle.write(join_segments(segments, tail))
-    os.replace(tmp, target)
+    try:
+        with open(tmp, "wb") as handle:
+            handle.write(join_segments(segments, tail))
+        replace_keeping_readonly(tmp, target)
+    except BaseException:
+        # 失敗したら一時ファイルを残さない (元のファイルは無傷のまま)
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
+def replace_keeping_readonly(tmp, target):
+    """tmp で target を置き換える. 読み取り専用の target は,
+    書き込みを一時的に許して置き換え, 元の属性に戻す
+    (Windows では読み取り専用のファイルを os.replace で置き換えられない)."""
+    if not os.path.exists(target) or os.access(target, os.W_OK):
+        os.replace(tmp, target)
+        return
+    mode = stat.S_IMODE(os.stat(target).st_mode)
+    os.chmod(target, mode | stat.S_IWRITE)
+    try:
+        os.replace(tmp, target)
+    finally:
+        os.chmod(target, mode)
 
 
 def collect_jpegs(paths, recursive):
@@ -567,13 +589,23 @@ def resolve_comment(existing, comment, mode, separator=DEFAULT_SEPARATOR):
     overwrite      : CSV の comment が空でないときだけ置き換える
     overwrite-all  : 空でも置き換える (空ならタグを削除する)
     append (既定)  : 既に同じ内容があれば触らず, 無ければ継ぎ足す
+
+    overwrite / overwrite-all は, 既存と同じ内容 (前後の空白は無視) なら
+    書き直さない. existing が None (--outdir で必ず書き出すとき) は比べない.
+    空白だけの comment は空として扱う.
     """
-    if mode == "overwrite-all":
-        return comment
     if not comment.strip():
-        return SKIP          # overwrite / append は空の comment では何もしない
-    if mode == "overwrite":
+        comment = ""
+    if mode in ("overwrite", "overwrite-all"):
+        if not comment and mode == "overwrite":
+            return SKIP      # overwrite は空の comment では何もしない
+        if existing is not None and (existing == "" if not comment
+                                     else existing.strip() == comment.strip()):
+            return SKIP      # 空にするときは, 空白だけのタグも消す
         return comment
+    if not comment:
+        return SKIP          # append は空の comment では何もしない
+    existing = existing or ""
     if not existing.strip():
         return comment
     # 同じ内容を二度足さない (繰り返し実行しても増えない)
@@ -617,7 +649,9 @@ def cmd_import(args):
                 continue
             written.add(key)
         try:
-            existing = "" if args.mode == "overwrite-all" else read_comment(path)
+            # --outdir のときは同じ内容でも書き出す (出力ファイルを欠かさない)
+            existing = (None if args.outdir and args.mode != "append"
+                        else read_comment(path))
             value = resolve_comment(existing, comment, args.mode, args.separator)
             if value is SKIP:
                 skipped += 1
