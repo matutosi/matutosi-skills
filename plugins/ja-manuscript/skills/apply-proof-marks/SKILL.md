@@ -396,6 +396,39 @@ python $D/split_commits.py --group-by-tag --tag-label "contrast=対比の表現�
 3. 報告では，件数 (単純・要判断・本全体) と `proposals_*.md` のパスを示す．
    判断の場面では，要判断の項目を**1件ずつ**，表と画像 (帯と拡大) を一緒に出す．
 
+### 4.6 ブラウザで画像を見ながら採否を決める (`proof_review.py`)
+
+件数が多いとき・ユーザが「HTML で」「ブラウザで」と言ったときは，表をチャットに出す代わりに，
+**帯の画像と差分を並べたページ**で採否を決めてもらう．写真のコメントのサーバ (jpg-user-comment) と同じ作り．
+
+```bash
+S=${CLAUDE_SKILL_DIR}/scripts
+python $S/proof_review.py serve "_review/marks/items_*.json"      # ブラウザが開く (終了は Ctrl+C)
+python $S/proof_review.py status "_review/marks/items_*.json"     # 未決・採用・不採用・保留・反映済みの件数
+python $S/proof_review.py apply "_review/marks/items_*.json"      # 採用した分の置換を確かめる (書かない)
+python $S/proof_review.py apply "_review/marks/items_*.json" --apply   # 原稿へ当て，反映済みにする
+```
+
+1. **読み取りのエージェントに，項目 JSON (`items_<ページ>.json`) を書かせる** (形は `proof_review.py` の先頭)．
+   1 項目 = 独立に採否を決められる 1 つの直し．kind は `simple`・`judge` (案 a/b/c．おすすめを a)・`unreadable`．
+   images は帯 (`pNNN_bK.png`) を先頭に，拡大・`_clean`・`_ink` を後に．old は原稿にちょうど 1 回現れる長さ．
+   ページの範囲ごとにファイルを分けてよい (`serve` は glob で全部読む．id は全体で一意にする)．
+   この方式では，ユーザが自分の速さで進められるので，**先読みを次の 1 回分に絞らず，章の分をまとめて読んでよい**
+   (4.2 の「次の 1 回分」はチャットで出すときの決まり)．
+2. **本体はサーバを背景で起動し，URL を伝える** (`--no-browser` で起動して URL を渡すか，既定のまま開く)．
+   ページでは，左に帯の画像 (タブで拡大などに切り替え)，右に修正前・修正後の差分 (消す部分に打ち消し，足す部分に色)，
+   案ごとの「原稿での状態」(未反映・反映済み・見当たらない) と行番号が出る．
+   採用・不採用・保留・取り消しを押すと，その場で `decisions.json` (4.2.2 と同じ形) に書く．
+   修正後の文は欄で直せ，判読不能の項目や案と違う直しは「自分で書く」に修正前・修正後を書く．
+   キー操作: j/k 移動・1〜3 案・a 採用・r 不採用・h 保留・u 取り消し．
+   「表示中の単純な修正を一括採用」もある (確かめの画面が出る)．
+3. ユーザが「決めた」と言ったら，`status` で保留とメモを読み，`apply` (確かめ) → `apply --apply` を
+   4.2.1 のとおり反映のエージェントに任せる (後始末・点検・コミットの扱いも 4.2.1 と同じ)．
+   保留とメモは，チャットで 1 件ずつ相談する．
+- **serve は原稿を書き換えない**．書き換えるのは `apply --apply` だけ．
+- サーバは 127.0.0.1 だけで待ち受け，項目 JSON に載った画像だけを見せ，ほかのページからの書き込みは断る．標準ライブラリだけで動く．
+- 決定は id で上書きするので，同じ id の既存の決定 (チャットで決めた分) とも混ぜて使える．
+
 ### 5. まとめて適用する
 
 (本体が直接当てない．4.2.1 節のとおり，別エージェントに任せる．)
@@ -595,6 +628,7 @@ python ${CLAUDE_SKILL_DIR}/scripts/extract_marks.py p07.jpg p29.jpg --ref manusc
 | `scripts/check_applied.py` | 修正案・採否の項目が原稿に反映済みかを判定する (`applied`・`pending`・`both`・`moot`) |
 | `scripts/impact.py` | 見出し・図・コードを動かす判断の影響 (壊れる参照・繰り上がる番号) を調べる |
 | `scripts/post_apply.py` | 反映のあとの後始末 (抽出ファイルの作り直し・図の再生成・点検) を設定どおりに行い、意図していない書き換えを元に戻す |
+| `scripts/proof_review.py` | 修正案 (項目 JSON) を帯の画像と差分つきでブラウザに並べ，採否を `decisions.json` に書くサーバ．`status`・`apply` も (4.6 節) |
 
 ### extract_marks.py の主な引数
 
