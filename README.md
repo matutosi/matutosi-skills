@@ -17,7 +17,7 @@ Claude Code のプラグインのマーケットプレイスです．
 | [vegetation-survey](#vegetation-survey) | `veg-sheet-to-csv` | 植生調査票を読み取って CSV にする (読み取りはブラウザで画像と見比べて直せる) |
 | | `veg-table-to-csv` | 組成表 (ページ内の小さい表・折り込み) を AI が読み，地点情報と組成の CSV にする |
 
-A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts, for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, and for turning vegetation survey sheets into CSV.
+A Claude Code plugin marketplace with skills for Japanese manuscripts (Markdown; proof marks can also be applied to Word files as tracked changes), for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, and for turning vegetation survey sheets into CSV.
 
 <a id="requirements"></a>
 
@@ -126,7 +126,7 @@ matutosi-skills のプラグインを，すべて新しい版に更新して
 
 | スキル | 追加のパッケージ (`pip install`) | 任意で足すもの |
 |---|---|---|
-| `apply-proof-marks` | `pypdf` `pypdfium2` `numpy` `Pillow` | もとの原稿との差で探す `--ref` を使うときだけ `opencv-python`．AES で暗号化された PDF を開くときだけ `cryptography` |
+| `apply-proof-marks` | `pypdf` `pypdfium2` `numpy` `Pillow` | もとの原稿との差で探す `--ref` を使うときだけ `opencv-python`．AES で暗号化された PDF を開くときだけ `cryptography`．ブラウザの画面 (`proof_review.py`) と Word の原稿に当てる `apply_docx.py` は追加なしで動く |
 | `build-index` | `pypdfium2` `pyyaml` | 見出しのよみの候補を出す補助に `pykakasi` |
 | ほかの5つ | なし (標準ライブラリだけ) | |
 

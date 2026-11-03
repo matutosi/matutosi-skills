@@ -74,3 +74,18 @@
      画像まで出すには `pypdfium2` が要ります (`pip install pypdfium2`)．
    - 手書きの文字は，フォントの字形の輪郭をなぞった筆跡なので，輪郭だけの太い字に見えます．
      自分の朱書きで試すなら，原稿を PDF にしてタブレットで手書きの注釈を入れてください．
+   - 修正案の採否をブラウザで決めるなら，「朱書きの採否をブラウザで決めたい」と頼みます．
+     修正案を項目 JSON にして `proof_review.py serve` の画面を開きます (左に帯の画像，右に修正前・修正後の差分と案)．
+     決め終わったら「反映して」と頼むと，採用した分だけが原稿に当たります．
+   - **Word の原稿でも試せます**．練習原稿を docx にし，正解の `file` を docx に替えて当てます．
+
+     ```bash
+     pandoc chapter_01.md -o chapter_01.docx
+     # proof/expected_fixes.json を写し，各行の "file" を "chapter_01.docx" に替えて fixes_docx.json にする
+     python <skills>/apply-proof-marks/scripts/apply_docx.py fixes_docx.json            # 確かめる
+     python <skills>/apply-proof-marks/scripts/apply_docx.py fixes_docx.json --apply    # 変更履歴として当てる
+     ```
+
+     6件のうち「- 調査区の番号の重複」の1件は当たりません．Word では箇条書きの記号 (`- `) が自動の番号で，本文の文字列に無いためです．
+     修正前と修正後から `- ` を外せば当たります (Word の原稿では，PDF に見える自動の番号を修正前に含めない)．
+     当てたら Word で開くと，変更履歴として採否できます．`pandoc --track-changes=all -t plain chapter_01.docx` でも確かめられます．
