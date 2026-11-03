@@ -86,8 +86,10 @@ def split_cover(sp):
         sp["群度"] = "1"
 
 
-EXTRA_SITE_KEYS = {"出現種数"}
-EXTRA_SPECIES_KEYS = {"被度・群度"}
+# 列にはならないが JSON に書いてよい項目 (捨てても警告しない)．
+# 「要確認」は読み取りで自信が低い箇所の印 (review.py の画面で色が付く)．site では {列名: 理由}，species では理由の文字列．
+EXTRA_SITE_KEYS = {"出現種数", "要確認"}
+EXTRA_SPECIES_KEYS = {"被度・群度", "要確認"}
 
 
 def check_sheet(i, sheet, warnings):

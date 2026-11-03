@@ -14,7 +14,7 @@ Claude Code のプラグインのマーケットプレイスです．
 | | `sentence-per-line` | 原稿を1文1行に整形する |
 | [jpg-user-comment](#jpg-user-comment) | `jpg-user-comment` | JPEG 写真のコメントを CSV で書き出し，書き戻す |
 | [jstage-xml](#jstage-xml) | `pdf-to-jstage-xml` | 学会誌の論文 PDF から J-STAGE の全文 XML を作る |
-| [vegetation-survey](#vegetation-survey) | `veg-sheet-to-csv` | 植生調査票を読み取って CSV にする |
+| [vegetation-survey](#vegetation-survey) | `veg-sheet-to-csv` | 植生調査票を読み取って CSV にする (読み取りはブラウザで画像と見比べて直せる) |
 | | `veg-table-to-csv` | 組成表 (ページ内の小さい表・折り込み) を AI が読み，地点情報と組成の CSV にする |
 
 A Claude Code plugin marketplace with skills for Japanese Markdown manuscripts, for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, and for turning vegetation survey sheets into CSV.
@@ -163,6 +163,7 @@ Only the Python standard library is required.
   | 不明なコード (面積測定方法・被度の評価方法) | `0`／空欄 | `0` |
 
 - 調査票の書き方のパターン (被度・群度，階層，地点情報，種名) を `references/patterns.md` にまとめています．入力と出力の例を渡すと，それに合わせます．
+- **読み取った結果は，ブラウザで調査票の画像と見比べながら直せます** (`review.py serve`)．左に画像 (拡大・移動)，右に地点情報と種の表が並び，その場で直して保存すると JSON に書き戻します (初回に写しを残す)．自信の低い箇所と，種名の照合で見つからない・似た名前の種に色が付きます．
 - 実行中に足りない点が見つかれば，直す案を示し，選んだものだけスキルに反映します．
 - 種名は，GBIF Japan の[維管束植物和名チェックリスト](https://gbif.jp/activities/checklist/wamei_checklist_110/) (ver. 1.10，CC BY 4.0) と照合できます (`check_names.py`)．異名の検出・似た名前の候補・空の学名と科名の補完をします．
 - 必要な Python は **3.8 以上**です (スクリプトの構文は 3.6 でも通りますが，3.8 以上を目安にしています)．道具は[必要な環境](#requirements)の表を見てください．
