@@ -60,6 +60,9 @@ class ParseValueTest(unittest.TestCase):
                                 ("2", "", "2"), ("V(+-2)", "+-2", "V")]:
             self.assertEqual(to_csv.parse_value(raw, 3)[:3], (cov, "", const), raw)
         self.assertEqual(to_csv.parse_value("5(1)", 3)[3], "check")      # 調査区数より多い
+        self.assertEqual(to_csv.parse_value("+", 12)[:3], ("", "", "+"))   # 常在度の列の + だけは常在度
+        self.assertEqual(to_csv.parse_value("r", 6)[:3], ("", "", "r"))
+        self.assertEqual(to_csv.parse_value("+")[:3], ("+", "1", ""))      # 地点の列は被度
         self.assertEqual(to_csv.parse_value("2(3-4)")[:3], ("2", "3-4", ""))    # 調査区数が無ければ今までどおり
 
     def test_plots_per_column(self):
@@ -102,6 +105,37 @@ class DateTest(unittest.TestCase):
         self.assertEqual(to_csv.norm_date("8 3", "1983"), "1983-08-03")
         self.assertEqual(to_csv.norm_date("1983年8月3日"), "1983-08-03")
         self.assertIsNone(to_csv.norm_date("不明"))
+
+
+class ReviewHtmlTest(unittest.TestCase):
+    def test_from_tsv(self):
+        """user_review.tsv から赤枠つきの画像を埋め込んだ HTML ができる"""
+        import review_html
+        from PIL import Image
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "work"))
+        Image.new("RGB", (800, 600), "white").save(os.path.join(d, "work", "p001.png"))
+        with open(os.path.join(d, "user_review.tsv"), "w", encoding="utf-8") as f:
+            f.write("table\tplot\tj_name\tkind\twhat\tpage\tx0\ty0\tx1\ty1\n")
+            f.write("Tab.1\t3\tヨシ\t値\t下の値はどちらの種か\tp001\t300\t200\t400\t260\n")
+        out = os.path.join(d, "r.html")
+        run(review_html.main, [os.path.join(d, "user_review.tsv"), out])
+        s = open(out, encoding="utf-8").read()
+        self.assertIn("U01", s)
+        self.assertIn("data:image/png;base64,", s)
+        self.assertIn("下の値はどちらの種か", s)
+
+    def test_row_col_labels(self):
+        """rows・cols を書くと，種名と地点番号の余白が付いて画像が大きくなる"""
+        import review_html
+        from PIL import Image
+        d = tempfile.mkdtemp()
+        Image.new("RGB", (800, 600), "white").save(os.path.join(d, "p.png"))
+        sp = {"page": "p.png", "crop": [300, 200, 500, 300]}
+        plain = review_html.make_image(d, sp)
+        sp2 = dict(sp, rows=[[250, "ナナカマド K"]], cols=[[400, "46"]])
+        self.assertGreater(len(review_html.make_image(d, sp2)), len(plain))
+        self.assertGreater(review_html.add_labels(Image.new("RGB", (100, 50)), [[10, "ヨシ"]], [[20, "1"]], 0, 0).width, 100)
 
 
 class ConvertTest(unittest.TestCase):
