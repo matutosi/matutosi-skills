@@ -176,6 +176,18 @@ class TestApply(Base):
         rc, out = self.run_cli("status", self.items)
         self.assertIn("反映済み 1", out)
 
+    def test_apply_failure_names_items(self):
+        # 修正前が原稿に無い置換は止まり，#番号と項目の id，--partial が無いことを案内する
+        self.store.decide({"id": "s1", "status": "approved", "choice": "own",
+                           "items": [{"file": "ch01.md", "old": "原稿に無い文字列", "new": "x"}]})
+        before = open(os.path.join(self.dir, "ch01.md"), encoding="utf-8").read()
+        rc, out = self.run_cli("apply", self.items, "--apply")
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("#1 s1", out)
+        self.assertIn("--partial は無い", out)
+        self.assertEqual(open(os.path.join(self.dir, "ch01.md"), encoding="utf-8").read(), before)
+        self.assertEqual(self.store.decisions()["s1"]["status"], "approved")   # 反映済みにしない
+
 
 if __name__ == "__main__":
     unittest.main()

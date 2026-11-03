@@ -5,7 +5,7 @@ Claude Code のプラグインのマーケットプレイスです．
 
 | プラグイン | スキル | 何をするか |
 |---|---|---|
-| [ja-manuscript](#ja-manuscript) | `apply-proof-marks` | 朱書きした校正 PDF・スキャン・写真を読み，原稿の Markdown に反映する |
+| [ja-manuscript](#ja-manuscript) | `apply-proof-marks` | 朱書きした校正 PDF・スキャン・写真を読み，原稿の Markdown に反映する (採否はブラウザでも決められる) |
 | | `build-index` | 書籍の原稿と PDF から，巻末の索引を作る |
 | | `manuscript-polish` | 入稿前の原稿を1回点検し，問題を一覧にする |
 | | `markdown-table-pad` | Markdown の表の列幅をそろえる |
@@ -112,7 +112,7 @@ matutosi-skills のプラグインを，すべて新しい版に更新して
 
 | スキル | 何をするか |
 |---|---|
-| `apply-proof-marks` | 紙に朱書きした校正 PDF (手書きの注釈入り)・スキャン・スマホの写真を読み，原稿の Markdown に反映する |
+| `apply-proof-marks` | 紙に朱書きした校正 PDF (手書きの注釈入り)・スキャン・スマホの写真を読み，原稿の Markdown に反映する．修正案は，朱書きの画像と修正前・修正後の差分を並べたブラウザの画面で採否を決められる (案の選択・文の手直し・自分で書いた直し・保留とメモ．`proof_review.py`) |
 | `build-index` | 書籍の原稿とビルド済み PDF から，巻末の索引を作る．PDF を全文検索してページ番号を付け，辞書の規則 (清音 → 濁音 → 半濁音，長音符は直前の母音) で並べる．主要ページの太字と点検も行う |
 | `manuscript-polish` | 入稿前の原稿を1回点検し，誤字脱字・表記ゆれ・文体・相互参照の問題を一覧にする |
 | `markdown-table-pad` | Markdown の表の列幅を，全角文字の幅を数えてそろえる |

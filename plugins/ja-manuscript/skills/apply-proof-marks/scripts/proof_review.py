@@ -515,10 +515,11 @@ def cmd_apply(a):
     if not ids:
         print("採用して未反映の項目はない")
         return 0
-    rows = []
+    rows, owner = [], []
     for i in ids:
         for s in decs[i].get("items", []):
             rows.append({"file": s["file"], "old": s["old"], "new": s["new"]})
+            owner.append(i)
     empty = [i for i in ids if not decs[i].get("items")]
     out = a.out or os.path.join(os.path.dirname(os.path.abspath(store.decisions_path)), "fixes_review.json")
     with open(out, "w", encoding="utf-8") as fh:
@@ -530,6 +531,17 @@ def cmd_apply(a):
         cmd = [sys.executable, os.path.join(HERE, "apply_fixes.py"), out] + (["--apply"] if a.apply else [])
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         rc = subprocess.call(cmd, cwd=store.base, env=env)
+    if rc != 0 and rows:
+        # apply_fixes.py の案内は「--partial」だが，このコマンドには無い．#番号を項目の id に引き直して案内する
+        print()
+        print("置換の番号と項目 (#番号は上の出力と同じ):")
+        for n, i in enumerate(owner, 1):
+            print("  #%d %s" % (n, i))
+        for line in ("当てられない置換があるので，何も書いていない (この apply に --partial は無い)。",
+                     "  - 2 つの項目が同じ箇所を書き換えると，先に当たった方で後の修正前が消える。",
+                     "    片方の案に他方が含まれていれば，含まれる方を不採用にしてから当て直す。",
+                     "  - 修正前が原稿に無いときは，その項目を「自分で書く」で直すか，保留にする。"):
+            print(line)
     if a.apply and rc == 0:
         all_decs, bom = D.load(store.decisions_path)
         for d in all_decs:
