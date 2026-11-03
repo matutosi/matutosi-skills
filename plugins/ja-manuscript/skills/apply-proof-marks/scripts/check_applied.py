@@ -28,6 +28,10 @@ LABEL = {"applied": "反映済み", "pending": "未反映", "both": "両方あ�
 
 
 def read_text(path):
+    if path.lower().endswith(".docx"):     # Word の原稿は本文を取り出す (変更履歴は承諾した後の文字)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import apply_docx
+        return apply_docx.docx_text(path)
     with open(path, "rb") as fh:
         return fh.read().decode("utf-8-sig", "replace")
 

@@ -17,6 +17,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.join(HERE, "..", "scripts")
@@ -175,6 +176,41 @@ class TestApply(Base):
         self.assertEqual(self.store.decisions()["s1"]["status"], "applied")
         rc, out = self.run_cli("status", self.items)
         self.assertIn("反映済み 1", out)
+
+    def test_apply_text_and_docx(self):
+        # テキストと Word の原稿が混ざっても，1 回の apply で両方に当て，Word は変更履歴にする
+        sys.path.insert(0, HERE)
+        import test_apply_docx as TD
+        TD.make_docx(os.path.join(self.dir, "ms.docx"))
+        self.store.decide({"id": "s1", "status": "approved", "choice": "a"})
+        self.store.decide({"id": "j1", "status": "approved", "choice": "own",
+                           "items": [{"file": "ms.docx", "old": "庭の木に", "new": "庭の松に"}]})
+        rc, out = self.run_cli("apply", self.items, "--apply", "--author", "校正者")
+        self.assertEqual(rc, 0, out)
+        with open(os.path.join(self.dir, "ch01.md"), encoding="utf-8") as fh:
+            self.assertIn("夕方の市場で", fh.read())
+        with zipfile.ZipFile(os.path.join(self.dir, "ms.docx")) as z:
+            x = z.read("word/document.xml").decode("utf-8")
+        self.assertRegex(x, r'<w:ins [^>]*w:author="校正者"')
+        self.assertEqual(self.store.decisions()["j1"]["status"], "applied")
+        sub = {"file": "ms.docx", "old": "庭の木に", "new": "庭の松に"}
+        self.assertEqual(self.store.where(sub)[0], "applied")      # 原稿での状態も docx の本文で判定する
+
+    def test_apply_docx_failure_blocks_text(self):
+        # Word 側が当たらなければ，テキスト側も書かない
+        sys.path.insert(0, HERE)
+        import test_apply_docx as TD
+        TD.make_docx(os.path.join(self.dir, "ms.docx"))
+        self.store.decide({"id": "s1", "status": "approved", "choice": "a"})
+        self.store.decide({"id": "j1", "status": "approved", "choice": "own",
+                           "items": [{"file": "ms.docx", "old": "無い文字列", "new": "x"}]})
+        with open(os.path.join(self.dir, "ch01.md"), encoding="utf-8") as fh:
+            before = fh.read()
+        rc, out = self.run_cli("apply", self.items, "--apply")
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("Word の原稿", out)
+        with open(os.path.join(self.dir, "ch01.md"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), before)
 
     def test_apply_failure_names_items(self):
         # 修正前が原稿に無い置換は止まり，#番号と項目の id，--partial が無いことを案内する

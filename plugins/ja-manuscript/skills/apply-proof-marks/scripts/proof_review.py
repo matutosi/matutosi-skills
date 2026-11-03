@@ -141,8 +141,12 @@ class Store:
         hit = self._text.get(path)
         if hit and hit[0] == mtime:
             return hit[1]
-        with open(path, encoding="utf-8-sig", newline="") as fh:
-            body = fh.read().replace("\r\n", "\n")
+        if path.lower().endswith(".docx"):         # Word の原稿は本文を段落ごとに取り出す (変更履歴は承諾した後の文字)
+            import apply_docx
+            body = apply_docx.docx_text(path)
+        else:
+            with open(path, encoding="utf-8-sig", newline="") as fh:
+                body = fh.read().replace("\r\n", "\n")
         self._text[path] = (mtime, body)
         return body
 
@@ -515,28 +519,49 @@ def cmd_apply(a):
     if not ids:
         print("採用して未反映の項目はない")
         return 0
-    rows, owner = [], []
+    groups = {"text": ([], []), "docx": ([], [])}      # (置換, 項目の id)．Word の原稿は apply_docx.py で当てる
     for i in ids:
         for s in decs[i].get("items", []):
-            rows.append({"file": s["file"], "old": s["old"], "new": s["new"]})
-            owner.append(i)
+            g = groups["docx" if s["file"].lower().endswith(".docx") else "text"]
+            g[0].append({"file": s["file"], "old": s["old"], "new": s["new"]})
+            g[1].append(i)
     empty = [i for i in ids if not decs[i].get("items")]
     out = a.out or os.path.join(os.path.dirname(os.path.abspath(store.decisions_path)), "fixes_review.json")
-    with open(out, "w", encoding="utf-8") as fh:
-        json.dump(rows, fh, ensure_ascii=False, indent=2)
-        fh.write("\n")
-    print("採用 %d 件 (置換 %d 件．原稿を変えない項目 %d 件) → %s" % (len(ids), len(rows), len(empty), out), flush=True)
-    rc = 0
-    if rows:
-        cmd = [sys.executable, os.path.join(HERE, "apply_fixes.py"), out] + (["--apply"] if a.apply else [])
-        env = dict(os.environ, PYTHONIOENCODING="utf-8")
-        rc = subprocess.call(cmd, cwd=store.base, env=env)
-    if rc != 0 and rows:
+    paths = {"text": out, "docx": os.path.splitext(out)[0] + "_docx.json"}
+    n_rows = sum(len(g[0]) for g in groups.values())
+    for kind, (rows, _owner) in groups.items():
+        if rows:
+            with open(paths[kind], "w", encoding="utf-8") as fh:
+                json.dump(rows, fh, ensure_ascii=False, indent=2)
+                fh.write("\n")
+    print("採用 %d 件 (置換 %d 件．原稿を変えない項目 %d 件) → %s" % (
+        len(ids), n_rows, len(empty), " ・ ".join(paths[k] for k, g in groups.items() if g[0]) or "(置換なし)"), flush=True)
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+
+    def call(kind, write):
+        if kind == "text":
+            cmd = [sys.executable, os.path.join(HERE, "apply_fixes.py"), paths[kind]]
+        else:
+            cmd = [sys.executable, os.path.join(HERE, "apply_docx.py"), paths[kind],
+                   "--mode", a.docx_mode, "--author", a.author]
+        return subprocess.call(cmd + (["--apply"] if write else []), cwd=store.base, env=env)
+
+    kinds = [k for k, g in groups.items() if g[0]]
+    rc, failed = 0, []
+    if a.apply and len(kinds) > 1:                  # 両方あるときは，先に両方を確かめてから書く (片方だけ当たるのを防ぐ)
+        failed = [k for k in kinds if call(k, False) != 0]
+    if not failed:
+        for k in kinds:
+            if call(k, a.apply) != 0:
+                failed.append(k)
+    rc = 1 if failed else 0
+    if failed:
         # apply_fixes.py の案内は「--partial」だが，このコマンドには無い．#番号を項目の id に引き直して案内する
-        print()
-        print("置換の番号と項目 (#番号は上の出力と同じ):")
-        for n, i in enumerate(owner, 1):
-            print("  #%d %s" % (n, i))
+        for k in failed:
+            print()
+            print("置換の番号と項目 (%s．#番号は上の出力と同じ):" % ("Word の原稿" if k == "docx" else "テキストの原稿"))
+            for n, i in enumerate(groups[k][1], 1):
+                print("  #%d %s" % (n, i))
         for line in ("当てられない置換があるので，何も書いていない (この apply に --partial は無い)。",
                      "  - 2 つの項目が同じ箇所を書き換えると，先に当たった方で後の修正前が消える。",
                      "    片方の案に他方が含まれていれば，含まれる方を不採用にしてから当て直す。",
@@ -571,6 +596,9 @@ def main(argv=None):
         if name == "apply":
             p.add_argument("--apply", action="store_true", help="原稿へ当てる (付けなければ確かめるだけ)")
             p.add_argument("--out", help="置換リストの書き出し先 (既定: decisions.json と同じ場所の fixes_review.json)")
+            p.add_argument("--docx-mode", choices=("track", "direct", "comment"), default="track",
+                           help="Word の原稿の当て方: track (変更履歴．既定)・direct (書き換え)・comment (コメント)")
+            p.add_argument("--author", default="apply-proof-marks", help="Word の変更履歴・コメントの作成者名")
     a = ap.parse_args(argv)
     try:
         if a.cmd == "serve":

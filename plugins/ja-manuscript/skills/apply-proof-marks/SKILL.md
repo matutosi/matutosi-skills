@@ -1,6 +1,6 @@
 ---
 name: apply-proof-marks
-description: 紙に朱書きした校正 PDF(手書きの Ink 注釈が入った PDF)を読み、原稿の Markdown へ反映するスキル。朱書きの位置を PDF の注釈座標から取り出し、その周辺だけを画像に切り出して読むので、ページ全体を読むより消費が少なく、図の色を朱書きと取り違えることもない。注釈の無いスキャン画像・スキャンした PDF・スマホの写真 (jpg/png) からも、朱書きの色で (もとの原稿の PDF があればその差で) 探して同じように読める。修正案は，帯の画像と差分を並べたブラウザの画面 (proof_review.py) で採否を決めてもらうこともできる。ユーザーが「校正を反映して」「朱書きを反映して」「_review の PDF をもとに原稿を直して」「赤入れを md に反映」「朱書きの修正を HTML で」「ブラウザで採否を決めたい」などと言ったときに使う。
+description: 紙に朱書きした校正 PDF(手書きの Ink 注釈が入った PDF)を読み、原稿 (Markdown などのテキストと Word の .docx．Word は変更履歴で当てる) へ反映するスキル。朱書きの位置を PDF の注釈座標から取り出し、その周辺だけを画像に切り出して読むので、ページ全体を読むより消費が少なく、図の色を朱書きと取り違えることもない。注釈の無いスキャン画像・スキャンした PDF・スマホの写真 (jpg/png) からも、朱書きの色で (もとの原稿の PDF があればその差で) 探して同じように読める。修正案は，帯の画像と差分を並べたブラウザの画面 (proof_review.py) で採否を決めてもらうこともできる。ユーザーが「校正を反映して」「朱書きを反映して」「_review の PDF をもとに原稿を直して」「赤入れを md に反映」「朱書きの修正を HTML で」「ブラウザで採否を決めたい」などと言ったときに使う。
 ---
 
 # 校正 PDF の朱書きを原稿に反映する
@@ -663,6 +663,7 @@ python ${CLAUDE_SKILL_DIR}/scripts/extract_marks.py p07.jpg p29.jpg --ref manusc
 | `scripts/impact.py` | 見出し・図・コードを動かす判断の影響 (壊れる参照・繰り上がる番号) を調べる |
 | `scripts/post_apply.py` | 反映のあとの後始末 (抽出ファイルの作り直し・図の再生成・点検) を設定どおりに行い、意図していない書き換えを元に戻す |
 | `scripts/proof_review.py` | 修正案 (項目 JSON) を帯の画像と差分つきでブラウザに並べ，採否を `decisions.json` に書くサーバ．`status`・`apply` も (4.6 節) |
+| `scripts/apply_docx.py` | Word (.docx) の原稿に置換を当てる (変更履歴・書き換え・コメント)．`text` で本文を取り出す (「Word の原稿」の節) |
 
 ### extract_marks.py の主な引数
 
@@ -701,6 +702,40 @@ python ${CLAUDE_SKILL_DIR}/scripts/extract_marks.py p07.jpg p29.jpg --ref manusc
 - 朱書きが **`/Ink` 注釈**として PDF に入っていること。
   画像として焼き込まれている場合・紙をスキャンした場合は、色で探す (スキャンした PDF は自動で切り替わる)
   (「画像 (スキャン・写真) から読むとき」の節)。
+- **直せる原稿は UTF-8 (BOM の有無・CRLF/LF は問わない) のテキストファイル**。置換は文字列の一致だけで行うので，
+  Markdown に限らず LaTeX (`.tex`)・R Markdown／Quarto (`.Rmd`・`.qmd`)・プレーンテキスト・HTML・Typst なども同じ手順で直せる
+  (項目の `file` にそのファイルを書く)。
+  ただし `--post` の整形 (sentence-per-line・markdown-table-pad) は Markdown 向けなので，ほかの形式では付けない。
+  **Word (`.docx`) は `apply_docx.py` で当てる** (下の「Word の原稿」)。`proof_review.py apply` は `file` が `.docx` の置換を自動でこちらへ回す。
+  **Shift_JIS のテキストは直せない** (UTF-8 に変えてから当てる)。
+
+## Word の原稿
+
+Word で書かれた原稿は，Word から書き出した PDF に朱書きしてもらい，読み取りは PDF と同じ手順で行う。
+当てるところだけを `scripts/apply_docx.py` (標準ライブラリだけ) が受け持つ。
+
+```bash
+S=${CLAUDE_SKILL_DIR}/scripts
+python $S/apply_docx.py text 原稿.docx > 原稿.txt                 # 本文を段落ごとに 1 行で出す (1 節の照合・修正前の写しに使う)
+python $S/apply_docx.py fixes.json                                 # 確かめる (書かない)
+python $S/apply_docx.py fixes.json --apply --author 校正者         # 変更履歴として当てる (既定)
+python $S/proof_review.py apply "items_*.json" --apply --docx-mode track --author 校正者   # ブラウザで決めた分を当てる
+```
+
+- **当て方 (`--mode`／`--docx-mode`)**: `track` (既定) は Word の変更履歴 (挿入・削除) で当てる。Word の「承諾」「元に戻す」で採否でき，編集者とのやり取りにもそのまま使える。
+  `direct` は本文を書き換える。`comment` は本文を変えず，修正前の範囲にコメント「朱書き: 「old」→「new」」を付ける (著者に確かめてもらうとき)。
+  作成者名は `--author` (既定 `apply-proof-marks`)。ユーザの名前か「校正」などを聞いて入れる。
+- 修正前と修正後で共通する前後は残し，**違う部分だけを消して足す**ので，変更履歴は最小になる (「庭の木に」→「庭の松に」なら「木」を消し「松」を足す)。
+- **修正前は Word の本文の文字どおりに書く**。`apply_docx.py text` の出力で確かめる。
+  Word が自動で振る番号 (見出し・箇条書き・図表番号のフィールド)，相互参照，脚注番号は本文の文字列に無いので，修正前に含めない。
+  PDF の見た目 (自動の番号・合字・改行位置) と本文が違うことがあるので，PDF から写した文字列は必ず `text` の出力で照合する。
+- **当てられないもの** (理由を出して止まる．1 件でも止まれば何も書かない): 段落をまたぐ置換 (修正前・修正後に改行がある)，
+  違う部分がフィールド・図・改行を含む run にかかる置換，回数が合わない置換。段落の分割・結合，表の行の追加，図の移動は，報告して Word で手で直してもらう。
+- 対象は本文 (word/document.xml) の段落 (表の中を含む)。**脚注・ヘッダ・フッタ・テキストボックスの中は対象外** (見つからないと報告して手で直す)。
+- 初回の書き込みで `<原稿>.docx.bak` を残す。git の差分では中身が見えないので，`split_commits.py` (決定ごとのコミット) は使わない。
+  確かめは `apply_docx.py text` の出力と，Word で開いて変更履歴を見るか，pandoc で `pandoc --track-changes=all -t markdown 原稿.docx` と読み戻す。
+- `proof_review.py` の「原稿での状態」と `check_applied.py` は，docx の本文 (変更履歴は承諾した後の文字) で判定する。
+
 ## スキルを直す仕組み
 
 実行中に「このスキルの手順・表・スクリプトでは足りない」と気づいたら，**報告の前に直すかどうかを決める**．
