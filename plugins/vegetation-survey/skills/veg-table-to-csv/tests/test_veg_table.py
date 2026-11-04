@@ -188,6 +188,28 @@ class ConvertTest(unittest.TestCase):
         hit = {r["plot"]: r["note"] for r in rows(os.path.join(d, "composition.csv")) if r["j_name"] == "クロマツ"}
         self.assertEqual(hit, {"1": "", "2": "下線"})
 
+    def test_level_L(self):
+        """方位・傾斜の L (レベル) は方位なし (-)・傾斜 0 にする．value_raw は L のまま．ほかの値は変わらない"""
+        d = workdir()
+        head = os.path.join(d, "transcripts", "Tab.1", "header.tsv")
+        with open(head, "a", encoding="utf-8") as f:
+            f.write("方位\tExposition\t\tL\tSW\t-\n")
+            f.write("傾斜\tNeigung\t°\tL\t20\tL\n")
+        run(to_csv.main, [d])
+        got = {(r["item_ja"], r["plot"]): r for r in rows(os.path.join(d, "sites.csv"))}
+        self.assertEqual(got[("方位", "1")]["value"], "-")
+        self.assertEqual(got[("方位", "1")]["value_raw"], "L")
+        self.assertEqual(got[("方位", "2")]["value"], "SW")
+        self.assertEqual(got[("方位", "3")]["value"], "-")
+        self.assertEqual(got[("傾斜", "1")]["value"], "0")
+        self.assertEqual(got[("傾斜", "1")]["unit"], "°")
+        self.assertEqual(got[("傾斜", "3")]["value_raw"], "L")
+        self.assertEqual(got[("傾斜", "2")]["value"], "20")
+        self.assertEqual(got[("傾斜", "1")]["status"], "ok")
+        self.assertIn("自動変換", got[("傾斜", "1")]["note"])
+        self.assertEqual(got[("傾斜", "2")]["note"], "")
+        self.assertEqual(to_csv.norm_site("海抜", "Höhe", "L")[0], "L")   # 方位・傾斜のほかは変えない
+
     def test_check_after_other_note(self):
         """check が備考の途中 (`2: 下線; 2: check …`) にあっても status=check になる"""
         d = workdir()

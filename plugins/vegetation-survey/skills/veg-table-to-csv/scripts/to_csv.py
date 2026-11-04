@@ -177,6 +177,12 @@ def norm_site(item_ja, item_de, raw, year=None):
     if s in ('-', '—', '–'):
         return '-', st, note
     key = item_ja + ' ' + item_de.lower()
+    if s == 'L':                                      # L はレベル (傾斜 0 度で方位なし)．方位は -，傾斜は 0
+        aspect = '方位' in item_ja or 'expos' in key
+        slope = '傾斜' in item_ja or 'neig' in key or 'inclin' in key or 'inklin' in key
+        if aspect != slope:
+            note = ';'.join(x for x in (note, f"L (レベル) を{'方位なし' if aspect else '傾斜 0'}に自動変換") if x)
+            return ('-' if aspect else '0'), st, note
     if '年月日' in key or '月日' in key or 'datum' in key:
         d = norm_date(s, year)
         if d:
