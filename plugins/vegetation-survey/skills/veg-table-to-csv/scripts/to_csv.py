@@ -172,6 +172,42 @@ def cell_layer(row, plot):
     return rest[0] if len(rest) == 1 else ';'.join(rest)
 
 
+DASH_LAYER = re.compile(r'階層の印字は\s*[-−―ー]')
+NO_LAYER_NOTE = '階層の印字なし (つる・着生などで意図的に省いたとみる)'
+
+
+def layer_from_below(body):
+    """階層の印字が無い行 (note に「階層の印字」とある) の階層を決める (2026-11-05 ユーザ指示)．
+    1. すぐ下の行が階層を 1 つ持つときは，その階層とみる．ブロック (空き行・見出しで区切られる) では
+       上の階層から順に書くので，階層の字が 1 行下にずれて印字されたとみる (層の位置の誤り)
+    2. 階層の無い行が続くとき・すぐ下が見出しや表の終わりのときは，空欄のまま，確認にも出さない
+       (つる植物・着生植物が大半で，わざと階層を書いていないとみる)．check を外し，note を簡潔にする"""
+    out = list(body)
+    for i, r in enumerate(body):
+        if (r.get('kind') == 'group' or (r.get('layer') or '').strip()
+                or '階層の印字' not in (r.get('note') or '') or not (r.get('s_name') or r.get('j_name'))):
+            continue
+        if DASH_LAYER.search(r.get('note') or ''):        # 階層の欄に「-」と明記された行は，変更せず確認にも出さない
+            parts = [x.strip() for x in (r.get('note') or '').split(';')]
+            parts = [x for x in parts if x and not (x.startswith('check') and '階層の印字' in x)]
+            if not any(DASH_LAYER.search(x) for x in parts):
+                parts.append('階層の印字は - (明記)')
+            out[i] = dict(r, note=';'.join(parts))
+            continue
+        nxt = body[i + 1] if i + 1 < len(body) else {'kind': 'group'}
+        below = (nxt.get('layer') or '').strip() if nxt.get('kind') != 'group' else ''
+        parts = [x.strip() for x in (r.get('note') or '').split(';')]
+        parts = [x for x in parts if x and not (x.startswith('check') and '階層の印字' in x)]
+        if below and ';' not in below:
+            parts.append(f'階層の印字が無いので，下の行の階層 {below} とした (層の位置の誤りとみる)')
+            out[i] = dict(r, layer=below, note=';'.join(parts))
+        else:
+            parts = [x for x in parts if not ('階層の印字' in x and len(x) <= 40 and '．' not in x)]
+            parts.append(NO_LAYER_NOTE)
+            out[i] = dict(r, note=';'.join(parts))
+    return out
+
+
 def plot_list(spec):
     """注記の地点の指定 `1,7-9` を ['1', '7', '8', '9'] にする．形が違えばそのまま"""
     if not re.fullmatch(r'\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*', spec):
@@ -266,7 +302,7 @@ def build(tdir):
                           source='title', status='ok', note=''))
 
     header = read_tsv(os.path.join(tdir, 'header.tsv'))
-    body = read_tsv(os.path.join(tdir, 'body.tsv'))
+    body = layer_from_below(read_tsv(os.path.join(tdir, 'body.tsv')))
     fixed_head = {'item_ja', 'item_de', 'unit', 'note', 'status'}
     fixed_body = {'kind', 'group_ja', 'group_de', 's_name', 'j_name', 'layer', 'note', 'status'}
     all_plots = []

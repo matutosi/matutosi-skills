@@ -213,6 +213,35 @@ class ConvertTest(unittest.TestCase):
         self.assertEqual(to_csv.herb_layer("Haplopteris flexuosa", "B2;K"), "B2;K")
         self.assertEqual(to_csv.herb_layer("Miscanthus sinensis", "K"), "K")
 
+    def test_layer_from_below(self):
+        """階層の印字が無い行は，すぐ下の行の階層にする (層の位置の誤り)．階層の無い行が続くとき・下が見出しのときは
+        空欄のまま，check を外して note を簡潔にする"""
+        body = [
+            {"kind": "sp", "s_name": "A", "layer": "", "note": "check 階層の印字が無い (常在度の列の値)"},
+            {"kind": "sp", "s_name": "B", "layer": "S", "note": ""},
+            {"kind": "sp", "s_name": "C", "layer": "", "note": "階層の印字は無い"},
+            {"kind": "sp", "s_name": "D", "layer": "", "note": "check 階層の印字が無い"},
+            {"kind": "sp", "s_name": "E", "layer": "B2;S", "note": ""},
+            {"kind": "group", "s_name": "", "layer": "", "note": ""},
+            {"kind": "sp", "s_name": "F", "layer": "", "note": "階層の印字なし"},
+            {"kind": "group", "s_name": "", "layer": "", "note": ""},
+        ]
+        got = to_csv.layer_from_below(body)
+        self.assertEqual([r["layer"] for r in got], ["S", "S", "", "", "B2;S", "", "", ""])
+        self.assertNotIn("check", got[0]["note"])
+        self.assertIn("下の行の階層 S", got[0]["note"])
+        for i in (2, 3, 6):
+            self.assertEqual(got[i]["note"], to_csv.NO_LAYER_NOTE)
+        # 階層の欄に「-」と明記された行は，下の行の階層にせず，check も付けない
+        dash = [
+            {"kind": "sp", "s_name": "G", "layer": "", "note": "check 階層の印字は − (常在度の列だけに値)"},
+            {"kind": "sp", "s_name": "H", "layer": "S", "note": ""},
+        ]
+        got = to_csv.layer_from_below(dash)
+        self.assertEqual(got[0]["layer"], "")
+        self.assertNotIn("check", got[0]["note"])
+        self.assertIn("階層の印字は", got[0]["note"])
+
     def test_level_L(self):
         """方位・傾斜の L (レベル) は方位なし (-)・傾斜 0 にする．value_raw は L のまま．ほかの値は変わらない"""
         d = workdir()
