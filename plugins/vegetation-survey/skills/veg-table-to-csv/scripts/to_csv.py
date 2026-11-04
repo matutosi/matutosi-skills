@@ -34,9 +34,9 @@ MONTHS = {'jan': 1, 'feb': 2, 'mär': 3, 'mar': 3, 'märz': 3, 'apr': 4, 'mai': 
           'jun': 6, 'juni': 6, 'jul': 7, 'juli': 7, 'aug': 8, 'sep': 9, 'sept': 9,
           'okt': 10, 'oct': 10, 'nov': 11, 'dez': 12, 'dec': 12}
 
-SITE_COLS = ['file', 'table', 'plot', 'item_ja', 'item_de', 'value', 'unit',
+SITE_COLS = ['file', 'region', 'table', 'plot', 'item_ja', 'item_de', 'value', 'unit',
              'value_raw', 'source', 'status', 'note']
-COMP_COLS = ['file', 'table', 'plot', 'group_ja', 'group_de', 's_name', 'j_name',
+COMP_COLS = ['file', 'region', 'table', 'plot', 'group_ja', 'group_de', 's_name', 'j_name',
              'layer', 'cover', 'sociability', 'constancy', 'value_raw', 'source',
              'status', 'note']
 
@@ -290,7 +290,31 @@ def build(tdir):
                          s_name=r.get('s_name', ''), j_name=r.get('j_name', ''),
                          layer=r.get('layer', ''), cover=cov, sociability=soc, constancy=const,
                          value_raw=r.get('value', ''), source='once', status=st, note=note))
+    add_column_kind(file, table, sorted(set(all_plots) | {c['plot'] for c in comp}), n_plots, comp, sites)
+    region = re.sub(r'_\d+$', '', file)
+    for row in sites + comp:
+        row['region'] = region
     return sites, comp
+
+
+def add_column_kind(file, table, plots, n_plots, comp, sites):
+    """列ごとに「列の種類」の行を sites に足す．調査区 / 常在度 / 混在 (混在は check)．
+    常在度 = 調査区数が 1 以上と書かれた列，または constancy の入ったセルがある列．
+    constancy の入ったセルと入っていないセルが同じ列にあれば混在 (印字の読み違いを疑う)"""
+    for p in plots:
+        cells = [c for c in comp if c['plot'] == p]
+        with_c = sum(1 for c in cells if c['constancy'])
+        kind = '常在度' if (n_plots.get(p, 0) > 0 or with_c) else '調査区'
+        st, note = 'ok', ''
+        if with_c and with_c < len(cells):
+            kind, st = '混在', 'check'
+            note = f'常在度のセル {with_c} 個・調査区のセル {len(cells) - with_c} 個が同じ列にある'
+        elif n_plots.get(p, 0) > 0 and not with_c and cells:
+            st, note = 'check', '調査区数があるが常在度のセルが無い'
+        elif kind == '常在度' and not n_plots.get(p, 0):
+            note = '調査区数の印字が無い'
+        sites.append(dict(file=file, table=table, plot=p, item_ja='列の種類', item_de='',
+                          value=kind, unit='', value_raw='', source='derived', status=st, note=note))
 
 
 def write(path, cols, rows):

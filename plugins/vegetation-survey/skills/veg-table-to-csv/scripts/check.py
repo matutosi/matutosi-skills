@@ -28,9 +28,9 @@ import re
 import sys
 from collections import defaultdict
 
-SITE_COLS = ['file', 'table', 'plot', 'item_ja', 'item_de', 'value', 'unit',
+SITE_COLS = ['file', 'region', 'table', 'plot', 'item_ja', 'item_de', 'value', 'unit',
              'value_raw', 'source', 'status', 'note']
-COMP_COLS = ['file', 'table', 'plot', 'group_ja', 'group_de', 's_name', 'j_name',
+COMP_COLS = ['file', 'region', 'table', 'plot', 'group_ja', 'group_de', 's_name', 'j_name',
              'layer', 'cover', 'sociability', 'constancy', 'value_raw', 'source',
              'status', 'note']
 
