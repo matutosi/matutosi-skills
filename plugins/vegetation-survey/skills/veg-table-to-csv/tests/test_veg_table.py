@@ -188,6 +188,31 @@ class ConvertTest(unittest.TestCase):
         hit = {r["plot"]: r["note"] for r in rows(os.path.join(d, "composition.csv")) if r["j_name"] == "クロマツ"}
         self.assertEqual(hit, {"1": "", "2": "下線"})
 
+    def test_cell_layer_by_layer_underline(self):
+        """階層の字の下線が note に分かれば，下線の値はその階層，下線の無い値は残りの階層に決まる (multi を外す)"""
+        row = {"layer": "B2;S", "note": "印字は B2,S (S に下線．B2 の 2 は白抜きの字)"}
+        self.assertEqual(to_csv.cell_layer(row, "1"), "B2")
+        self.assertEqual(to_csv.cell_layer(dict(row, **{"1": "±+"}), "1"), "S")
+        three = {"layer": "B1;B2;S", "note": "印字は B1,B2,S (B2 と S に下線)"}
+        self.assertEqual(to_csv.cell_layer(three, "1"), "B1")
+        # 決まらないときは複数のまま
+        self.assertEqual(to_csv.cell_layer({"layer": "B2;S", "note": "印字は B2,S (両方に下線)"}, "1"), "B2;S")
+        self.assertEqual(to_csv.cell_layer({"layer": "B2;S", "note": "印字は B2,S (下線の有無が読めない)"}, "1"), "B2;S")
+        self.assertEqual(to_csv.cell_layer({"layer": "B2;S;K", "note": "印字は B2,S,K (S に下線)"}, "1"), "B2;K")
+        # どの階層の字にも下線が無いときは後ろの階層を下線つきとみる
+        none = {"layer": "B2;S", "note": "印字は B2,S (階層の字に下線なし)"}
+        self.assertEqual(to_csv.cell_layer(none, "1"), "B2")
+        self.assertEqual(to_csv.cell_layer(dict(none, **{"1": "±+"}), "1"), "S")
+
+    def test_herb_layer(self):
+        """階層が複数のままの草本 (着生植物でない) は K 層にする．K が候補に無い・木本・着生植物は変えない"""
+        self.assertEqual(to_csv.herb_layer("Miscanthus sinensis", "S;K"), "K")
+        self.assertEqual(to_csv.herb_layer("Sasa palmata", "B2;S;K"), "K")
+        self.assertEqual(to_csv.herb_layer("Miscanthus sinensis", "B2;S"), "B2;S")
+        self.assertEqual(to_csv.herb_layer("Kalopanax pictus", "S;K"), "S;K")
+        self.assertEqual(to_csv.herb_layer("Haplopteris flexuosa", "B2;K"), "B2;K")
+        self.assertEqual(to_csv.herb_layer("Miscanthus sinensis", "K"), "K")
+
     def test_level_L(self):
         """方位・傾斜の L (レベル) は方位なし (-)・傾斜 0 にする．value_raw は L のまま．ほかの値は変わらない"""
         d = workdir()

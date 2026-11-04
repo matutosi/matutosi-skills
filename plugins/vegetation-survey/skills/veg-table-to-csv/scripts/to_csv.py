@@ -25,7 +25,8 @@ import sys
 
 SEP = r'\s*[・･·•∙.,;:-]\s*'
 COV = r'[54321+r]'
-UNDER_LAYER = re.compile(r'\(\s*([A-Za-z]+\d?)\s*に下線\s*\)')
+UNDER_PART = re.compile(r'[(（]\s*([^()（）]*?)\s*に下線')
+NO_UNDER = re.compile(r'階層の字に下線なし|[(（]\s*下線なし\s*[)）]')
 ABSENT = {'', '・', '･', '·', '•', '∙', '.', '-', '—', '–'}
 ROMAN = r'(?:V|IV|III|II|I)'
 FIX = str.maketrans({'＋': '+', '十': '+', '，': ',', '．': '.', '－': '-', '―': '-', '—': '-',
@@ -121,16 +122,54 @@ def merge(status, note, row, plot=None):
     return status, ';'.join(notes)
 
 
+HERB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'references', 'herb_species.tsv')
+
+
+def load_herbs(path=HERB_FILE):
+    """references/herb_species.tsv の学名 (草本で着生植物でない種) の集合"""
+    if not os.path.exists(path):
+        return set()
+    with open(path, encoding='utf-8-sig') as f:
+        return {r['s_name'].strip() for r in csv.DictReader(f, delimiter='	') if r.get('s_name')}
+
+
+HERBS = load_herbs()
+
+
+def herb_layer(s_name, layer):
+    """階層が複数のまま (multi) で，種が草本 (着生植物でない) のときは K 層とする．K が候補にあるときだけ"""
+    layers = layer.split(';')
+    if len(layers) > 1 and 'K' in layers and s_name.strip() in HERBS:
+        return 'K'
+    return layer
+
+
+def underlined_layers(note, layers):
+    """行の note「印字は B2,S (S に下線．…)」から，階層の字に下線がある階層を返す．
+    `(B2 と S に下線)`・`(B1,S に下線)` のように複数もよい．「両方に下線」「対象は読み取れず」
+    「階層の字に下線なし」など，階層名が読み取れないときは空"""
+    out = []
+    for m in UNDER_PART.finditer(note):
+        names = re.findall(r'[A-Za-z]+\d?', m.group(1))
+        if names and all(n in layers for n in names):
+            out += [n for n in names if n not in out]
+    if not out and len(layers) > 1 and NO_UNDER.search(note):
+        out = [layers[-1]]                            # どの階層の字にも下線が無いときは，後ろの階層を下線つきとみる
+    return out
+
+
 def cell_layer(row, plot):
-    """複数の階層の行で，そのセルの階層を返す．下線の値は下線の階層，それ以外は残りの階層"""
+    """複数の階層の行で，そのセルの階層を返す．下線の階層が分かれば，下線の値はその階層，
+    下線の無い値は残りの階層 (残りが 1 つに決まるときだけ)．決まらなければ複数のまま (status=multi)"""
     layers = row.get('layer', '').split(';')
-    m = UNDER_LAYER.search(row.get('note', ''))
-    if len(layers) < 2 or not m or m.group(1) not in layers:
+    under = underlined_layers(row.get('note', ''), layers)
+    if len(layers) < 2 or not under or len(under) == len(layers):
         return row.get('layer', '')
     marked = '±' in row.get(plot, '') or '下線' in cell_note(row.get('note', ''), plot).split(';')
+    rest = [x for x in layers if x not in under]
     if marked:
-        return m.group(1)
-    return ';'.join(x for x in layers if x != m.group(1))
+        return under[0] if len(under) == 1 else row.get('layer', '')
+    return rest[0] if len(rest) == 1 else ';'.join(rest)
 
 
 def plot_list(spec):
@@ -276,7 +315,13 @@ def build(tdir):
                     continue
                 cov, soc, const, st, note = pv
                 layer = cell_layer(r, p)
-                st, note = merge(st, note, dict(r, layer=layer), p)
+                by_herb = herb_layer(s, layer)
+                st, note = merge(st, note, dict(r, layer=by_herb), p)
+                if layer != r.get('layer', ''):         # 規則で階層を決めたものは note に残す
+                    note = ';'.join(x for x in (note, f"下線の規則で階層を {layer} に決めた (印字は {r.get('layer', '').replace(';', ',')})") if x)
+                if by_herb != layer:
+                    note = ';'.join(x for x in (note, '草本のため K 層とした') if x)
+                layer = by_herb
                 comp.append(dict(file=file, table=table, plot=p, group_ja=g_ja, group_de=g_de,
                                  s_name=s, j_name=j, layer=layer, cover=cov,
                                  sociability=soc, constancy=const, value_raw=r.get(p, ''),
@@ -285,10 +330,13 @@ def build(tdir):
     for r in read_tsv(os.path.join(tdir, 'once.tsv')):
         pv = parse_value(r.get('value', ''), n_plots.get(r.get('plot', ''), 0)) or ('', '', '', 'check', '値が空')
         cov, soc, const, st, note = pv
-        st, note = merge(st, note, r)
+        once_layer = herb_layer(r.get('s_name', ''), r.get('layer', ''))
+        st, note = merge(st, note, dict(r, layer=once_layer))
+        if once_layer != r.get('layer', ''):
+            note = ';'.join(x for x in (note, '草本のため K 層とした') if x)
         comp.append(dict(file=file, table=table, plot=r.get('plot', ''), group_ja='', group_de='',
                          s_name=r.get('s_name', ''), j_name=r.get('j_name', ''),
-                         layer=r.get('layer', ''), cover=cov, sociability=soc, constancy=const,
+                         layer=once_layer, cover=cov, sociability=soc, constancy=const,
                          value_raw=r.get('value', ''), source='once', status=st, note=note))
     add_column_kind(file, table, sorted(set(all_plots) | {c['plot'] for c in comp}), n_plots, comp, sites)
     region = re.sub(r'_\d+$', '', file)
