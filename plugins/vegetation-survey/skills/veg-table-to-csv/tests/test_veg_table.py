@@ -62,6 +62,8 @@ class ParseValueTest(unittest.TestCase):
         self.assertEqual(to_csv.parse_value("5(1)", 3)[3], "check")      # 調査区数より多い
         self.assertEqual(to_csv.parse_value("+", 12)[:3], ("", "", "+"))   # 常在度の列の + だけは常在度
         self.assertEqual(to_csv.parse_value("r", 6)[:3], ("", "", "r"))
+        self.assertEqual(to_csv.parse_value("+(4-5)", 5)[:3], ("4-5", "", "+"))   # 常在度の列では常在度
+        self.assertEqual(to_csv.parse_value("+(4-5)")[:3], ("+", "4-5", ""))      # 地点の列では群度の範囲
         self.assertEqual(to_csv.parse_value("+")[:3], ("+", "1", ""))      # 地点の列は被度
         self.assertEqual(to_csv.parse_value("2(3-4)")[:3], ("2", "3-4", ""))    # 調査区数が無ければ今までどおり
 

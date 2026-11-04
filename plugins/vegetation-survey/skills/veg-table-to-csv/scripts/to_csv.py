@@ -71,6 +71,9 @@ def parse_value(raw, n_plots=0):
         if m.group(3):
             cov += '-' + m.group(3)
         out = (cov, '', m.group(1))
+    m = None if (out or not n_plots) else re.fullmatch(rf'([+r])\s*\(\s*({COV})(?:\s*-\s*({COV}))?\s*\)', s)
+    if m:                                             # 常在度の列の +(4-5)・r(+) は常在度 (群度の範囲と読まない)
+        out = (m.group(2) + ('-' + m.group(3) if m.group(3) else ''), '', m.group(1))
     m = None if out else re.fullmatch(rf'({COV})\s*\(\s*([1-5])\s*-\s*([1-5])\s*\)', s)
     if m:                                             # 2(3-4) 単独地点の群度の範囲
         out = (m.group(1), f'{m.group(2)}-{m.group(3)}', '')
