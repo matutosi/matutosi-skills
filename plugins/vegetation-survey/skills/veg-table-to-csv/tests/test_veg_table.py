@@ -83,6 +83,26 @@ class ParseValueTest(unittest.TestCase):
         self.assertEqual((comp[2]["constancy"], comp[2]["cover"]), ("+", ""))
         self.assertEqual(comp[5]["cover"], "+")            # 1 回出現のセルは変えない
 
+    def test_column_kind_majority(self):
+        """種類の違うセルが少ない列は，多数決で列の種類を決め，少ないほうのセルに印を付ける (0.5.9)"""
+        def cell(plot, cover, const, raw, note="", status="ok"):
+            return dict(plot=plot, cover=cover, sociability="", constancy=const, value_raw=raw,
+                        source="body", note=note, status=status)
+        comp = [cell("1", "", "V", "V"), cell("1", "", "III", "III"), cell("1", "2", "", "2・3"),
+                cell("2", "", "IV", "IV"), cell("2", "", "II", "II"), cell("2", "1", "", "1・2", "ユーザ確認: 今の転記でよい"),
+                cell("3", "1", "", "1・1"), cell("3", "+", "", "+"), cell("3", "", "I", "I"),
+                cell("4", "1", "", "1・1"), cell("4", "", "I", "I")]
+        sites = []
+        to_csv.add_column_kind("f", "Tab.1", ["1", "2", "3", "4"], {}, comp, sites)
+        kinds = {s["plot"]: (s["value"], s["status"]) for s in sites}
+        self.assertEqual(kinds["1"], ("常在度", "ok"))
+        self.assertEqual(comp[2]["status"], "check")       # 少ないほうのセルは check
+        self.assertIn("列の種類 (常在度) と違う形のセル", comp[2]["note"])
+        self.assertEqual(comp[5]["status"], "ok")          # 回答済みのセルは ok のまま
+        self.assertEqual(kinds["3"], ("調査区", "ok"))
+        self.assertEqual(comp[8]["status"], "check")
+        self.assertEqual(kinds["4"], ("混在", "check"))    # 同数は混在のまま
+
     def test_plots_per_column(self):
         self.assertEqual(to_csv.plots_per_column([{"item_ja": "調査区数", "item_de": "", "1": "3", "2": "12", "note": ""}]),
                          {"1": 3, "2": 12})

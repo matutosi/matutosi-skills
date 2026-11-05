@@ -405,8 +405,19 @@ def add_column_kind(file, table, plots, n_plots, comp, sites):
         kind = '常在度' if (n_plots.get(p, 0) > 0 or with_c) else '調査区'
         st, note = 'ok', ''
         if with_c and with_c < len(cells):
-            kind, st = '混在', 'check'
-            note = f'常在度のセル {with_c} 個・調査区のセル {len(cells) - with_c} 個が同じ列にある'
+            n_plot = len(cells) - with_c
+            if with_c == n_plot:                         # 同数なら決められないので混在のまま
+                kind, st = '混在', 'check'
+                note = f'常在度のセル {with_c} 個・調査区のセル {n_plot} 個が同じ列にある'
+            else:                                        # 多数決で列の種類を決め，少ないほうのセルに印を付ける (0.5.9)
+                kind = '常在度' if with_c > n_plot else '調査区'
+                odd = [c for c in cells if bool(c['constancy']) != (kind == '常在度')]
+                for c in odd:
+                    if 'ユーザ確認' not in c['note']:     # 回答済みのセルは ok のまま
+                        c['status'] = 'check'
+                    c['note'] = (c['note'] + ';' if c['note'] else '') + f'列の種類 ({kind}) と違う形のセル'
+                note = (f'常在度のセル {with_c} 個・調査区のセル {n_plot} 個．多数決で{kind}の列とし，'
+                        f'少ないほうの {len(odd)} 個はセルに印を付けた')
         elif n_plots.get(p, 0) > 0 and not with_c and cells:
             st, note = 'check', '調査区数があるが常在度のセルが無い'
         elif kind == '常在度' and not n_plots.get(p, 0):
