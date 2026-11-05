@@ -389,7 +389,16 @@ def add_column_kind(file, table, plots, n_plots, comp, sites):
     constancy の入ったセルと入っていないセルが同じ列にあれば混在 (印字の読み違いを疑う)"""
     for p in plots:
         cells = [c for c in comp if c['plot'] == p and c['cover'] != 'v']   # v (極めて微小．X16) はどの列にも入る
+        body = [c for c in cells if c.get('source') != 'once']
         with_c = sum(1 for c in cells if c['constancy'])
+        body_c = sum(1 for c in body if c['constancy'])
+        if body and body_c * 2 >= len(body):             # 本体の半分以上が常在度のセル = 常在度の列
+            for c in body:                               # 常在度の列の + / r だけのセルは常在度の低い印 (被度ではない)
+                if not c['constancy'] and c['value_raw'].strip() in ('+', 'r'):
+                    c['constancy'], c['cover'], c['sociability'] = c['value_raw'].strip(), '', ''
+                    c['note'] = (c['note'] + ';' if c['note'] else '') + '常在度の列の + は常在度の低い印とした'
+            cells = [c for c in cells if c.get('source') != 'once']   # 1 回出現のセル (被度・群度の形) は列の種類に数えない
+            with_c = sum(1 for c in cells if c['constancy'])
         kind = '常在度' if (n_plots.get(p, 0) > 0 or with_c) else '調査区'
         st, note = 'ok', ''
         if with_c and with_c < len(cells):

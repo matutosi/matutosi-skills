@@ -69,6 +69,20 @@ class ParseValueTest(unittest.TestCase):
         self.assertEqual(to_csv.parse_value("+")[:3], ("+", "1", ""))      # 地点の列は被度
         self.assertEqual(to_csv.parse_value("2(3-4)")[:3], ("2", "3-4", ""))    # 調査区数が無ければ今までどおり
 
+    def test_column_kind_constancy_with_plus_and_once(self):
+        """常在度の列の + だけのセルは常在度とし，1 回出現のセルは列の種類に数えない (混在にしない)"""
+        def cell(plot, cover, soc, const, raw, source="body"):
+            return dict(plot=plot, cover=cover, sociability=soc, constancy=const, value_raw=raw, source=source, note="")
+        comp = [cell("1", "", "", "V", "V"), cell("1", "", "", "IV", "IV"), cell("1", "+", "1", "", "+"),
+                cell("2", "", "", "V", "V"), cell("2", "", "", "II", "II"), cell("2", "+", "2", "", "+・2", "once")]
+        sites = []
+        to_csv.add_column_kind("f", "Tab.1", ["1", "2"], {}, comp, sites)
+        kinds = {s["plot"]: (s["value"], s["status"]) for s in sites}
+        self.assertEqual(kinds["1"], ("常在度", "ok"))      # + は常在度の低い印
+        self.assertEqual(kinds["2"], ("常在度", "ok"))      # 1 回出現の +・2 は数えない
+        self.assertEqual((comp[2]["constancy"], comp[2]["cover"]), ("+", ""))
+        self.assertEqual(comp[5]["cover"], "+")            # 1 回出現のセルは変えない
+
     def test_plots_per_column(self):
         self.assertEqual(to_csv.plots_per_column([{"item_ja": "調査区数", "item_de": "", "1": "3", "2": "12", "note": ""}]),
                          {"1": 3, "2": 12})
