@@ -34,10 +34,10 @@ COMP_COLS = ['file', 'region', 'table', 'plot', 'group_ja', 'group_de', 's_name'
              'layer', 'cover', 'sociability', 'constancy', 'value_raw', 'source',
              'status', 'note']
 
-COVER = re.compile(r'^(?:O|[54321+r](?:-[54321+r])?)$')       # 範囲 (+-3) と出現の印 O も認める
+COVER = re.compile(r'^(?:O|v|[54321+r](?:-[54321+r])?)$')       # 範囲 (+-3)・出現の印 O・極めて微小 v (X16) も認める
 SOC = re.compile(r'^[1-5](?:-[1-5])?$')
 CONST = re.compile(r'^(?:V|IV|III|II|I|\+|r|\d+)$')    # 数字は出現地点数
-LAYER = re.compile(r'^(?:(?:[TBSKH][12]?|M)(?:;(?:[TBSKH][12]?|M))*)$')
+LAYER = re.compile(r'^(?:(?:[TBSKH][12]?|M|L)(?:;(?:[TBSKH][12]?|M|L))*)$')   # L はツル植物 (X15)
 JNAME = re.compile(r'^[゠-ヿー・一-鿿\dA-Za-z .()（）の？?]+$')
 COUNT_JA = ('出現種数', '種数')
 COUNT_DE = ('artenzahl',)

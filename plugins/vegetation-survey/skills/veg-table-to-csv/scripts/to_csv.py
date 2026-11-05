@@ -58,6 +58,8 @@ def parse_value(raw, n_plots=0):
     notes = ['下線'] if underlined else []
     if s in ('O', '○', '◯'):                          # コケ層などの出現の印 (被度なし)
         return ('O', '', '', 'check' if unsure else 'ok', ';'.join(notes + (['読みに自信なし'] if unsure else [])))
+    if s == 'v':                                      # 小文字の v: 極めて微小 (規則 X16．地点の列にも常在度の列にも当てる)
+        return ('v', '', '', 'check' if unsure else 'ok', ';'.join(notes + ['v は極めて微小の意味 (規則 X16)']))
     m = re.fullmatch(r'\((.+)\)', s)
     if m:                                             # (+) 括弧付き
         s = m.group(1).strip()
@@ -386,7 +388,7 @@ def add_column_kind(file, table, plots, n_plots, comp, sites):
     常在度 = 調査区数が 1 以上と書かれた列，または constancy の入ったセルがある列．
     constancy の入ったセルと入っていないセルが同じ列にあれば混在 (印字の読み違いを疑う)"""
     for p in plots:
-        cells = [c for c in comp if c['plot'] == p]
+        cells = [c for c in comp if c['plot'] == p and c['cover'] != 'v']   # v (極めて微小．X16) はどの列にも入る
         with_c = sum(1 for c in cells if c['constancy'])
         kind = '常在度' if (n_plots.get(p, 0) > 0 or with_c) else '調査区'
         st, note = 'ok', ''
