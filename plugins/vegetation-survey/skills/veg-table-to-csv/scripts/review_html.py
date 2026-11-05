@@ -1,6 +1,6 @@
 """値や名前の確認用に，赤い印つきの画像を埋め込んだ 1 枚の HTML を作る．
 
-    python scripts/review_html.py <項目.json> <出力.html> [--title 題] [--choices val,none,skip]
+    python scripts/review_html.py <項目.json> <出力.html> [--title 題] [--region 地方名] [--choices val,none,skip]
     python scripts/review_html.py <置き場>/user_review.tsv <出力.html>   # 読みながら積んだ項目から作る
 
 `--split` を付けると，区分ごとに review_A.html〜review_D.html に分ける (out は置き場のディレクトリ)．
@@ -38,6 +38,10 @@ work/ のページ名か画像のパス．置き場からの相対)．範囲を�
   座標で書くとき: 種名や表頭の通し番号が写らない切り出しには
   `"rows": [[y, "ナナカマド K"], …]` と `"cols": [[x, "46"], …]` (ページの原寸の座標) を書く．
   行の名は左の余白に，地点番号は上の余白に青で書き込まれる (赤は確かめてほしい箇所，青は位置の目印)．
+- **階層の下線が判断の材料になる項目** (下線の対応・階層の印字) は，階層の列 (字と下線) が画像に写るようにする．
+  切り出しが階層の列を含まないときは `"layer_x": [x0, x1]` (階層の列の左右．ページ原寸) を書くと，切り出しと同じ高さの
+  階層の列が左に付く (`names_x` もあれば，その右に続けて貼る)．範囲が切り出しの中にあれば貼らない．
+  user_review.tsv では任意の列 `layer_x0`・`layer_x1` に書く．
 - `marks` の種類 (赤で描く):
   - `{"box": [x0, y0, x1, y1]}` 対象の語やセルを囲む枠
   - `{"underline": [x0, x1, y]}` 値を入れる位置の下線と ▼ (値が無いところを指すとき)
@@ -48,7 +52,10 @@ work/ のページ名か画像のパス．置き場からの相対)．範囲を�
   `options` が無い項目は `val` (値を入力)・`none` (印字に無い)・`skip` (`--choices` で選ぶ)．
   user_review.tsv から作る項目は a. 今の転記でよい・b. 違う (メモに)．
   欄の入力は自動で端末ではなくブラウザの localStorage に保存され，閉じても残る．
-  「回答を JSON で保存」ボタンで `{id: {choice, value, memo}}` が落ちる．
+  「回答を JSON で保存」ボタンで `{id: {choice, value, memo}}` が落ちる．ファイル名は `<地方名>_review_answers.json`
+  (`--region kanto` なら `kanto_review_answers.json`．`--region` を省くと出力 HTML の名前 (`okinawa.html` → `okinawa`) から
+  決める．地方ごとの HTML の回答がダウンロードフォルダで同じ名前にならないように．2026-11-05)．
+  「回答を読み込む」はファイル名を見ないので，どの名前の JSON でも読める．
 
 標準ライブラリと Pillow だけで動く．
 """
@@ -58,6 +65,7 @@ import html
 import io
 import json
 import os
+import re
 import sys
 
 from PIL import Image, ImageDraw, ImageFont
@@ -119,14 +127,37 @@ def add_labels(canvas, rows, cols, dx, dy, size=28):
     return out
 
 
+def layer_strip_needed(spec):
+    """layer_x (階層の列) を左に貼るか．範囲が切り出し (crop) の中にあれば貼らない"""
+    lx = spec.get('layer_x')
+    if not lx or 'page' not in spec:
+        return False
+    if 'crop' not in spec:
+        return False
+    return lx[0] < spec['crop'][0]
+
+
 def add_strips(base, spec, canvas, dx, dy):
-    """同じページから，種名の列 (names_x の範囲．切り出しと同じ高さ) を左に，表頭の通し番号の行
-    (head_y の範囲．切り出しと同じ幅) を上に貼る．座標を読まずに，何行目がどの種か・何列目がどの地点かが分かる"""
+    """同じページから，種名の列 (names_x の範囲．切り出しと同じ高さ) と階層の列 (layer_x) を左に，表頭の通し番号の行
+    (head_y の範囲．切り出しと同じ幅) を上に貼る．座標を読まずに，何行目がどの種か・何列目がどの地点か・
+    階層の字に下線があるかが分かる"""
     page = Image.open(os.path.join(base, spec['page'])).convert('RGB')
     left = top = None
+    pieces = []
     if spec.get('names_x'):
         nx0, nx1 = spec['names_x']
-        left = page.crop((nx0, dy, nx1, dy + canvas.height))
+        pieces.append(page.crop((nx0, dy, nx1, dy + canvas.height)))
+    if layer_strip_needed(spec):
+        lx0, lx1 = spec['layer_x']
+        if pieces and spec['names_x'][1] > lx0:          # 種名の列と重なるぶんは除く
+            lx0 = min(spec['names_x'][1], lx1 - 1)
+        pieces.append(page.crop((lx0, dy, lx1, dy + canvas.height)))
+    if pieces:
+        left = Image.new('RGB', (sum(p.width for p in pieces), canvas.height), 'white')
+        x = 0
+        for p in pieces:
+            left.paste(p, (x, 0))
+            x += p.width
     if spec.get('head_y'):
         hy0, hy1 = spec['head_y']
         top = page.crop((dx, hy0, dx + canvas.width, hy1))
@@ -162,7 +193,7 @@ def make_image(base, spec):
     canvas = Image.new('RGB', (im.width + 2 * MARGIN, im.height + 2 * MARGIN), 'white')
     canvas.paste(im, (MARGIN, MARGIN))
     draw_marks(canvas, marks, dx - MARGIN, dy - MARGIN)
-    if 'page' in spec and (spec.get('names_x') or spec.get('head_y')):
+    if 'page' in spec and (spec.get('names_x') or spec.get('head_y') or layer_strip_needed(spec)):
         canvas = add_strips(base, spec, canvas, dx - MARGIN, dy - MARGIN)
     if spec.get('rows') or spec.get('cols'):          # 何行目がどの種か・何列目がどの地点かを書き込む
         canvas = add_labels(canvas, spec.get('rows', []), spec.get('cols', []), dx - MARGIN, dy - MARGIN)
@@ -210,7 +241,8 @@ PAD = 150
 
 
 def from_tsv(path):
-    """user_review.tsv (読みながら積んだ確認の項目) を項目のリストにする．範囲は赤枠で囲み，周りを PAD px 広げて切る"""
+    """user_review.tsv (読みながら積んだ確認の項目) を項目のリストにする．範囲は赤枠で囲み，周りを PAD px 広げて切る．
+    任意の列 layer_x0・layer_x1 (階層の列の左右) があれば，切り出しに入らない階層の列を左に貼る"""
     import csv
     items = []
     with open(path, encoding='utf-8-sig', newline='') as f:
@@ -218,12 +250,18 @@ def from_tsv(path):
             page = r['page'] if r['page'].lower().endswith(('.png', '.jpg')) else os.path.join('work', r['page'] + '.png')
             x0, y0, x1, y1 = (int(float(r[k])) for k in ('x0', 'y0', 'x1', 'y1'))
             g = group_of(r.get('kind', ''))
+            sp = {'page': page, 'crop': [max(0, x0 - PAD), max(0, y0 - PAD), x1 + PAD, y1 + PAD],
+                  'caption': r['table'], 'marks': [{'box': [x0, y0, x1, y1]}]}
+            lx = [(r.get(k) or '').strip() for k in ('layer_x0', 'layer_x1')]
+            if all(lx):
+                sp['layer_x'] = [int(float(v)) for v in lx]
+                if layer_strip_needed(sp):
+                    sp['caption'] += '．左は同じ高さの階層の列'
             items.append({'id': f'U{i:02d}', 'group': g,
                           'title': ' '.join(x for x in (r['table'], '地点 ' + r['plot'] if r['plot'] else '', r['j_name']) if x),
                           'layer': r.get('kind', ''), 'note': r['what'],
                           'options': with_current(VALUE if g == 'A' else CONFIRM, r.get('current', '')),
-                          'images': [{'page': page, 'crop': [max(0, x0 - PAD), max(0, y0 - PAD), x1 + PAD, y1 + PAD],
-                                      'caption': r['table'], 'marks': [{'box': [x0, y0, x1, y1]}]}]})
+                          'images': [sp]})
     return items
 
 
@@ -280,8 +318,15 @@ document.getElementById('imp').onchange=ev=>{const f=ev.target.files[0]; if(!f) 
   f.text().then(t=>{const o=JSON.parse(t); cards.forEach(c=>{if(o[c.dataset.id]&&o[c.dataset.id].choice) restore(c,o[c.dataset.id])}); save(); applyFilter()})};
 document.getElementById('dl').onclick=()=>{const o={};cards.forEach(c=>o[c.dataset.id]=collect(c));
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(o,null,1)],{type:'application/json'}));
-  a.download='review_answers.json';a.click()};
+  a.download=FNAME;a.click()};
 """
+
+
+def answers_name(region):
+    """回答 JSON の保存ファイル名．地方名 (region) を頭に付けて，地方の HTML どうしでダウンロードフォルダの名前が重ならない
+    ようにする (例: kanto → kanto_review_answers.json)．region が空なら review_answers.json"""
+    r = re.sub(r'[\\/:*?"<>|\s]+', '_', (region or '').strip()).strip('_.')
+    return f'{r}_review_answers.json' if r else 'review_answers.json'
 
 
 def card(base, it, choices):
@@ -316,7 +361,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('items')
     ap.add_argument('out')
-    ap.add_argument('--title', default='確認')
+    ap.add_argument('--title', default=None, help='ページの題 (既定: 確認．--region があれば「確認 (地方名)」)')
+    ap.add_argument('--region', default=None,
+                    help='地方名 (例: kanto・okinawa．地方の出力フォルダ名)．回答の保存ファイル名を <地方名>_review_answers.json にする．'
+                         '省くと出力 HTML の名前 (okinawa.html なら okinawa．--split なら出力フォルダの名前) から決める')
     ap.add_argument('--choices', default='val,none,skip', help='val,none,skip のうち出すもの (カンマ区切り)')
     ap.add_argument('--layout', choices=['side', 'stack'], default='side',
                     help='side = 画像を左・選択肢を右 (既定．幅の狭い画面では上下になる)，stack = 画像の下に選択肢')
@@ -330,18 +378,24 @@ def main(argv=None):
         with open(a.items, encoding='utf-8-sig') as f:
             items = json.load(f)
     base = os.path.dirname(os.path.abspath(a.items))
+    region = a.region if a.region is not None else (
+        os.path.basename(os.path.normpath(os.path.abspath(a.out))) if a.split
+        else os.path.splitext(os.path.basename(a.out))[0])
+    title = a.title if a.title is not None else (f'確認 ({a.region})' if a.region else '確認')
     if a.split:
         os.makedirs(a.out, exist_ok=True)
         for g, name in GROUPS.items():
             sub = [it for it in items if it.get('group', group_of(it.get('layer', ''))) == g]
             if sub:
-                write_page(base, sub, choices, os.path.join(a.out, f'review_{g}.html'), f'{a.title} {g}. {name}', a.layout)
+                write_page(base, sub, choices, os.path.join(a.out, f'review_{g}.html'), f'{title} {g}. {name}', a.layout,
+                           f'{region}_{g}' if region else g)
         return 0
-    write_page(base, items, choices, a.out, a.title, a.layout)
+    write_page(base, items, choices, a.out, title, a.layout, region)
     return 0
 
 
-def write_page(base, items, choices, out, title, layout='side'):
+def write_page(base, items, choices, out, title, layout='side', region=''):
+    """1 枚の HTML を書く．回答の保存ボタンのファイル名は answers_name(region)"""
     parts, prev = [], None
     for i, it in enumerate(items):  # 似た内容の項目は topic でまとめ，変わり目に見出しを出す (件数は続く分だけ)
         t = it.get('topic', '')
@@ -352,6 +406,7 @@ def write_page(base, items, choices, out, title, layout='side'):
         parts.append(card(base, it, choices))
     cards = ''.join(parts)
     n = len(items)
+    fname = answers_name(region)
     page = (f'<!doctype html><html lang="ja"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)}</title>'
             f'<style>{CSS}</style></head><body class="{layout}">'
@@ -361,10 +416,11 @@ def write_page(base, items, choices, out, title, layout='side'):
             f'<option value="done">回答済みだけ</option></select> <button id="re" type="button">絞り込み直す</button> '
             f'(<span id="shown">{n}</span> 件)　<label>回答を読み込む <input type="file" id="imp" accept=".json"></label></div>'
             f'<p>赤枠・赤線が該当の位置です．画像を見て，値を入力するか，印字に無いとき・判断できないときは選んでください．'
-            f'入力は自動で保存され，閉じても残ります．</p>{cards}<script>{JS}</script></body></html>')
+            f'入力は自動で保存され，閉じても残ります．回答は「回答を JSON で保存」で {html.escape(fname)} として落ちます．</p>'
+            f'{cards}<script>const FNAME={json.dumps(fname)};{JS}</script></body></html>')
     with open(out, 'w', encoding='utf-8') as f:
         f.write(page)
-    print(f'{n} 件 → {out} ({os.path.getsize(out) / 1e6:.1f} MB)')
+    print(f'{n} 件 → {out} ({os.path.getsize(out) / 1e6:.1f} MB．回答の保存名 {fname})')
 
 
 if __name__ == '__main__':

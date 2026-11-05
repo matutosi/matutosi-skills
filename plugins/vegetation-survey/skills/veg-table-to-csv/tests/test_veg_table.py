@@ -127,6 +127,37 @@ class ReviewHtmlTest(unittest.TestCase):
         self.assertIn("data:image/png;base64,", s)
         self.assertIn("下の値はどちらの種か", s)
 
+    def test_answers_file_name(self):
+        """回答 JSON の保存名に地方名が付く (--region か，出力 HTML の名前から)．読み込みはファイル名を見ない (2026-11-05)"""
+        import review_html
+        from PIL import Image
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "work"))
+        Image.new("RGB", (800, 600), "white").save(os.path.join(d, "work", "p001.png"))
+        tsv = os.path.join(d, "user_review.tsv")
+        with open(tsv, "w", encoding="utf-8") as f:
+            f.write("table\tplot\tj_name\tkind\twhat\tpage\tx0\ty0\tx1\ty1\n")
+            f.write("Tab.1\t3\tヨシ\t読めない値\tかすれ\tp001\t300\t200\t400\t260\n")
+
+        def read(p):
+            with open(p, encoding="utf-8") as fh:
+                return fh.read()
+
+        def page(*argv):
+            run(review_html.main, [tsv, *argv])
+            return read(argv[0])
+        s = page(os.path.join(d, "x.html"), "--region", "kanto", "--title", "組成表の確認 (関東)")
+        self.assertIn('const FNAME="kanto_review_answers.json"', s)
+        self.assertIn("<title>組成表の確認 (関東)</title>", s)     # --title があれば題は変えない
+        self.assertIn("<title>確認 (kanto)</title>", page(os.path.join(d, "y.html"), "--region", "kanto"))
+        self.assertIn('const FNAME="okinawa_review_answers.json"', page(os.path.join(d, "okinawa.html")))
+        self.assertIn('const FNAME="review_answers.json"', page(os.path.join(d, "z.html"), "--region", ""))
+        self.assertNotIn("review_answers.json'", review_html.JS)      # 保存名を JS に固定で書かない
+        self.assertNotIn(".name", review_html.JS)                     # 読み込みはファイル名で選ばない
+        self.assertEqual(review_html.answers_name("to hoku/x"), "to_hoku_x_review_answers.json")
+        run(review_html.main, [tsv, os.path.join(d, "ui"), "--split", "--region", "kinki"])
+        self.assertIn('const FNAME="kinki_A_review_answers.json"', read(os.path.join(d, "ui", "review_A.html")))
+
     def test_split_by_group(self):
         """--split で区分ごとの HTML に分ける．A の項目には値の入力欄が付く"""
         import review_html
@@ -155,6 +186,33 @@ class ReviewHtmlTest(unittest.TestCase):
         sp2 = dict(sp, rows=[[250, "ナナカマド K"]], cols=[[400, "46"]])
         self.assertGreater(len(review_html.make_image(d, sp2)), len(plain))
         self.assertGreater(review_html.add_labels(Image.new("RGB", (100, 50)), [[10, "ヨシ"]], [[20, "1"]], 0, 0).width, 100)
+
+    def test_layer_strip(self):
+        """layer_x (階層の列) が切り出しの外なら左に貼って画像が広がる．切り出しの中なら貼らない (2026-11-05)"""
+        import base64
+        import review_html
+        from PIL import Image
+        d = tempfile.mkdtemp()
+        Image.new("RGB", (800, 600), "white").save(os.path.join(d, "p.png"))
+
+        def width(sp):
+            return Image.open(io.BytesIO(base64.b64decode(review_html.make_image(d, sp)))).width
+        sp = {"page": "p.png", "crop": [500, 200, 700, 300]}
+        self.assertEqual(width(dict(sp, layer_x=[300, 360])), width(sp) + 60 + 8)   # 8 は境の余白
+        self.assertEqual(width(dict(sp, layer_x=[520, 560])), width(sp))
+        # 種名の列と続けて貼る (重なるぶんは除く)
+        self.assertEqual(width(dict(sp, names_x=[100, 330], layer_x=[300, 360])), width(sp) + 230 + 30 + 8)
+        # user_review.tsv の任意の列 layer_x0・layer_x1
+        os.makedirs(os.path.join(d, "work"))
+        Image.new("RGB", (800, 600), "white").save(os.path.join(d, "work", "p001.png"))
+        with open(os.path.join(d, "user_review.tsv"), "w", encoding="utf-8") as f:
+            f.write("table\tplot\tj_name\tkind\twhat\tpage\tx0\ty0\tx1\ty1\tlayer_x0\tlayer_x1\n")
+            f.write("Tab.1\t27\tサカキ\tB. 下線の対応\t下線か折り目か\tp001\t600\t200\t650\t230\t300\t360\n")
+            f.write("Tab.1\t28\tクリ\tB. 下線の対応\t下線か\tp001\t600\t250\t650\t280\t\t\n")
+        it = review_html.from_tsv(os.path.join(d, "user_review.tsv"))
+        self.assertEqual(it[0]["images"][0]["layer_x"], [300, 360])
+        self.assertIn("階層の列", it[0]["images"][0]["caption"])
+        self.assertNotIn("layer_x", it[1]["images"][0])
 
 
 class ConvertTest(unittest.TestCase):
