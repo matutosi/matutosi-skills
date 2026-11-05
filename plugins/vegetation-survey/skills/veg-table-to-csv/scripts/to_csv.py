@@ -237,10 +237,13 @@ def plots_of(head, fixed):
 
 
 def plots_per_column(header):
-    """表頭の「調査区数」の行から，常在度の列の調査区数を返す．{列: 数}"""
+    """表頭の「調査区数」の行から，常在度の列の調査区数を返す．{列: 数}
+
+    `<5` は「調査区数の印字は無いが 5 未満の列」(値が全部 算用数字の出現地点数)．上限の 4 として扱う．"""
     for r in header:
         if r.get('item_ja') == '調査区数' or r.get('item_de', '').lower().startswith('zahl d. aufn'):
-            return {p: int(v) for p, v in r.items() if p.isdigit() and v.isdigit()}
+            return {p: (4 if v.strip() == '<5' else int(v)) for p, v in r.items()
+                    if p.isdigit() and (v.isdigit() or v.strip() == '<5')}
     return {}
 
 

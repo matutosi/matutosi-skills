@@ -87,6 +87,11 @@ class ParseValueTest(unittest.TestCase):
         self.assertEqual(to_csv.plots_per_column([{"item_ja": "調査区数", "item_de": "", "1": "3", "2": "12", "note": ""}]),
                          {"1": 3, "2": 12})
         self.assertEqual(to_csv.plots_per_column([{"item_ja": "調査番号;調査区数", "item_de": "", "1": "6"}]), {})
+        # 調査区数の印字が無い 5 未満の列 (値が全部 算用数字) は <5 と書き，上限 4 として読む
+        n = to_csv.plots_per_column([{"item_ja": "調査区数", "item_de": "", "1": "<5", "2": "-", "3": "7"}])
+        self.assertEqual(n, {"1": 4, "3": 7})
+        self.assertEqual(to_csv.parse_value("3(2-3)", n["1"])[:3], ("2-3", "", "3"))
+        self.assertEqual(to_csv.parse_value("5(1)", n["1"])[3], "check")       # 5 未満の列で 5 は超える
 
     def test_presence_mark(self):
         self.assertEqual(to_csv.parse_value("O")[:4], ("O", "", "", "ok"))
