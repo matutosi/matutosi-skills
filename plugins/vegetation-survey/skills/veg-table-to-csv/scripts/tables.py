@@ -87,6 +87,7 @@ def main(argv=None):
     p.add_argument('--page', default='')
     p.add_argument('--title', default='')
     p.add_argument('--kind', default='', help='紙面の型 (fold・small・rotated など)')
+    p.add_argument('--note', default='', help='範囲・続きのページなどの覚え (0.5.11)')
     p = sub.add_parser('next')
     p.add_argument('dir')
     p.add_argument('-n', type=int, default=1)
@@ -95,6 +96,9 @@ def main(argv=None):
     p.add_argument('table')
     p.add_argument('status', choices=STATES)
     p.add_argument('--note', default=None)
+    p.add_argument('--title', default=None, help='一覧の表題を印字の表題に書き換える (0.5.11)')
+    p = sub.add_parser('titles', help='transcripts/Tab.NNN/meta.tsv の title_ja で一覧の表題を書き換える')
+    p.add_argument('dir')
     p = sub.add_parser('show')
     p.add_argument('dir')
     a = ap.parse_args(argv)
@@ -110,7 +114,7 @@ def main(argv=None):
         if any(r['table'] == a.table for r in rows):
             sys.exit(f'{a.table} はすでにある')
         rows.append(dict(table=a.table, page=a.page, title=a.title, kind=a.kind,
-                         status='todo', note=''))
+                         status='todo', note=a.note))
         save(a.dir, rows)
     elif a.cmd == 'next':
         todo = [r for r in rows if r['status'] == 'reading'] + [r for r in rows if r['status'] == 'todo']
@@ -125,7 +129,23 @@ def main(argv=None):
         hit[0]['status'] = a.status
         if a.note is not None:
             hit[0]['note'] = a.note
+        if a.title is not None:
+            hit[0]['title'] = a.title
         save(a.dir, rows)
+    elif a.cmd == 'titles':
+        n = 0
+        for r in rows:
+            meta = os.path.join(a.dir, 'transcripts', f"Tab.{number(r['table']):03d}", 'meta.tsv')
+            if not os.path.exists(meta):
+                continue
+            with open(meta, encoding='utf-8-sig', newline='') as f:
+                kv = {x[0]: x[1] for x in csv.reader(f, delimiter='\t') if len(x) >= 2}
+            t = (kv.get('title_ja') or '').strip()
+            if t and t != r['title']:
+                r['title'] = t
+                n += 1
+        save(a.dir, rows)
+        print(f'表題を {n} 表で書き換えた')
     else:
         print('  '.join(f'{s} {sum(r["status"] == s for r in rows)}' for s in STATES))
         nums = sorted({number(r['table']) for r in rows} - {10 ** 6})

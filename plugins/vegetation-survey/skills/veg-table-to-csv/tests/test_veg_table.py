@@ -591,6 +591,20 @@ class TablesTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run(tables.main, ["set", d, "Tab.2", "done"])
 
+    def test_set_title_and_titles_from_meta(self):
+        """一覧の表題を set --title と titles (meta.tsv の title_ja) で書き換える (0.5.11)"""
+        d = tempfile.mkdtemp()
+        run(tables.main, ["add", d, "Tab.21", "--title", "マサキートベラ群州"])
+        run(tables.main, ["add", d, "Tab.22", "--note", "続き: s01114_p46"])
+        self.assertEqual(tables.load(d)[1]["note"], "続き: s01114_p46")
+        run(tables.main, ["set", d, "Tab.22", "done", "--title", "ムクノキ―エノキ群集"])
+        self.assertEqual(tables.load(d)[1]["title"], "ムクノキ―エノキ群集")
+        os.makedirs(os.path.join(d, "transcripts", "Tab.021"))
+        with open(os.path.join(d, "transcripts", "Tab.021", "meta.tsv"), "w", encoding="utf-8") as f:
+            f.write("key\tvalue\ntitle_ja\tマサキ―トベラ群集\n")
+        run(tables.main, ["titles", d])
+        self.assertEqual(tables.load(d)[0]["title"], "マサキ―トベラ群集")
+
 
 class ImproveTest(unittest.TestCase):
     def test_add_list_set(self):

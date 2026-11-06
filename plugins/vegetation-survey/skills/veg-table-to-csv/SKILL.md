@@ -330,8 +330,11 @@ python <skill>/scripts/check.py <出力>
 1 表が終わるごとに記録する．**検算を通した表だけを done にする**．
 
 ```bash
-python <skill>/scripts/tables.py set <出力> Tab.34 done
+python <skill>/scripts/tables.py set <出力> Tab.34 done --title 印字の表題   # 一覧の表題は OCR なので，印字の表題で書き直す
+python <skill>/scripts/tables.py titles <出力>                         # 地方の全表を transcripts の meta.tsv (title_ja) で書き直す
 ```
+
+`tables.py add` には `--note` (範囲・続きのページなどの覚え) も付けられる (0.5.11)．
 
 **地点が多い表** (`--dense` で読んだ表) は，続けて `scripts/check_cells.py` で隣の地点への取り違えを探す．種数の合計では見つからない．
 転記は書き換えないので，候補は画像に戻って確かめ，転記表を直す．`+` と `1` の読み違いは見つけられない．
