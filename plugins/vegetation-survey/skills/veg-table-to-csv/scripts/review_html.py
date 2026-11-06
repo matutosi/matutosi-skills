@@ -61,6 +61,7 @@ work/ のページ名か画像のパス．置き場からの相対)．範囲を�
 """
 import argparse
 import base64
+import glob
 import html
 import io
 import json
@@ -183,7 +184,11 @@ def make_image(base, spec):
     """spec から (赤い印つき PNG の base64, 説明) を返す"""
     marks = spec.get('marks', [])
     if 'page' in spec:
-        im = Image.open(os.path.join(base, spec['page'])).convert('RGB')
+        path = os.path.join(base, spec['page'])
+        if not os.path.exists(path):                    # 同じ置き場の work_* (近畿の小古は work_sho．0.5.14)
+            alt = sorted(glob.glob(os.path.join(os.path.dirname(os.path.dirname(path)), 'work*', os.path.basename(path))))
+            path = alt[0] if alt else path
+        im = Image.open(path).convert('RGB')
         x0, y0, x1, y1 = spec['crop'] if 'crop' in spec else (0, 0, im.width, im.height)
         im = im.crop((x0, y0, x1, y1))
         dx, dy = x0, y0
