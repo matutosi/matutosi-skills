@@ -176,14 +176,45 @@ def cell_layer(row, plot):
 
 DASH_LAYER = re.compile(r'階層の印字は\s*[-−―ー]')
 NO_LAYER_NOTE = '階層の印字なし (つる・着生などで意図的に省いたとみる)'
+EMPTY_CELL = {'', '・', '.', '･', '·', '-'}
+ROMAN_HEAD = re.compile(r'(?:IV|V|I{1,3})(?![A-Za-z])')
 
 
-def layer_from_below(body):
+def missing_layer_check(x):
+    """「check 階層の印字が無い」のような，階層の欠けだけを言う check の断片か．
+    ほかの理由 (種名の線・下線など) を含む check は残す (0.5.10．中部 Tab.116 で消えた)"""
+    if not x.startswith('check'):
+        return False
+    rest = re.sub(r'^check[\s:：]*', '', x)
+    return rest.startswith('階層の印字')
+
+
+def constancy_columns(body, n_plots):
+    """常在度の列 (調査区数が 1 以上か，本体の値の半分以上がローマ数字で始まる列) と，ほかの値のある列"""
+    plots = [k for k in (body[0].keys() if body else []) if k.isdigit()]
+    const, other = set(), set()
+    for p in plots:
+        vals = [(r.get(p) or '').strip() for r in body if r.get('kind') != 'group']
+        vals = [v for v in vals if v not in EMPTY_CELL]
+        if not vals:
+            continue
+        roman = sum(1 for v in vals if ROMAN_HEAD.match(v))
+        if n_plots.get(p, 0) > 0 or roman * 2 >= len(vals):
+            const.add(p)
+        else:
+            other.add(p)
+    return const, other
+
+
+def layer_from_below(body, n_plots=None):
     """階層の印字が無い行 (note に「階層の印字」とある) の階層を決める (2026-11-05 ユーザ指示)．
     1. すぐ下の行が階層を 1 つ持つときは，その階層とみる．ブロック (空き行・見出しで区切られる) では
        上の階層から順に書くので，階層の字が 1 行下にずれて印字されたとみる (層の位置の誤り)
     2. 階層の無い行が続くとき・すぐ下が見出しや表の終わりのときは，空欄のまま，確認にも出さない
-       (つる植物・着生植物が大半で，わざと階層を書いていないとみる)．check を外し，note を簡潔にする"""
+       (つる植物・着生植物が大半で，わざと階層を書いていないとみる)．check を外し，note を簡潔にする
+    3. 地点の列と常在度の列が混じる表で，値が常在度の列にしか無い行は，下の行の階層を当てない (2 と同じ扱い)．
+       常在度の列は別の群落の要約なので，下の行の階層がその行の階層とは限らない (0.5.10．中部 Tab.103 カワヤナギ)"""
+    const, other = constancy_columns(body, n_plots or {})
     out = list(body)
     for i, r in enumerate(body):
         if (r.get('kind') == 'group' or (r.get('layer') or '').strip()
@@ -191,7 +222,7 @@ def layer_from_below(body):
             continue
         if DASH_LAYER.search(r.get('note') or ''):        # 階層の欄に「-」と明記された行は，変更せず確認にも出さない
             parts = [x.strip() for x in (r.get('note') or '').split(';')]
-            parts = [x for x in parts if x and not (x.startswith('check') and '階層の印字' in x)]
+            parts = [x for x in parts if x and not missing_layer_check(x)]
             if not any(DASH_LAYER.search(x) for x in parts):
                 parts.append('階層の印字は - (明記)')
             out[i] = dict(r, note=';'.join(parts))
@@ -199,8 +230,10 @@ def layer_from_below(body):
         nxt = body[i + 1] if i + 1 < len(body) else {'kind': 'group'}
         below = (nxt.get('layer') or '').strip() if nxt.get('kind') != 'group' else ''
         parts = [x.strip() for x in (r.get('note') or '').split(';')]
-        parts = [x for x in parts if x and not (x.startswith('check') and '階層の印字' in x)]
-        if below and ';' not in below:
+        parts = [x for x in parts if x and not missing_layer_check(x)]
+        filled = {p for p in const | other if (r.get(p) or '').strip() not in EMPTY_CELL}
+        only_const = bool(other) and bool(filled) and filled <= const
+        if below and ';' not in below and not only_const:
             parts.append(f'階層の印字が無いので，下の行の階層 {below} とした (層の位置の誤りとみる)')
             out[i] = dict(r, layer=below, note=';'.join(parts))
         else:
@@ -264,6 +297,9 @@ def norm_site(item_ja, item_de, raw, year=None):
             note = ';'.join(x for x in (note, f"L (レベル) を{'方位なし' if aspect else '傾斜 0'}に自動変換") if x)
             return ('-' if aspect else '0'), st, note
     if '年月日' in key or '月日' in key or 'datum' in key:
+        part = partial_date(s)
+        if part:
+            return part[0], st, ';'.join(x for x in (note, part[1]) if x)
         d = norm_date(s, year)
         if d:
             return d, st, note
@@ -273,6 +309,30 @@ def norm_site(item_ja, item_de, raw, year=None):
     if re.fullmatch(r'\d+\s*[.・･·•]\s*\d+', s):     # 0. 5 / 1・8 (小数点が中黒の印字)
         return re.sub(r'\s*[.・･·•]\s*', '.', s), st, note
     return s, st, note
+
+
+DASHES = {'-', '—', '–', '−', '―'}
+
+
+def partial_date(s):
+    """月や日が - の日付・月の範囲の日付を (値, note) にする．当たらなければ None (0.5.10．中部 Tab.77・104・121)
+    `- - -` → `-`．`'80 - -` → `1980`．`'80 6 -` → `1980-06`．`'80 6-11` (6〜11 月) → `1980` (note に範囲)"""
+    t = s.split()
+    if t and all(x in DASHES for x in t):
+        return '-', ''
+    if not t or not re.fullmatch(r"'?\d{2}|\d{4}", t[0]):
+        return None
+    y = int(t[0].lstrip("'"))
+    y = y + 1900 if y < 100 else y
+    rest = t[1:]
+    if rest and all(x in DASHES for x in rest):
+        return f'{y:04d}', '月日の印字は -'
+    if len(rest) == 2 and re.fullmatch(r'\d{1,2}', rest[0]) and rest[1] in DASHES:
+        return f'{y:04d}-{int(rest[0]):02d}', '日の印字は -'
+    m = re.fullmatch(r'(\d{1,2})\s*[-~〜]\s*(\d{1,2})', ' '.join(rest)) if rest else None
+    if m and len(rest) <= 3 and int(m.group(1)) <= 12 and int(m.group(2)) <= 12 and int(m.group(1)) < int(m.group(2)):
+        return f'{y:04d}', f'月の範囲 {int(m.group(1))}-{int(m.group(2))} 月 (印字)'
+    return None
 
 
 def norm_date(s, year=None):
@@ -307,7 +367,7 @@ def build(tdir):
                           source='title', status='ok', note=''))
 
     header = read_tsv(os.path.join(tdir, 'header.tsv'))
-    body = layer_from_below(read_tsv(os.path.join(tdir, 'body.tsv')))
+    body = layer_from_below(read_tsv(os.path.join(tdir, 'body.tsv')), plots_per_column(header))
     fixed_head = {'item_ja', 'item_de', 'unit', 'note', 'status'}
     fixed_body = {'kind', 'group_ja', 'group_de', 's_name', 'j_name', 'layer', 'note', 'status'}
     all_plots = []

@@ -113,6 +113,32 @@ class ParseValueTest(unittest.TestCase):
         self.assertEqual(to_csv.parse_value("3(2-3)", n["1"])[:3], ("2-3", "", "3"))
         self.assertEqual(to_csv.parse_value("5(1)", n["1"])[3], "check")       # 5 未満の列で 5 は超える
 
+    def test_partial_date(self):
+        """月や日が - の日付・月の範囲 (0.5.10)"""
+        f = lambda raw: to_csv.norm_site("調査年月日", "Datum d. Aufn.", raw)[:2]
+        self.assertEqual(f("- - -"), ("-", "ok"))
+        self.assertEqual(f("'80 - -"), ("1980", "ok"))
+        self.assertEqual(f("'80 6 -"), ("1980-06", "ok"))
+        self.assertEqual(f("'80 6-11"), ("1980", "ok"))           # 6〜11 月の範囲 (日付ではない)
+        self.assertIn("月の範囲 6-11", to_csv.norm_site("調査年月日", "", "'80 6-11")[2])
+        self.assertEqual(f("'83 8 3"), ("1983-08-03", "ok"))      # ふつうの日付は今までどおり
+
+    def test_layer_from_below_keeps_check_and_skips_constancy_only(self):
+        """階層の欠け以外の check は消さない．値が常在度の列だけの行には下の階層を当てない (0.5.10)"""
+        def row(s, layer, note, c1="", c2=""):
+            return dict(kind="sp", s_name=s, j_name="", layer=layer, note=note, **{"1": c1, "2": c2})
+        body = [row("A a", "", "check 種名に線．階層の印字は無い", "+", ""),
+                row("B b", "S", "", "1", "III"),
+                row("C c", "", "階層の印字なし", "・", "II"),
+                row("D d", "K", "", "+", "IV")]
+        out = to_csv.layer_from_below(body, {"2": 5})
+        self.assertIn("check 種名に線．階層の印字は無い", out[0]["note"])   # 理由のある check は残す
+        self.assertEqual(out[0]["layer"], "S")                              # 地点の列に値があるので下の階層
+        self.assertEqual(out[2]["layer"], "")                               # 常在度の列だけ → 当てない
+        self.assertIn(to_csv.NO_LAYER_NOTE, out[2]["note"])
+        out = to_csv.layer_from_below([row("A a", "", "check 階層の印字が無い", "+"), row("B b", "S", "", "1")], {})
+        self.assertNotIn("check", out[0]["note"])                           # 階層の欠けだけの check は外す
+
     def test_presence_mark(self):
         self.assertEqual(to_csv.parse_value("O")[:4], ("O", "", "", "ok"))
         self.assertEqual(to_csv.parse_value("○")[:4], ("O", "", "", "ok"))
