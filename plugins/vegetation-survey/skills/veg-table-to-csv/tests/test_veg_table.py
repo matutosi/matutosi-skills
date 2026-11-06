@@ -167,6 +167,25 @@ class ParseValueTest(unittest.TestCase):
         self.assertIn("括弧付き", to_csv.parse_value("(+)")[4])
 
 
+class PreferJaNameTest(unittest.TestCase):
+    def test_targets_species_mismatch(self):
+        """属は同じで種が合わない行も和名を優先して直す (0.5.13)．--genus-only で属だけ"""
+        import prefer_ja_name as pj
+        d = tempfile.mkdtemp()
+        with open(os.path.join(d, "names.tsv"), "w", encoding="utf-8", newline="") as f:
+            w = csv.writer(f, delimiter="\t", lineterminator="\n")
+            w.writerow(["status", "j_name", "s_name", "count", "hub", "latin", "family", "same_genus", "candidates", "note"])
+            w.writerow(["ok", "ヒメジョオン", "Erigeron canadensis", "1", "", "Erigeron annuus", "", "1", "", ""])
+            w.writerow(["ok", "ヤマハギ", "Lespedeza bicolor var. japonica", "1", "", "Lespedeza bicolor", "", "1", "", ""])
+            w.writerow(["ok", "ヤブマメ", "Edgeworthia trisperma", "1", "", "Amphicarpaea edgeworthii", "", "0", "", ""])
+        t = pj.targets(d, {"ok"}, set())
+        self.assertEqual(t[("Erigeron canadensis", "ヒメジョオン")], "Erigeron annuus")   # 種が合わない
+        self.assertNotIn(("Lespedeza bicolor var. japonica", "ヤマハギ"), t)              # 下の階級だけの違いは直さない
+        self.assertIn(("Edgeworthia trisperma", "ヤブマメ"), t)                             # 属が合わない
+        t = pj.targets(d, {"ok"}, set(), genus_only=True)
+        self.assertNotIn(("Erigeron canadensis", "ヒメジョオン"), t)
+
+
 class DateTest(unittest.TestCase):
     def test_forms(self):
         self.assertEqual(to_csv.norm_date("6. Juli 1983"), "1983-07-06")

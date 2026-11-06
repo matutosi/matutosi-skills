@@ -1,4 +1,4 @@
-"""学名と和名の属が合わない行 (names.tsv の same_genus=0) を，和名を優先して学名に直す．
+"""学名と和名の属が合わない行 (names.tsv の same_genus=0) と，属は同じで種が合わない行を，和名を優先して学名に直す．
 
     python scripts/prefer_ja_name.py <置き場> [--apply] [--skip 和名,和名] [--status ok,alias]
 
@@ -31,12 +31,23 @@ def wr(p, rows, crlf):
         csv.writer(f, delimiter='\t', lineterminator='\r\n' if crlf else '\n').writerows(rows)
 
 
-def targets(root, status, skip):
+def binomial(name):
+    """属名と種小名 (先頭の 2 語) を小文字で．var.・f. などの下の階級と著者名は見ない"""
+    return ' '.join(name.lower().split()[:2])
+
+
+def targets(root, status, skip, genus_only=False):
+    """直す行 {(学名, 和名): チェックリストの学名}．属が合わない行と，属は同じで種 (先頭の 2 語) が合わない行
+    (0.5.13．2026-11-06 ユーザ指示．近畿 Tab.052 の Erigeron canadensis ヒメジョオン)．genus_only で属だけにする"""
     out = {}
     with open(os.path.join(root, 'names.tsv'), encoding='utf-8-sig', newline='') as f:
         for r in csv.DictReader(f, delimiter='\t'):
-            if r['same_genus'] == '0' and r['latin'] and r['status'] in status and r['j_name'] not in skip:
-                out[(r['s_name'].strip(), r['j_name'].strip())] = r['latin'].strip()
+            s, latin = r['s_name'].strip(), (r['latin'] or '').strip()
+            if not latin or r['status'] not in status or r['j_name'] in skip:
+                continue
+            other_species = r['same_genus'] == '1' and binomial(s) != binomial(latin)
+            if r['same_genus'] == '0' or (other_species and not genus_only):
+                out[(s, r['j_name'].strip())] = latin
     return out
 
 
@@ -48,8 +59,10 @@ def main(argv=None):
     ap.add_argument('--apply', action='store_true', help='書き込む (無ければ件数だけ出す)')
     ap.add_argument('--skip', default='', help='直さない和名 (カンマ区切り)')
     ap.add_argument('--status', default='ok,alias', help='直す照合結果 (既定 ok,alias)')
+    ap.add_argument('--genus-only', action='store_true',
+                    help='属が合わない行だけを直す (0.5.12 までの動き．既定は種が合わない行も直す)')
     a = ap.parse_args(argv)
-    tg = targets(a.dir, set(a.status.split(',')), {x for x in a.skip.split(',') if x})
+    tg = targets(a.dir, set(a.status.split(',')), {x for x in a.skip.split(',') if x}, a.genus_only)
     bk = os.path.join(a.dir, 'review_backup_' + datetime.datetime.now().strftime('%Y%m%d_%H%M') + '_name')
     total = 0
     for p in sorted(glob.glob(os.path.join(a.dir, 'transcripts', 'Tab.*', '*.tsv'))):
