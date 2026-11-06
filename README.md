@@ -28,7 +28,7 @@ A Claude Code plugin marketplace with skills for Japanese manuscripts (Markdown;
 | ja-manuscript | 3.9 以降 | `apply-proof-marks` と `build-index` だけが要ります (下の表) |
 | jpg-user-comment | 3.8 以降 (目安) | なし (標準ライブラリだけ．`comment_server.py` は `Pillow` があれば画像を縮小する) |
 | jstage-xml | 3.11 以降 | `pymupdf` `lxml` `pyyaml`．論文一覧の取得 (`list_articles.py toc`) には `beautifulsoup4` も |
-| vegetation-survey | `veg-sheet-to-csv` は 3.8 以降，`veg-table-to-csv` は 3.9 以降 | `veg-table-to-csv` は `Pillow`，PDF を読むときは `pymupdf`．種名の照合だけ `openpyxl`，格子の点検 (`check_grid.py`) だけ `numpy` と `scipy`．`veg-sheet-to-csv` は種名の照合 (`openpyxl`) のほかは標準ライブラリだけ (`build_csv.py`・`review.py`) |
+| vegetation-survey | `veg-sheet-to-csv` は 3.8 以降，`veg-table-to-csv` は 3.9 以降 | `veg-table-to-csv` は `Pillow`，PDF を読むときは `pymupdf`．種名の照合だけ `openpyxl`，格子の点検 (`check_grid.py`・`marks_grid.py`) だけ `numpy` と `scipy`．`veg-sheet-to-csv` は種名の照合 (`openpyxl`) のほかは標準ライブラリだけ (`build_csv.py`・`review.py`) |
 
 <a id="install"></a>
 

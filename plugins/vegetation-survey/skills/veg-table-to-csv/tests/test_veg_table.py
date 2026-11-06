@@ -911,6 +911,103 @@ class ImageTest(unittest.TestCase):
         self.assertIn("ナ10 K: 地点 3 転記 d・画像 v", out)
         self.assertIn("ナ10 K: 地点 4 転記 v・画像 d", out)
 
+    def _mg(self):
+        try:
+            import marks_grid
+        except (ImportError, SystemExit):
+            self.skipTest("numpy と scipy が無い")
+        return marks_grid
+
+    def test_marks_link_skips_dirt_and_gap(self):
+        mg = self._mg()
+        ref = [100 + 20 * k for k in range(10)]
+        ms = [y + 3 for y in ref]
+        ms.insert(5, ref[4] + 12)                                   # 行の間のよごれ
+        del ms[8]                                                   # 印の無いセル (ref の 7 行目)
+        asg, extra = mg.link(ms, ref, 20)
+        self.assertEqual(extra, [5])
+        self.assertEqual(asg[7], -1)
+        self.assertEqual(asg[:5], [0, 1, 2, 3, 4])
+
+    def test_marks_const_columns(self):
+        mg = self._mg()
+        vals = [["+", "V(1-2)", "・"], ["・", "+(+)", "1・2"], ["2・2", "・", "・"]]
+        self.assertEqual(mg.const_columns(vals), {1})
+
+    def test_marks_grid_uneven_shifted_ruled(self):
+        mg = self._mg()
+        from PIL import ImageDraw
+        d = tempfile.mkdtemp()
+        xs = [60, 100, 160, 200, 240, 300, 380, 420, 460, 520, 560, 600]   # 不等間隔．列 6 は常在度
+        im = self.Image.new("L", (680, 960), "white")
+        draw = ImageDraw.Draw(im)
+        draw.rectangle((30, 20, 650, 900), outline=0, width=3)             # 枠
+        draw.line([(338, 20), (338, 900)], fill=0, width=2)                # 列の間の罫線
+        draw.line([(30, 38), (650, 38)], fill=0, width=2)                  # 横の罫線
+        for x in range(30, 650, 14):
+            draw.line([(x, 880), (x + 7, 880)], fill=0, width=2)           # 横の破線
+
+        def cross(x, y):
+            draw.rectangle((x - 6, y - 1, x + 6, y + 1), fill=0)
+            draw.rectangle((x - 1, y - 6, x + 1, y + 6), fill=0)
+
+        value = {(10, 2), (12, 5), (20, 7), (25, 0)}
+        for r in range(40):
+            for c, x in enumerate(xs):
+                y = 50 + r * 20 + c + c * r / 40                            # 右ほど・下ほど行が下がる (最大 22 px)
+                if (r, c) == (30, 8):
+                    continue                                                # 印の無いセル
+                if (r, c) in value:
+                    cross(x, y)
+                elif c == 5 and r % 3 == 0:
+                    cross(x, y)
+                    draw.rectangle((x + 12, y - 6, x + 19, y + 6), fill=0)  # 常在度の値は右へ伸びる
+                    draw.rectangle((x + 24, y - 6, x + 31, y + 6), fill=0)
+                else:
+                    draw.ellipse((x - 4, y - 3, x + 4, y + 3), fill=0)
+        draw.ellipse((216, 50 + 15 * 20 + 13, 224, 50 + 15 * 20 + 19), fill=0)  # 列 5 の行の間のよごれ
+        src = os.path.join(d, "t.png")
+        im.save(src)
+        body = os.path.join(d, "transcripts", "Tab.001")
+        os.makedirs(body)
+        with open(os.path.join(body, "body.tsv"), "w", encoding="utf-8", newline="") as f:
+            f.write("\t".join(["kind", "group_ja", "group_de", "s_name", "j_name", "layer"]
+                              + [str(i) for i in range(1, 13)] + ["note"]) + "\n")
+            for r in range(40):
+                cells = ["・"] * 12
+                for (rr, c) in value:
+                    if rr == r:
+                        cells[c] = "+"
+                if r % 3 == 0:
+                    cells[5] = "II(+-1)"
+                if r == 10:
+                    cells[2] = "・"                                         # 読み落とし
+                if r == 20:
+                    cells[7] = "・"                                         # 値を 1 行下に書いた
+                if r == 21:
+                    cells[7] = "+"
+                f.write("\t".join(["sp", "", "", "A b", "ナ%d" % r, "K"] + cells + [""]) + "\n")
+        png = os.path.join(d, "diff.png")
+        band = os.path.join(d, "band.png")
+        _, out = run(mg.main, [src, d, "Tab.1", "--box", "35", "25", "645", "895", "--diff-png", png,
+                               "--band", "1", "10", "--band-png", band])
+        self.assertIn("常在度の列: 6", out)
+        self.assertIn("画像の行 40", out)
+        self.assertIn("対応した行 40", out)
+        self.assertIn("[画像に値] ナ10 K: 地点 3", out)
+        self.assertIn("[画像に値] ナ20 K: 地点 8", out)
+        self.assertIn("[転記に値] ナ21 K: 地点 8 転記 +・画像は点", out)
+        self.assertIn("食い違い 3 セル", out)
+        self.assertTrue(os.path.exists(png))
+        self.assertTrue(os.path.exists(band))
+        with open(os.path.join(body, "body.tsv"), "w", encoding="utf-8", newline="") as f:   # 読む前 (見出しだけ)
+            f.write("\t".join(["kind", "group_ja", "group_de", "s_name", "j_name", "layer"]
+                              + [str(i) for i in range(1, 13)] + ["note"]) + "\n")
+        os.remove(band)
+        _, out = run(mg.main, [src, d, "Tab.1", "--box", "35", "25", "645", "895", "--band", "1", "10", "--band-png", band])
+        self.assertIn("画像の行 40", out)
+        self.assertTrue(os.path.exists(band))
+
     def test_dense_has_no_full_lines(self):
         import crop
         im = self.Image.new("RGB", (1000, 100), "white")
