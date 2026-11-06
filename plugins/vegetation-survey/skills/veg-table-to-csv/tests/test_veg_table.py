@@ -963,6 +963,17 @@ class ImageTest(unittest.TestCase):
         self.assertEqual(asg[7], -1)
         self.assertEqual(asg[:5], [0, 1, 2, 3, 4])
 
+    def test_marks_regular_columns_ignore_frame(self):
+        """点線の枠の破線が列の間に山を作っても，等間隔の当てはめで列を取る (0.5.14．近畿 Tab.061)"""
+        mg = self._mg()
+        import numpy as np
+        cols = [1318 + 79 * c for c in range(11)]
+        xs = [x for c, x in enumerate(cols) for _ in range(2 if c == 9 else 15)]   # 列 10 は点が少ない
+        xs += [1594] * 30                                                         # 枠の破線
+        base, how = mg.pick_columns(np.array(xs, float), 11, 1270, 2160)
+        self.assertIn("等間隔", how)
+        self.assertTrue(all(abs(b - c) <= 2 for b, c in zip(base, cols)), base)
+
     def test_marks_const_columns(self):
         mg = self._mg()
         vals = [["+", "V(1-2)", "・"], ["・", "+(+)", "1・2"], ["2・2", "・", "・"]]

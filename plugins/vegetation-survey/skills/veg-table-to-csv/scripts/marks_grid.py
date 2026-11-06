@@ -6,7 +6,9 @@
 
 - `--box` は値の列だけを囲む (常在度の列は値が右へ伸びるので，その分も入れる)．座標は原寸の画像のもの．
 - 罫線 (長い縦・横の線) を消し，字のかたまりを取る．点 (`・`) の x の山から列の中心を測り，
-  縦に 1500 px ごとに測り直して紙面の傾きを追う．列の中心が測れない表は `--centers` で全列の x を渡す．
+  縦に 1500 px ごとに測り直して紙面の傾きを追う．山が列の数に足りないときや，山の間隔が不ぞろい (点線の枠の破線を
+  列と取り違えた) で等間隔の列がどれも点に当たるときは，等間隔の n 列を当てはめる (0.5.14)．
+  それでも測れない表は `--centers` で全列の x を渡す．
 - 列ごとに印 (点か値のかたまり) を上から拾う．印の数が最も多くの列で同じ数 (= 画像の行の数) になる列を起点にし，
   隣の列へ，前の列の行の y との差がなめらかに変わるように印を順につなぐ (動的計画法)．
   列の間隔が不等・右や下ほど行がずれる・貼り合わせの紙片で行が跳ぶ表でも追える．
@@ -134,6 +136,56 @@ def column_peaks(xs, n, x0, x1):
         return None
     kept = sorted(sorted(kept, key=lambda i: -sm[i])[:n])
     return [x0 + k + .5 for k in kept]
+
+
+def projection(xs, x0, x1):
+    hist = np.bincount((np.asarray(xs) - x0).astype(int).clip(0, x1 - x0), minlength=x1 - x0 + 1).astype(float)
+    return np.convolve(hist, np.ones(7), 'same')
+
+
+def regular_columns(xs, n, x0, x1):
+    """点の x の投影に，等間隔の n 列を当てはめる (間隔と位置を総当たりで選ぶ)．
+    点線の枠の縦の破線を列と取り違える・点の少ない列を落とすのを防ぐ (0.5.14．近畿 Tab.061)"""
+    sm = projection(xs, x0, x1)
+    w = len(sm) - 1
+    if n == 1 or w <= 0:
+        return [x0 + int(sm.argmax()) + .5], float(sm.max())
+    best = (-1.0, 0.0, 0.0)
+    k = np.arange(n)
+    for p in np.arange(max(8.0, .45 * w / n), 1.05 * w / (n - 1) + .5, .5):
+        offs = np.arange(0, w - (n - 1) * p + 1)
+        if not len(offs):
+            continue
+        pos = np.rint(offs[:, None] + k[None, :] * p).astype(int).clip(0, w)
+        score = sm[pos].sum(axis=1)
+        i = int(score.argmax())
+        if score[i] > best[0]:
+            best = (float(score[i]), float(p), float(offs[i]))
+    s, p, o = best
+    xs = np.asarray(xs, float) - x0                   # 列ごとに近くの点の中央値を取り，直線で当て直す (平滑の幅のずれを消す)
+    cs, ms = [], []
+    for c in range(n):
+        near = xs[np.abs(xs - (o + c * p)) <= p / 4]
+        if len(near):
+            cs.append(c)
+            ms.append(float(np.median(near)))
+    if len(cs) >= 2:
+        p, o = np.polyfit(cs, ms, 1)
+    return [float(x0 + o + c * p) for c in range(n)], s
+
+
+def pick_columns(xs, n, x0, x1):
+    """列の中心と，測り方．山で n 列が取れて間隔がそろうときは山，そうでないときは等間隔の当てはめ"""
+    peaks = column_peaks(xs, n, x0, x1)
+    reg, rs = regular_columns(xs, n, x0, x1) if len(xs) else (None, 0)
+    if peaks is None:
+        return reg, '等間隔の当てはめ (山が列の数に足りない)'
+    gaps = np.diff(peaks)
+    if len(gaps) and gaps.max() > 1.5 * gaps.min():
+        sm = projection(xs, x0, x1)                   # 等間隔の列がどれも点に当たるなら，そちらを取る
+        if all(sm[int(round(x - x0 - .5))] > 0 for x in reg):
+            return reg, '等間隔の当てはめ (山の間隔が不ぞろい)'
+    return peaks, '点の投影'
 
 
 class Columns:
@@ -524,7 +576,7 @@ def main(argv=None):
             sys.exit(f'--centers は {len(a.centers)} 個．地点は {n}')
         base, how = sorted(a.centers), '引数'
     else:
-        base, how = column_peaks(dots[:, 0], n, box[0], box[2]), '点の投影'
+        base, how = pick_columns(dots[:, 0], n, box[0], box[2])
         if base is None:
             sys.exit(f'点の山が {n} 列に足りない．--centers で全列の x を渡す (点 {len(dots)} 個)')
     cols = Columns(base, dots, box[1], box[3])
