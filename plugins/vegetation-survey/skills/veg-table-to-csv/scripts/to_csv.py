@@ -210,11 +210,21 @@ def layer_from_below(body, n_plots=None):
     """階層の印字が無い行 (note に「階層の印字」とある) の階層を決める (2026-11-05 ユーザ指示)．
     1. すぐ下の行が階層を 1 つ持つときは，その階層とみる．ブロック (空き行・見出しで区切られる) では
        上の階層から順に書くので，階層の字が 1 行下にずれて印字されたとみる (層の位置の誤り)
-    2. 階層の無い行が続くとき・すぐ下が見出しや表の終わりのときは，空欄のまま，確認にも出さない
+    2. 階層の無い行が続くとき (続きの最後の行も．すぐ上も階層の無い行なら続きとみる．0.5.14)・すぐ下が見出しや表の終わりのときは，空欄のまま，確認にも出さない
        (つる植物・着生植物が大半で，わざと階層を書いていないとみる)．check を外し，note を簡潔にする
     3. 地点の列と常在度の列が混じる表で，値が常在度の列にしか無い行は，下の行の階層を当てない (2 と同じ扱い)．
        常在度の列は別の群落の要約なので，下の行の階層がその行の階層とは限らない (0.5.10．中部 Tab.103 カワヤナギ)"""
     const, other = constancy_columns(body, n_plots or {})
+
+    def no_layer(k):                                     # 階層の無い行 (「階層の欄は空欄」と書いて避けた行も)
+        if not 0 <= k < len(body):
+            return False
+        x = body[k]
+        note = x.get('note') or ''
+        return (x.get('kind') != 'group' and not (x.get('layer') or '').strip()
+                and bool(x.get('s_name') or x.get('j_name'))
+                and ('階層の印字' in note or '階層の欄は空欄' in note))
+
     out = list(body)
     for i, r in enumerate(body):
         if (r.get('kind') == 'group' or (r.get('layer') or '').strip()
@@ -233,7 +243,8 @@ def layer_from_below(body, n_plots=None):
         parts = [x for x in parts if x and not missing_layer_check(x)]
         filled = {p for p in const | other if (r.get(p) or '').strip() not in EMPTY_CELL}
         only_const = bool(other) and bool(filled) and filled <= const
-        if below and ';' not in below and not only_const:
+        run = no_layer(i - 1)                             # 階層の無い行が続く最後の行 (0.5.14．下の行の階層を当てない)
+        if below and ';' not in below and not only_const and not run:
             parts.append(f'階層の印字が無いので，下の行の階層 {below} とした (層の位置の誤りとみる)')
             out[i] = dict(r, layer=below, note=';'.join(parts))
         else:
@@ -329,6 +340,8 @@ def partial_date(s):
         return f'{y:04d}', '月日の印字は -'
     if len(rest) == 2 and re.fullmatch(r'\d{1,2}', rest[0]) and rest[1] in DASHES:
         return f'{y:04d}-{int(rest[0]):02d}', '日の印字は -'
+    while rest and rest[-1] in DASHES:                # `'82 6-7 -` (日の - を外す．0.5.14)
+        rest = rest[:-1]
     m = re.fullmatch(r'(\d{1,2})\s*[-~〜]\s*(\d{1,2})', ' '.join(rest)) if rest else None
     if m and len(rest) <= 3 and int(m.group(1)) <= 12 and int(m.group(2)) <= 12 and int(m.group(1)) < int(m.group(2)):
         return f'{y:04d}', f'月の範囲 {int(m.group(1))}-{int(m.group(2))} 月 (印字)'

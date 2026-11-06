@@ -139,6 +139,21 @@ class ParseValueTest(unittest.TestCase):
         out = to_csv.layer_from_below([row("A a", "", "check 階層の印字が無い", "+"), row("B b", "S", "", "1")], {})
         self.assertNotIn("check", out[0]["note"])                           # 階層の欠けだけの check は外す
 
+    def test_layer_from_below_run_and_partial_date_dash(self):
+        """階層の無い行が続く最後の行に下の階層を当てない．`'82 6-7 -` は月の範囲 (0.5.14)"""
+        def row(s, layer, note):
+            return dict(kind="sp", s_name=s, j_name="", layer=layer, note=note, **{"1": "+"})
+        body = [row("A a", "", "階層の印字なし"), row("B b", "", "階層の印字なし"), row("C c", "K", "")]
+        out = to_csv.layer_from_below(body, {})
+        self.assertEqual([r["layer"] for r in out], ["", "", "K"])
+        body = [row("A a", "", "階層の欄は空欄 (…)"), row("B b", "", "階層の印字なし"), row("C c", "K", "")]
+        self.assertEqual(to_csv.layer_from_below(body, {})[1]["layer"], "")
+        body = [row("A a", "S", ""), row("B b", "", "階層の印字なし"), row("C c", "K", "")]
+        self.assertEqual(to_csv.layer_from_below(body, {})[1]["layer"], "K")   # 1 行だけなら今までどおり
+        f = lambda raw: to_csv.norm_site("調査年月日", "Datum d. Aufn.", raw)
+        self.assertEqual(f("'82 6-7 -")[:2], ("1982", "ok"))
+        self.assertIn("月の範囲 6-7", f("'82 6-7 -")[2])
+
     def test_presence_mark(self):
         self.assertEqual(to_csv.parse_value("O")[:4], ("O", "", "", "ok"))
         self.assertEqual(to_csv.parse_value("○")[:4], ("O", "", "", "ok"))
