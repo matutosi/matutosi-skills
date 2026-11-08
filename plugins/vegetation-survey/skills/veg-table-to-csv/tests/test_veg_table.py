@@ -364,7 +364,7 @@ class ReviewHtmlTest(unittest.TestCase):
         p = os.path.join(d, "col_x.tsv")
         try:                                     # marks_grid.py は読み込みに numpy と scipy が要る (CI には無い)
             import marks_grid as M
-        except ImportError:
+        except (ImportError, SystemExit):        # 無いと marks_grid.py は sys.exit で止まる
             M = None
         if M:
             M.save_col_x(p, "Tab.9", "p001", [100.0, 200.0, 300.0])
