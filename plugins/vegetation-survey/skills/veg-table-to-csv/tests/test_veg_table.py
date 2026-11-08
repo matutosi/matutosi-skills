@@ -276,6 +276,42 @@ class ReviewHtmlTest(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(out)), ["review_A.html", "review_B.html", "review_D.html"])
         self.assertIn('data-opt="val"', open(os.path.join(out, "review_A.html"), encoding="utf-8").read())
 
+    def test_plot_labels_and_head_rows(self):
+        """地点の文字列を番号にする．等間隔の列は測って番号を振る．head_rows.tsv があれば通し番号の行を貼る (0.5.16)"""
+        import review_html
+        from PIL import Image, ImageDraw
+        self.assertEqual(review_html.parse_plots("6,9-11,14"), [6, 9, 10, 11, 14])
+        self.assertEqual(review_html.parse_plots("8?,17"), [8, 17])
+        self.assertEqual(review_html.parse_plots("a,3"), [])
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "work"))
+        im = Image.new("RGB", (1000, 600), "white")
+        dr = ImageDraw.Draw(im)
+        for k in range(8):                       # 列 1〜8 (x = 100, 200, …)．各列に点を 5 行
+            for y in range(250, 450, 40):
+                dr.ellipse((100 + 100 * k - 4, y - 4, 100 + 100 * k + 4, y + 4), fill="black")
+        im.save(os.path.join(d, "work", "p001.png"))
+        cols, ok = review_html.plot_cols(d, "work/p001.png", [250, 300, 650, 340], [100, 150, 800, 490], "3,6")
+        self.assertTrue(ok)
+        self.assertEqual([t for _, t in cols], ["3", "4", "5", "6"])
+        self.assertTrue(all(abs(x - (100 + 100 * (int(t) - 1))) <= 6 for x, t in cols))
+        cols, ok = review_html.plot_cols(d, "work/p001.png", [250, 300, 650, 340], [100, 150, 800, 490], "3")
+        self.assertFalse(ok)
+        self.assertEqual(cols, [[450, "地点 3"]])
+        tsv = os.path.join(d, "user_review.tsv")
+        with open(tsv, "w", encoding="utf-8") as f:
+            f.write("table\tplot\tj_name\tkind\twhat\tpage\tx0\ty0\tx1\ty1\n")
+            f.write("Tab.1\t3,6\tヨシ\t読めない値\tかすれ\tp001\t250\t500\t650\t540\n")
+        hr = os.path.join(d, "head_rows.tsv")
+        with open(hr, "w", encoding="utf-8") as f:
+            f.write("region\ttable\tpage\ty0\ty1\tnote\nx\tTab.1\tp001\t40\t80\t\ny\tTab.1\tp001\t\t\t無い\n")
+        self.assertEqual(review_html.load_head_rows(hr, "x"), {("Tab.1", "p001"): [40, 80]})
+        self.assertEqual(review_html.load_head_rows(hr, "y"), {})
+        it = review_html.from_tsv(tsv, review_html.load_head_rows(hr, "x"))[0]
+        self.assertEqual(it["images"][0]["head_y"], [40, 80])
+        self.assertIn("通し番号", it["images"][0]["caption"])
+        self.assertNotIn("head_y", review_html.from_tsv(tsv)[0]["images"][0])
+
     def test_row_col_labels(self):
         """rows・cols を書くと，種名と地点番号の余白が付いて画像が大きくなる"""
         import review_html

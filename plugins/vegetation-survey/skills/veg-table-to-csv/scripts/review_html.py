@@ -9,6 +9,8 @@ A 値の読み (読めない値・常在度の値) / B 下線・階層・種名 
 見出しの欠け・出現種数) / D 表頭と注記．A の項目は「今の転記でよい・値を入力・値の印字は無い」で答える．
 
 任意の列 `current` に今の転記の値 (例: `K +・2`) を書くと，選択肢が「今の転記 (K +・2) でよい」になる．
+赤枠の行 (j_name) と列 (地点 plot) は画像の余白に青字で書く．`--head-rows <tsv> --head-region <地方>` で
+表頭の通し番号の行の位置 (列: region table page y0 y1 note) を渡すと，その行を画像の上に貼る．
 
 user_review.tsv の列: table plot j_name kind what page x0 y0 x1 y1 (座標はページ画像の原寸．page は
 work/ のページ名か画像のパス．置き場からの相対)．範囲を赤枠で囲み，周りを広げて切る．
@@ -61,6 +63,7 @@ work/ のページ名か画像のパス．置き場からの相対)．範囲を�
 """
 import argparse
 import base64
+import collections
 import glob
 import html
 import io
@@ -107,6 +110,118 @@ def _font(size):
     return ImageFont.load_default()
 
 
+def parse_plots(text):
+    """'6,9-12,14' や '8?,17' を地点番号のリストにする．数でない字があれば []"""
+    out = []
+    for part in re.split(r'[,，、・ ]+', text.strip()):
+        part = part.strip().rstrip('?？')
+        if not part:
+            continue
+        m = re.fullmatch(r'(\d+)(?:[-–〜~](\d+))?', part)
+        if not m:
+            return []
+        a, b = int(m.group(1)), int(m.group(2) or m.group(1))
+        out += list(range(a, b + 1))
+    return sorted(set(out))
+
+
+def _projection(page, x0, x1, y0, y1):
+    """x0〜x1 の縦の投影 (黒の数)．縦の罫線 (長い縦の連なり) と横の線 (行の半分を超える黒) は除く"""
+    im = page.crop((x0, y0, x1, y1)).convert('L')
+    w, h = im.size
+    px = im.load()
+    dark = [[px[x, y] < 128 for x in range(w)] for y in range(h)]
+    rows_ok = [sum(r) < w * 0.5 for r in dark]
+    proj = [0] * w
+    for x in range(w):
+        run = best = s = 0
+        for y in range(h):
+            if dark[y][x] and rows_ok[y]:
+                run += 1
+                s += 1
+                best = max(best, run)
+            else:
+                run = 0
+        proj[x] = 0 if best > 40 else s
+    return proj
+
+
+def column_centers(page, x0, x1, y0, y1, n):
+    """ページ画像の x0〜x1 (赤枠の左右) にある n 本の列の中心 x を，字と点の縦の投影の山から測る．
+    縦の罫線と横の線は除く．山の位置は窓の中の黒の重心で取る．列の間隔が不ぞろいなら当てにせず None"""
+    if n < 2 or x1 - x0 < n * 8:
+        return None
+    proj = _projection(page, x0, x1, y0, y1)
+    w = len(proj)
+    sp = w / n
+    k = max(1, int(sp / 6))
+    sm = [sum(proj[max(0, i - k):i + k + 1]) for i in range(w)]
+    peaks = []
+    for i in sorted(range(w), key=lambda i: -sm[i]):
+        if sm[i] <= 0 or len(peaks) >= n:
+            break
+        if all(abs(i - p) >= 0.6 * sp for p in peaks):
+            peaks.append(i)
+    if len(peaks) != n:
+        return None
+    out = []
+    for p in sorted(peaks):                                  # 平らな頂上の端でなく，窓の中の黒の重心
+        lo, hi = max(0, p - k), min(w, p + k + 1)
+        tot = sum(proj[lo:hi])
+        out.append(round(sum(x * proj[x] for x in range(lo, hi)) / tot) if tot else p)
+    gaps = [b - a for a, b in zip(out, out[1:])]
+    med = sorted(gaps)[len(gaps) // 2]
+    if any(g < 0.6 * med or g > 1.6 * med for g in gaps):    # 列の間隔が不ぞろいなら当てにしない
+        return None
+    return [x0 + p for p in out]
+
+
+def plot_cols(base, page_rel, box, crop, plot_text):
+    """赤枠の列に地点番号を振る．複数の地点 (23,27 や 10-14) なら赤枠の中の列を測り，
+    最小〜最大の番号を左から振る．測れなければ赤枠の中央に地点の文字列をまとめて書く"""
+    x0, y0, x1, y1 = box
+    plots = parse_plots(plot_text)
+    if len(plots) >= 2:
+        try:
+            page = load_page(base, page_rel)
+        except OSError:
+            page = None
+        # 赤枠が最小〜最大の地点を囲む形と，行全体 (地点 1 から) を囲む形を順に試す
+        for first in dict.fromkeys((plots[0], 1)):
+            n = plots[-1] - first + 1
+            cs = page and column_centers(page, x0, x1, max(crop[1], 0), min(crop[3], page.height), n)
+            if cs:
+                return [[c, str(first + i)] for i, c in enumerate(cs)], True
+    return [[(x0 + x1) // 2, f'地点 {plot_text}']], False
+
+
+def page_path(base, rel):
+    """ページ画像の場所．無ければ同じ置き場の work_* を探す (近畿の小古は work_sho．0.5.14)"""
+    path = os.path.join(base, rel)
+    if not os.path.exists(path):
+        alt = sorted(glob.glob(os.path.join(os.path.dirname(os.path.dirname(path)), 'work*', os.path.basename(path))))
+        path = alt[0] if alt else path
+    return path
+
+
+_PAGES = collections.OrderedDict()
+PAGE_CACHE = 2     # ページ画像は 1 枚 2 億画素ほど (グレーで約 200 MB) あるので，覚えておくのは直近の 2 枚だけ
+
+
+def load_page(base, rel):
+    """ページ画像を読み込んで返す (直近の PAGE_CACHE 枚は使い回す)．RGB への変換は切り出してから呼び手が行う．
+    項目ごとにページ全体を読み直して RGB にしていたのが遅さの元だった (2026-11-08．四国 173 項目で約 3 分)"""
+    path = os.path.abspath(page_path(base, rel))
+    im = _PAGES.pop(path, None)
+    if im is None:
+        im = Image.open(path)
+        im.load()
+    _PAGES[path] = im
+    while len(_PAGES) > PAGE_CACHE:
+        _PAGES.popitem(last=False)
+    return im
+
+
 def add_labels(canvas, rows, cols, dx, dy, size=28):
     """行 (種名) を左の余白に，列 (地点番号) を上の余白に青で書き，対応する行・列に細い補助線を引く．
     rows・cols は元の座標 [[y, 名前], …]・[[x, 番号], …]．(dx, dy) は canvas の左上の元の座標"""
@@ -142,17 +257,17 @@ def add_strips(base, spec, canvas, dx, dy):
     """同じページから，種名の列 (names_x の範囲．切り出しと同じ高さ) と階層の列 (layer_x) を左に，表頭の通し番号の行
     (head_y の範囲．切り出しと同じ幅) を上に貼る．座標を読まずに，何行目がどの種か・何列目がどの地点か・
     階層の字に下線があるかが分かる"""
-    page = Image.open(os.path.join(base, spec['page'])).convert('RGB')
+    page = load_page(base, spec['page'])
     left = top = None
     pieces = []
     if spec.get('names_x'):
         nx0, nx1 = spec['names_x']
-        pieces.append(page.crop((nx0, dy, nx1, dy + canvas.height)))
+        pieces.append(page.crop((nx0, dy, nx1, dy + canvas.height)).convert('RGB'))
     if layer_strip_needed(spec):
         lx0, lx1 = spec['layer_x']
         if pieces and spec['names_x'][1] > lx0:          # 種名の列と重なるぶんは除く
             lx0 = min(spec['names_x'][1], lx1 - 1)
-        pieces.append(page.crop((lx0, dy, lx1, dy + canvas.height)))
+        pieces.append(page.crop((lx0, dy, lx1, dy + canvas.height)).convert('RGB'))
     if pieces:
         left = Image.new('RGB', (sum(p.width for p in pieces), canvas.height), 'white')
         x = 0
@@ -161,7 +276,7 @@ def add_strips(base, spec, canvas, dx, dy):
             x += p.width
     if spec.get('head_y'):
         hy0, hy1 = spec['head_y']
-        top = page.crop((dx, hy0, dx + canvas.width, hy1))
+        top = page.crop((dx, hy0, dx + canvas.width, hy1)).convert('RGB')
     lw = left.width + 8 if left else 0
     th = top.height + 8 if top else 0
     out = Image.new('RGB', (canvas.width + lw, canvas.height + th), 'white')
@@ -184,13 +299,9 @@ def make_image(base, spec):
     """spec から (赤い印つき PNG の base64, 説明) を返す"""
     marks = spec.get('marks', [])
     if 'page' in spec:
-        path = os.path.join(base, spec['page'])
-        if not os.path.exists(path):                    # 同じ置き場の work_* (近畿の小古は work_sho．0.5.14)
-            alt = sorted(glob.glob(os.path.join(os.path.dirname(os.path.dirname(path)), 'work*', os.path.basename(path))))
-            path = alt[0] if alt else path
-        im = Image.open(path).convert('RGB')
-        x0, y0, x1, y1 = spec['crop'] if 'crop' in spec else (0, 0, im.width, im.height)
-        im = im.crop((x0, y0, x1, y1))
+        page = load_page(base, spec['page'])
+        x0, y0, x1, y1 = spec['crop'] if 'crop' in spec else (0, 0, page.width, page.height)
+        im = page.crop((x0, y0, x1, y1)).convert('RGB')      # 切り出してから RGB に (全体を変換しない)
         dx, dy = x0, y0
     else:
         im = Image.open(os.path.join(base, spec['image'])).convert('RGB')
@@ -209,7 +320,7 @@ def make_image(base, spec):
         k = float(spec['scale'])
         canvas = canvas.resize((max(1, int(canvas.width * k)), max(1, int(canvas.height * k))), Image.LANCZOS)
     buf = io.BytesIO()
-    canvas.save(buf, 'PNG', optimize=True)
+    canvas.save(buf, 'PNG')       # optimize=True は大きな画像で遅い (2026-11-08．画質は同じ)
     return base64.b64encode(buf.getvalue()).decode('ascii')
 
 
@@ -248,10 +359,36 @@ TSV_COLS = ['table', 'plot', 'j_name', 'kind', 'what', 'page', 'x0', 'y0', 'x1',
 PAD = 150
 
 
-def from_tsv(path):
-    """user_review.tsv (読みながら積んだ確認の項目) を項目のリストにする．範囲は赤枠で囲み，周りを PAD px 広げて切る．
-    任意の列 layer_x0・layer_x1 (階層の列の左右) があれば，切り出しに入らない階層の列を左に貼る"""
+PARA_KIND = re.compile(r'見出しの欠け|注記の字')
+PARA_WHAT = re.compile(r'1 回出現|出現 ?2 回|出現1回|^注記|調査地の注記|^出典|in \d+:')
+
+
+def is_paragraph(kind, what):
+    """表の本体のセルではなく，1 回出現・注記・調査地などの段落 (文章) を指す項目か (区分名か，説明の頭 30 字で見る)．
+    段落には列が無いので，列の番号や通し番号の帯を付けると誤る (2026-11-08．近畿 U05)"""
+    return bool(PARA_KIND.search(kind or '') or PARA_WHAT.search((what or '')[:30]))
+
+
+def load_head_rows(path, region=None):
+    """表頭の通し番号の行の位置 {(表, ページ): [y0, y1]}．y0 が空の行 (そのページに通し番号の行が無い) は除く"""
     import csv
+    out = {}
+    with open(path, encoding='utf-8-sig', newline='') as f:
+        for r in csv.DictReader(f, delimiter='\t'):
+            if region and r['region'] != region:
+                continue
+            if (r.get('y0') or '').strip() and (r.get('y1') or '').strip():
+                out[(r['table'], r['page'])] = [int(float(r['y0'])), int(float(r['y1']))]
+    return out
+
+
+def from_tsv(path, heads=None):
+    """user_review.tsv (読みながら積んだ確認の項目) を項目のリストにする．範囲は赤枠で囲み，周りを PAD px 広げて切る．
+    任意の列 layer_x0・layer_x1 (階層の列の左右) があれば，切り出しに入らない階層の列を左に貼る．
+    heads ({(表, ページ): [y0, y1]}) に表があれば，表頭の通し番号の行を画像の上に貼る (切り出しに入っていなければ)"""
+    heads = heads or {}
+    import csv
+    base = os.path.dirname(os.path.abspath(path))
     items = []
     with open(path, encoding='utf-8-sig', newline='') as f:
         for i, r in enumerate(csv.DictReader(f, delimiter='	'), 1):
@@ -268,13 +405,24 @@ def from_tsv(path):
             # 赤枠の行 (種名) と列 (地点) を画像の余白に青で書く (2026-11-08 ユーザ指示．四国 U53 で行と列が分からなかった)
             name = r.get('j_name', '').strip()
             plot = r.get('plot', '').strip()
-            if name:
+            para = is_paragraph(r.get('kind', ''), r['what'])
+            if name and not para:
                 sp['rows'] = [[(y0 + y1) // 2, name if len(name) <= 16 else name[:15] + '…']]
-            if plot:
-                sp['cols'] = [[(x0 + x1) // 2, f'地点 {plot}']]
+            measured = False
+            hy = heads.get((r['table'], r['page']))
+            if para:      # 1 回出現・注記の段落 (文章) には列が無いので，行・列の印も通し番号の帯も付けない
+                pass
+            elif hy and not (sp['crop'][1] <= hy[0] and hy[1] <= sp['crop'][3]):
+                sp['head_y'] = hy             # 表頭の通し番号の行を上に貼る (2026-11-08 ユーザ指示)
+            elif plot:    # 複数の地点は赤枠の中の列を測って 1 列ずつ番号を振る
+                sp['cols'], measured = plot_cols(base, page, [x0, y0, x1, y1], sp['crop'], plot)
             where = '・'.join(x for x in (f'行 = {name}' if name else '', f'列 = 地点 {plot}' if plot else '') if x)
-            if where:
-                sp['caption'] += f'．赤枠は {where} (青字)'
+            if para and plot:
+                sp['caption'] += f'．赤枠は地点 {plot} の記載 (段落)'
+            elif where:
+                sp['caption'] += f'．赤枠は {where}'
+                sp['caption'] += ('．上の帯は表頭の通し番号の行' if 'head_y' in sp
+                                  else ' (青字．上の数字は列ごとの地点番号)' if measured else ' (青字)')
             items.append({'id': f'U{i:02d}', 'group': g,
                           'title': ' '.join(x for x in (r['table'], '地点 ' + r['plot'] if r['plot'] else '', r['j_name']) if x),
                           'layer': r.get('kind', ''), 'note': r['what'],
@@ -359,7 +507,8 @@ def card(base, it, choices):
     out.append('<div class="pane"><div class="imgs">')
     for sp in it['images']:
         cap = e(sp.get('caption', '')) + '　(赤枠・赤線 = 該当)'
-        out.append(f'<figure><img src="data:image/png;base64,{make_image(base, sp)}"><figcaption>{cap}</figcaption></figure>')
+        b64 = sp.pop('_b64', None) or make_image(base, sp)
+        out.append(f'<figure><img src="data:image/png;base64,{b64}"><figcaption>{cap}</figcaption></figure>')
     out.append('</div><div class="ans">')
     opts = it.get('options') or [{'value': c, 'label': LABELS[c], 'input': c == 'val'} for c in choices]
     if not any(o['value'] == 'skip' for o in opts):
@@ -388,10 +537,15 @@ def main(argv=None):
                     help='side = 画像を左・選択肢を右 (既定．幅の狭い画面では上下になる)，stack = 画像の下に選択肢')
     ap.add_argument('--split', action='store_true',
                     help='区分 (A 値の読み・B 下線・階層・種名・C 行と種の割り当て・D 表頭と注記) ごとに別の HTML にする．out は置き場のディレクトリ')
+    ap.add_argument('--head-rows', default=None,
+                    help='表頭の通し番号の行の位置の表 (列: region table page y0 y1 note)．user_review.tsv から作るとき，'
+                         'その行を画像の上に貼る (列ごとの地点番号が読める)')
+    ap.add_argument('--head-region', default=None, help='--head-rows の region 列の値 (例: shikoku)．省くと全部の行を使う')
     a = ap.parse_args(argv)
     choices = [c for c in a.choices.split(',') if c in LABELS]
     if a.items.lower().endswith('.tsv'):
-        items = from_tsv(a.items)
+        heads = load_head_rows(a.head_rows, a.head_region) if a.head_rows else {}
+        items = from_tsv(a.items, heads)
     else:
         with open(a.items, encoding='utf-8-sig') as f:
             items = json.load(f)
@@ -400,6 +554,7 @@ def main(argv=None):
         os.path.basename(os.path.normpath(os.path.abspath(a.out))) if a.split
         else os.path.splitext(os.path.basename(a.out))[0])
     title = a.title if a.title is not None else (f'確認 ({a.region})' if a.region else '確認')
+    prerender(base, items)
     if a.split:
         os.makedirs(a.out, exist_ok=True)
         for g, name in GROUPS.items():
@@ -410,6 +565,15 @@ def main(argv=None):
         return 0
     write_page(base, items, choices, a.out, title, a.layout, region)
     return 0
+
+
+def prerender(base, items):
+    """画像をページ順に作っておく (sp['_b64'])．HTML の項目は区分・話題の順で並ぶのでページが行き来し，
+    ページの使い回し (load_page) が効かなくなるため (2026-11-08)"""
+    specs = [sp for it in items for sp in it.get('images', []) if 'page' in sp]
+    for sp in sorted(specs, key=lambda sp: os.path.abspath(page_path(base, sp['page']))):
+        sp['_b64'] = make_image(base, sp)
+    _PAGES.clear()
 
 
 def write_page(base, items, choices, out, title, layout='side', region=''):
