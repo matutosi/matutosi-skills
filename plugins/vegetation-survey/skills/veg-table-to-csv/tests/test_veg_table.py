@@ -1262,5 +1262,40 @@ class ImageTest(unittest.TestCase):
         self.assertEqual(got[0][2].size, (100, 200))           # ページの回転を画像にも当てる
 
 
+class MergeTablesTest(unittest.TestCase):
+    """並行して読んだ表の作業場所 scratch/tNNN/ を共有のファイルへ取り込む (merge_tables.py)"""
+
+    def test_merge_one(self):
+        import merge_tables as MT
+        out = tempfile.mkdtemp()
+        w = os.path.join(out, "scratch", "t005")
+        os.makedirs(os.path.join(w, "out", "transcripts", "Tab.005"))
+        with open(os.path.join(w, "out", "transcripts", "Tab.005", "meta.tsv"), "w", encoding="utf-8") as f:
+            f.write("key\tvalue\n")
+        with open(os.path.join(w, "status.tsv"), "w", encoding="utf-8") as f:
+            f.write("Tab.005\tdone\t印字の表題\t結果の要約\n")
+        with open(os.path.join(w, "log.md"), "w", encoding="utf-8") as f:
+            f.write("## Tab.005 印字の表題\n- 読んだ\n")
+        with open(os.path.join(w, "user_review.tsv"), "w", encoding="utf-8") as f:
+            f.write("table\tplot\tj_name\tkind\twhat\tpage\tx0\ty0\tx1\ty1\tnames_x0\tnames_x1\textra\n")
+            f.write("Tab.5\t3\tヨシ\tA. 読めない値\tかすれ\tp001\t1\t2\t3\t4\t10\t20\tx\n")
+        with open(os.path.join(out, "user_review.tsv"), "w", encoding="utf-8") as f:
+            f.write("table\tplot\tj_name\tkind\twhat\tpage\tx0\ty0\tx1\ty1\n")
+            f.write("Tab.2\t1\tススキ\tA. 読めない値\t前の項目\tp001\t5\t6\t7\t8\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            got = MT.merge_one(out, "Tab.005", run_tables=False)
+            again = MT.merge_one(out, "Tab.005", run_tables=False)
+        self.assertEqual(got, ("done", 1))
+        self.assertIsNone(again)                                   # 二度は取り込まない
+        self.assertTrue(os.path.exists(os.path.join(out, "transcripts", "Tab.005", "meta.tsv")))
+        with open(os.path.join(out, "user_review.tsv"), encoding="utf-8") as f:
+            rows = list(csv.DictReader(f, delimiter="\t"))
+        self.assertEqual([r["table"] for r in rows], ["Tab.2", "Tab.5"])
+        self.assertEqual(rows[1]["names_x0"], "10")                # 列は名前で合わせる
+        self.assertNotIn("extra", rows[1])
+        with open(os.path.join(out, "reading_log.md"), encoding="utf-8") as f:
+            self.assertIn("## Tab.005", f.read())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
