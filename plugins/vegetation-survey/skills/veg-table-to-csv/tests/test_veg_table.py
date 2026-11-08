@@ -334,6 +334,24 @@ class ReviewHtmlTest(unittest.TestCase):
         self.assertEqual(R.narrow_crop([150, 250, 1450, 650], None, [9]), [150, 250, 1450, 650])
         self.assertEqual(R.parse_plots("30,32"), [30, 32])
 
+    def test_col_x_and_box_check(self):
+        """marks_grid.py が書く col_x.tsv を読み，赤枠が地点の列から外れていれば知らせる (0.5.21)"""
+        import review_html as R
+        import marks_grid as M
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "col_x.tsv")
+        M.save_col_x(p, "Tab.9", "p001", [100.0, 200.0, 300.0])
+        M.save_col_x(p, "Tab.10", "p001", [150.0, 250.0])
+        M.save_col_x(p, "Tab.9", "p001", [110.0, 210.0, 310.0])     # 同じ表・ページは置き換える
+        R._COLX.clear()
+        cx = R.load_col_x(d)
+        self.assertEqual(cx[("Tab.9", "p001")], {1: 110, 2: 210, 3: 310})
+        self.assertEqual(cx[("Tab.10", "p001")], {1: 150, 2: 250})
+        self.assertEqual(R.table_key("Tab.009"), "Tab.9")
+        self.assertIsNone(R.box_off_column(cx[("Tab.9", "p001")], [2], [180, 0, 240, 10]))
+        warn = R.box_off_column(cx[("Tab.9", "p001")], [3], [180, 0, 240, 10])     # 地点 3 の列は x 310
+        self.assertIn("地点 2", warn)
+
     def test_options_from_what(self):
         """what に文で書いた選択肢をラジオボタンの選択肢に取り出す (2026-11-08．四国 U02)"""
         import review_html as R

@@ -260,6 +260,46 @@ def plot_x_map(page, head_y, n, band):
     return {p + 1: x for p, x in enumerate(best[1])}
 
 
+WARNINGS = []
+_COLX = {}
+
+
+def table_key(table):
+    """Tab.9 と Tab.009 をそろえる"""
+    m = re.search(r'\d+', table or '')
+    return f'Tab.{int(m.group())}' if m else table
+
+
+def load_col_x(base):
+    """置き場の col_x.tsv (列: table page plot x．marks_grid.py が書く) を {(表, ページ): {地点: x}} で返す．無ければ {}"""
+    if base not in _COLX:
+        out = {}
+        p = os.path.join(base, 'col_x.tsv')
+        if os.path.exists(p):
+            import csv
+            with open(p, encoding='utf-8-sig', newline='') as f:
+                for r in csv.DictReader(f, delimiter='\t'):
+                    out.setdefault((table_key(r['table']), r['page']), {})[int(r['plot'])] = int(float(r['x']))
+        _COLX[base] = out
+    return _COLX[base]
+
+
+def box_off_column(xmap, plots, box):
+    """赤枠の左右の範囲に，確かめる地点の列の中心が入っていなければ，ずれの説明を返す (入っていれば None)"""
+    if not xmap or not plots:
+        return None
+    xs = [xmap[p] for p in plots if p in xmap]
+    if not xs:
+        return None
+    n = max(xmap)
+    sp = (xmap[n] - xmap[min(xmap)]) / max(1, n - min(xmap))
+    out = [x for x in xs if not (box[0] - 0.3 * sp <= x <= box[2] + 0.3 * sp)]
+    if not out:
+        return None
+    near = min(xmap, key=lambda p: abs(xmap[p] - (box[0] + box[2]) / 2))
+    return f'赤枠 (x {box[0]}-{box[2]}) に地点の列 (x {", ".join(map(str, out))}) が入っていない．赤枠の中央はおよそ地点 {near} の列'
+
+
 def n_plots_of(base, table):
     """置き場の transcripts/Tab.NNN/body.tsv の見出しにある地点の列の数．無ければ 0"""
     p = os.path.join(base, 'transcripts', 'Tab.%03d' % int(re.sub(r'\D', '', table) or 0), 'body.tsv')
@@ -589,17 +629,28 @@ def from_tsv(path, heads=None):
             g = group_of(r.get('kind', ''))
             sp = {'page': page, 'crop': [max(0, x0 - PAD), max(0, y0 - PAD), x1 + PAD, y1 + PAD],
                   'caption': r['table'], 'marks': [{'box': [x0, y0, x1, y1]}]}
-            # 確かめる地点とその前後 2 地点だけを切り出す (通し番号の行の位置が分かる表．2026-11-08 ユーザ指示)
+            # 確かめる地点とその前後 2 地点だけを切り出す (2026-11-08 ユーザ指示)．列の x は col_x.tsv (marks_grid.py が
+            # 書く) があればそれを，無ければ通し番号の行から測る (plot_x_map．列が等間隔の表だけ)
             hy0 = heads.get((r['table'], r['page']))
             plots0 = parse_plots(r.get('plot', ''))
-            if hy0 and plots0 and not is_paragraph(r.get('kind', ''), r['what']):
+            xmap = None
+            if plots0 and not is_paragraph(r.get('kind', ''), r['what']):
+                xmap = load_col_x(base).get((table_key(r['table']), r['page']))
                 n = n_plots_of(base, r['table'])
-                if n:
+                if not xmap and hy0 and n:
                     try:
                         xmap = plot_x_map(load_page(base, page), hy0, n, [y0 - 300, y1 + 300])
                     except OSError:
                         xmap = None
-                    sp['crop'] = narrow_crop(sp['crop'], xmap, plots0, box=[x0, y0, x1, y1])
+                warn = box_off_column(xmap, plots0, [x0, y0, x1, y1])
+                if warn:                                  # 赤枠がその地点の列から外れている (2026-11-08．中部 145)
+                    print(f'!! U{i:02d} {r["table"]} 地点 {r["plot"]}: {warn}')
+                    WARNINGS.append((f'U{i:02d}', r['table'], r['plot'], warn))
+                sp['crop'] = narrow_crop(sp['crop'], xmap, plots0, box=[x0, y0, x1, y1])
+            nx = [(r.get(k) or '').strip() for k in ('names_x0', 'names_x1')]
+            if all(nx):                               # 種名の列を左に貼る (赤枠を種名まで広げない．2026-11-08)
+                sp['names_x'] = [int(float(v)) for v in nx]
+                sp['caption'] += '．左は同じ高さの種名の列'
             lx = [(r.get(k) or '').strip() for k in ('layer_x0', 'layer_x1')]
             if all(lx):
                 sp['layer_x'] = [int(float(v)) for v in lx]
@@ -617,6 +668,10 @@ def from_tsv(path, heads=None):
                 pass
             elif hy and not (sp['crop'][1] <= hy[0] and hy[1] <= sp['crop'][3]):
                 sp['head_y'] = hy             # 表頭の通し番号の行を上に貼る (2026-11-08 ユーザ指示)
+            elif plot and xmap and all(p in xmap for p in plots0):   # 列の x が分かれば，その列の上に地点番号を書く
+                lo_, hi_ = max(min(xmap), min(plots0) - 2), min(max(xmap), max(plots0) + 2)
+                sp['cols'] = [[xmap[p], str(p)] for p in range(lo_, hi_ + 1) if p in xmap]
+                measured = True
             elif plot:    # 複数の地点は赤枠の中の列を測って 1 列ずつ番号を振る
                 sp['cols'], measured = plot_cols(base, page, [x0, y0, x1, y1], sp['crop'], plot)
             where = '・'.join(x for x in (f'行 = {name}' if name else '', f'列 = 地点 {plot}' if plot else '') if x)
@@ -772,6 +827,8 @@ def main(argv=None):
         print(f'反映済み {len(done)} 件を外した')
     if a.split and a.only:
         items = [it for it in items if it.get('group', group_of(it.get('layer', ''))) in a.only]
+    if WARNINGS:          # 赤枠が地点の列から外れている項目 (画像の準備の担当が画像を見て直す．SKILL.md 8 節)
+        print(f'!! 赤枠が確かめる地点の列から外れている項目が {len(WARNINGS)} 件．画像を見て user_review.tsv の座標を直す')
     prerender(base, items)
     if a.split:
         os.makedirs(a.out, exist_ok=True)

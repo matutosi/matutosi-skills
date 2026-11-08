@@ -527,6 +527,19 @@ def band_image(src, rowy, asg, cols, pitch_y, k0, k1, c0, c1, label, path, scale
 
 # ---- 本体 ----
 
+def save_col_x(path, table, page, xs):
+    """測った列の中心 x を col_x.tsv (列: table page plot x) に書く．同じ表・ページの行は置き換える．
+    確認の HTML (review_html.py) が切り出し・地点番号の青字・赤枠の点検に使う (2026-11-08．列が等間隔でない表のため)"""
+    rows = []
+    if os.path.exists(path):
+        with open(path, encoding='utf-8') as f:
+            rows = [l.rstrip('\r\n').split('\t') for l in f if l.strip()][1:]
+    rows = [r for r in rows if not (r[0] == table and r[1] == page)]
+    rows += [[table, page, str(k + 1), f'{x:.0f}'] for k, x in enumerate(xs)]
+    with open(path, 'w', encoding='utf-8', newline='') as f:
+        f.write('table\tpage\tplot\tx\n' + ''.join('\t'.join(r) + '\n' for r in rows))
+
+
 def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, 'reconfigure'):
@@ -585,6 +598,7 @@ def main(argv=None):
           f'間隔 {gaps.min():.0f}-{gaps.max():.0f} (中央値 {cols.pitch:.1f})' if len(gaps) else f'列の中心: x={cols.base[0]:.0f}')
     if not a.centers:
         print('  x: ' + ' '.join(f'{v:.0f}' for v in cols.base))
+    save_col_x(os.path.join(a.out, 'col_x.tsv'), a.table, os.path.splitext(os.path.basename(a.image))[0], cols.base)
     if const:
         print('常在度の列: ' + ' '.join(str(c + 1) for c in sorted(const)))
     col = assign_columns(comps, cols, const, a)
