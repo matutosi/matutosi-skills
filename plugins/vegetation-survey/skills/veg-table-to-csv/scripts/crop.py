@@ -21,6 +21,9 @@
   行の傾きを直し，`--label X0 X1` の範囲 (種名・階層) を各画像の左に貼り，地点を N 列ずつの画像に分ける．
   列の上に地点の番号を書くので，**種名と値が 1 枚に入り，番号で列を取り違えない**．縦の分割は `--tiles 6x1`．
   列の位置は `・` の並びから測る．測れないときは警告を出し，`--box` を地点の数で等分する (左右には `--pad` を足さない)．
+  群の境で間隔が広がる表など，測れない・等分では合わない表は，`--centers` で全列の中心の x を，
+  等間隔なら `--first-x` と `--pitch` を渡す．最後の列が切り出しの右端からはみ出せば警告する．
+- `--tiles` は「行数x列数」(`3x2` は縦 3 枚・横 2 枚)．`--raw` は `--tiles` を使わず 1 枚で切る．
 
     python scripts/crop.py <表.png> --box 5180 1730 7260 7200 --dense 10 --plots 20 --label 3950 5170 --tiles 6x1 --out <置き場>
 """
@@ -242,6 +245,10 @@ def main(argv=None):
     ap.add_argument('--plots', type=int, help='密な表: 表の地点の数')
     ap.add_argument('--label', type=int, nargs=2, metavar=('X0', 'X1'), help='密な表: 種名と階層の列の範囲')
     ap.add_argument('--shear', type=int, help='密な表: 行の傾き (右端の下がり px．省くと自動で測る)')
+    ap.add_argument('--centers', type=float, nargs='+',
+                    help='密な表: 全列の中心の x (原寸．群の境で間隔が広がる表など，列を測れない・等分では合わない表)')
+    ap.add_argument('--first-x', type=float, help='密な表: 第 1 列の中心の x (原寸．--pitch と組で等間隔の列を渡す)')
+    ap.add_argument('--pitch', type=float, help='密な表: 列の間隔 (px．--first-x と組で)')
     ap.add_argument('--raw', action='store_true', help='目盛りを付けず原寸で切り出す')
     ap.add_argument('--rotate', type=int, default=0, choices=(0, 90, 180, 270))
     ap.add_argument('--name', help='出力の名前 (既定: 入力名と座標)')
@@ -265,9 +272,28 @@ def main(argv=None):
         dy = a.shear if a.shear is not None else estimate_shear(im.crop(box))
         whole = shear(im.crop((a.label[0], y0, x1, y1)), dy * (x1 - a.label[0]) / (x1 - x0))
         origin = a.label[1]                           # 値の側の探す範囲の左端 (--pad で広げた範囲より左へは行かない)
-        search = whole.crop((max(x0, origin) - a.label[0], 0, x1 - a.label[0], y1 - y0))
-        centers, why = measure_columns(search, a.plots)
-        if centers:
+        given = None
+        if a.centers:
+            if len(a.centers) != a.plots:
+                sys.exit(f'--centers は {len(a.centers)} 個．--plots は {a.plots}')
+            given = sorted(a.centers)
+        elif a.first_x is not None or a.pitch is not None:
+            if a.first_x is None or a.pitch is None:
+                sys.exit('--first-x と --pitch は組で渡す')
+            given = [a.first_x + a.pitch * k for k in range(a.plots)]
+        if given:                                     # 渡された列の中心から境を作る (間隔の不ぞろいな表にも合う)
+            g = [x - a.label[0] for x in given]
+            gaps = [b - c for c, b in zip(g, g[1:])] or [50.0]
+            edges = ([g[0] - gaps[0] / 2] + [(c + b) / 2 for c, b in zip(g, g[1:])] + [g[-1] + gaps[-1] / 2])
+            centers, why = None, ''
+            print(f'列は引数のとおり: 第 1 列の中心 x={given[0]:.0f}・最後 x={given[-1]:.0f}・間隔 {min(gaps):.0f}-{max(gaps):.0f} px')
+            search = None
+        else:
+            search = whole.crop((max(x0, origin) - a.label[0], 0, x1 - a.label[0], y1 - y0))
+            centers, why = measure_columns(search, a.plots)
+        if given:
+            pass
+        elif centers:
             w = (centers[-1] - centers[0]) / (a.plots - 1)
             base = max(x0, origin) - a.label[0]
             edges = [base + c - w / 2 for c in centers] + [base + centers[-1] + w / 2]
@@ -276,7 +302,10 @@ def main(argv=None):
             w = (a.box[2] - a.box[0]) / a.plots       # 等分は --pad を足す前の --box で行う
             edges = [a.box[0] - a.label[0] + i * w for i in range(a.plots + 1)]
             print(f'警告: 列を測れなかった ({why})．--box を {a.plots} 等分した．--box の左右を第 1 列と最後の列の外側に'
-                  '合わせ，1 枚目で札と値の列が合っているかを確かめる')
+                  '合わせ，1 枚目で札と値の列が合っているかを確かめる．間隔が不ぞろいなら --centers か --first-x・--pitch で渡す')
+        if edges[-1] > whole.width - 2:               # 最後の列が切り出しの右端からはみ出す (右端の列の値が切れる)
+            print(f'警告: 最後の列の右の境 x={edges[-1] + a.label[0]:.0f} が切り出しの右端 x={x1} を越える．'
+                  '右端の列の値が切れるので，--box の右端を広げる')
         label_w = min(a.label[1] - a.label[0], int(edges[0]))   # 第 1 列を種名の側に写さない
         if label_w < a.label[1] - a.label[0]:
             print(f'--label の右端が第 1 列に掛かるので，x={a.label[0] + label_w} で止めた')
@@ -302,6 +331,8 @@ def main(argv=None):
         return
 
     if a.raw:
+        if a.tiles.lower() not in ('1x1', '1'):
+            print(f'警告: --raw は --tiles ({a.tiles}) を使わず 1 枚で切る．分けるなら --raw を外す')
         part = im.crop(box)
         if a.rotate:
             part = part.rotate(a.rotate, expand=True)

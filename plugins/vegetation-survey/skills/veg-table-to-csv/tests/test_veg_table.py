@@ -1004,6 +1004,25 @@ class ImageTest(unittest.TestCase):
         self.assertIsNone(crop.measure_columns(self._dots(), 9)[0])          # 地点の数が違えば測らない
         self.assertIsNone(crop.measure_columns(self.Image.new("L", (800, 600), "white"), 10)[0])
 
+    def test_dense_given_columns_and_warnings(self):
+        """--centers・--first-x/--pitch で列を渡す．右端の列のはみ出しと --raw の --tiles を警告する (0.5.34)"""
+        import crop
+        d = tempfile.mkdtemp()
+        src = os.path.join(d, "t.png")
+        self.Image.new("RGB", (1000, 600), "white").save(src)
+        cs = ["430", "470", "510", "590", "630", "670"]                 # 群の境で間隔が広がる
+        _, out = run(crop.main, [src, "--box", "400", "0", "700", "600", "--pad", "0", "--dense", "6", "--plots", "6",
+                                 "--label", "0", "390", "--shear", "0", "--centers", *cs, "--out", d, "--name", "c"])
+        self.assertIn("列は引数のとおり: 第 1 列の中心 x=430", out)
+        self.assertNotIn("列を測れなかった", out)
+        self.assertNotIn("最後の列の右の境", out)
+        _, out = run(crop.main, [src, "--box", "400", "0", "700", "600", "--pad", "0", "--dense", "6", "--plots", "6",
+                                 "--label", "0", "390", "--shear", "0", "--first-x", "450", "--pitch", "50",
+                                 "--out", d, "--name", "p"])
+        self.assertIn("最後の列の右の境", out)                         # 最後の列 (x 700) の右が切り出しの外
+        _, out = run(crop.main, [src, "--box", "0", "0", "100", "100", "--raw", "--tiles", "3x1", "--out", d, "--name", "r"])
+        self.assertIn("--raw は --tiles", out)
+
     def test_dense_ignores_pad_when_dividing(self):
         import crop, contextlib, io
         d = tempfile.mkdtemp()
