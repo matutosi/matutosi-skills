@@ -195,11 +195,14 @@ def plot_cols(base, page_rel, box, crop, plot_text):
     return [[(x0 + x1) // 2, f'地点 {plot_text}']], False
 
 
-def plot_x_map(page, head_y, n, band):
+def plot_x_map(page, head_y, n, band, xr=None):
     """表頭の通し番号の行 (head_y = [y0, y1]) の数字のかたまりから，地点 1〜n の列の中心 x を {地点: x} で返す．
     等間隔に並ぶかたまりのうち，項目の行のあたり (band = [y0, y1]) に点や値が並ぶ n 本を地点の列とみる
-    (同じページの別の表や項目名の字を除くため)．決まらなければ None (2026-11-08．中部 82)"""
+    (同じページの別の表や項目名の字を除くため)．xr = [x0, x1] があれば，その左右の範囲 (その表) だけで探す
+    (同じ高さに別の表が並ぶページで，隣の表の番号を拾わないため)．決まらなければ None"""
     y0, y1 = head_y
+    ox = max(0, int(xr[0])) if xr else 0
+    page = page.crop((ox, 0, min(page.width, int(xr[1])), page.height)) if xr else page
     strip = page.crop((0, y0, page.width, y1)).convert('L')
     w, h = strip.size
     px = strip.load()
@@ -257,7 +260,7 @@ def plot_x_map(page, head_y, n, band):
                 best = (score, win)
     if not best:
         return None
-    return {p + 1: x for p, x in enumerate(best[1])}
+    return {p + 1: x + ox for p, x in enumerate(best[1])}
 
 
 WARNINGS = []
@@ -602,7 +605,8 @@ def is_paragraph(kind, what):
 
 
 def load_head_rows(path, region=None):
-    """表頭の通し番号の行の位置 {(表, ページ): [y0, y1]}．y0 が空の行 (そのページに通し番号の行が無い) は除く"""
+    """表頭の通し番号の行の位置 {(表, ページ): [y0, y1]}．y0 が空の行 (そのページに通し番号の行が無い) は除く．
+    任意の列 x0・x1 (その表の左右) があれば [y0, y1, x0, x1] にする (plot_x_map が隣の表の番号を拾わないため)"""
     import csv
     out = {}
     with open(path, encoding='utf-8-sig', newline='') as f:
@@ -610,7 +614,10 @@ def load_head_rows(path, region=None):
             if region and r['region'] != region:
                 continue
             if (r.get('y0') or '').strip() and (r.get('y1') or '').strip():
-                out[(r['table'], r['page'])] = [int(float(r['y0'])), int(float(r['y1']))]
+                v = [int(float(r['y0'])), int(float(r['y1']))]
+                if (r.get('x0') or '').strip() and (r.get('x1') or '').strip():
+                    v += [int(float(r['x0'])), int(float(r['x1']))]
+                out[(r['table'], r['page'])] = v
     return out
 
 
@@ -639,7 +646,8 @@ def from_tsv(path, heads=None):
                 n = n_plots_of(base, r['table'])
                 if not xmap and hy0 and n:
                     try:
-                        xmap = plot_x_map(load_page(base, page), hy0, n, [y0 - 300, y1 + 300])
+                        xmap = plot_x_map(load_page(base, page), hy0[:2], n, [y0 - 300, y1 + 300],
+                                          xr=hy0[2:4] if len(hy0) >= 4 else None)
                     except OSError:
                         xmap = None
                 warn = box_off_column(xmap, plots0, [x0, y0, x1, y1])
@@ -667,7 +675,7 @@ def from_tsv(path, heads=None):
             if para:      # 1 回出現・注記の段落 (文章) には列が無いので，行・列の印も通し番号の帯も付けない
                 pass
             elif hy and not (sp['crop'][1] <= hy[0] and hy[1] <= sp['crop'][3]):
-                sp['head_y'] = hy             # 表頭の通し番号の行を上に貼る (2026-11-08 ユーザ指示)
+                sp['head_y'] = hy[:2]         # 表頭の通し番号の行を上に貼る
             elif plot and xmap and all(p in xmap for p in plots0):   # 列の x が分かれば，その列の上に地点番号を書く
                 lo_, hi_ = max(min(xmap), min(plots0) - 2), min(max(xmap), max(plots0) + 2)
                 sp['cols'] = [[xmap[p], str(p)] for p in range(lo_, hi_ + 1) if p in xmap]

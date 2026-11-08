@@ -334,6 +334,29 @@ class ReviewHtmlTest(unittest.TestCase):
         self.assertEqual(R.narrow_crop([150, 250, 1450, 650], None, [9]), [150, 250, 1450, 650])
         self.assertEqual(R.parse_plots("30,32"), [30, 32])
 
+    def test_plot_x_map_table_range(self):
+        """同じ高さに 2 つの表が並ぶとき，xr (その表の左右) の中だけで通し番号を探す"""
+        import review_html as R
+        from PIL import Image, ImageDraw
+        im = Image.new("L", (3000, 800), 255)
+        dr = ImageDraw.Draw(im)
+        for left in (100, 1700):                  # 左の表 (x 100〜1000) と右の表 (x 1700〜2600)．どちらも 10 地点
+            for k in range(10):
+                x = left + 100 * k
+                dr.rectangle((x - 8, 100, x + 8, 130), fill=0)
+                for y in range(300, 600, 40):
+                    dr.ellipse((x - 4, y - 4, x + 4, y + 4), fill=0)
+        right = R.plot_x_map(im, [95, 135], 10, [280, 620], xr=[1600, 2700])
+        self.assertEqual(right[1], 1700)
+        self.assertEqual(right[10], 2600)
+        left = R.plot_x_map(im, [95, 135], 10, [280, 620], xr=[0, 1100])
+        self.assertEqual(left[1], 100)
+        d = tempfile.mkdtemp()
+        hr = os.path.join(d, "head_rows.tsv")
+        with open(hr, "w", encoding="utf-8") as f:
+            f.write("region\ttable\tpage\ty0\ty1\tnote\tx0\tx1\nx\tTab.1\tp001\t40\t80\t\t1600\t2700\n")
+        self.assertEqual(R.load_head_rows(hr, "x"), {("Tab.1", "p001"): [40, 80, 1600, 2700]})
+
     def test_col_x_and_box_check(self):
         """marks_grid.py が書く col_x.tsv を読み，赤枠が地点の列から外れていれば知らせる (0.5.21)"""
         import review_html as R
