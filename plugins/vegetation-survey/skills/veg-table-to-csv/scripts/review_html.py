@@ -198,10 +198,13 @@ def make_image(base, spec):
     canvas = Image.new('RGB', (im.width + 2 * MARGIN, im.height + 2 * MARGIN), 'white')
     canvas.paste(im, (MARGIN, MARGIN))
     draw_marks(canvas, marks, dx - MARGIN, dy - MARGIN)
+    ox, oy = dx - MARGIN, dy - MARGIN                 # canvas の左上の元の座標
     if 'page' in spec and (spec.get('names_x') or spec.get('head_y') or layer_strip_needed(spec)):
-        canvas = add_strips(base, spec, canvas, dx - MARGIN, dy - MARGIN)
+        w0, h0 = canvas.size
+        canvas = add_strips(base, spec, canvas, ox, oy)
+        ox, oy = ox - (canvas.width - w0), oy - (canvas.height - h0)   # 左・上に貼ったぶんずらす
     if spec.get('rows') or spec.get('cols'):          # 何行目がどの種か・何列目がどの地点かを書き込む
-        canvas = add_labels(canvas, spec.get('rows', []), spec.get('cols', []), dx - MARGIN, dy - MARGIN)
+        canvas = add_labels(canvas, spec.get('rows', []), spec.get('cols', []), ox, oy)
     if spec.get('scale'):                             # 表全体など大きな範囲は縮めて埋め込む
         k = float(spec['scale'])
         canvas = canvas.resize((max(1, int(canvas.width * k)), max(1, int(canvas.height * k))), Image.LANCZOS)
@@ -262,6 +265,16 @@ def from_tsv(path):
                 sp['layer_x'] = [int(float(v)) for v in lx]
                 if layer_strip_needed(sp):
                     sp['caption'] += '．左は同じ高さの階層の列'
+            # 赤枠の行 (種名) と列 (地点) を画像の余白に青で書く (2026-11-08 ユーザ指示．四国 U53 で行と列が分からなかった)
+            name = r.get('j_name', '').strip()
+            plot = r.get('plot', '').strip()
+            if name:
+                sp['rows'] = [[(y0 + y1) // 2, name if len(name) <= 16 else name[:15] + '…']]
+            if plot:
+                sp['cols'] = [[(x0 + x1) // 2, f'地点 {plot}']]
+            where = '・'.join(x for x in (f'行 = {name}' if name else '', f'列 = 地点 {plot}' if plot else '') if x)
+            if where:
+                sp['caption'] += f'．赤枠は {where} (青字)'
             items.append({'id': f'U{i:02d}', 'group': g,
                           'title': ' '.join(x for x in (r['table'], '地点 ' + r['plot'] if r['plot'] else '', r['j_name']) if x),
                           'layer': r.get('kind', ''), 'note': r['what'],
