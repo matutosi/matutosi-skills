@@ -484,6 +484,24 @@ class ConvertTest(unittest.TestCase):
         hit = {r["plot"]: r["note"] for r in rows(os.path.join(d, "composition.csv")) if r["j_name"] == "クロマツ"}
         self.assertEqual(hit, {"1": "", "2": "下線"})
 
+    def test_cell_layer_by_underline_kind(self):
+        """3 つ書きの階層で一重・二重の下線を使い分ける行は，セルの「N: 二重下線」「N: 一重下線」で階層を決める (0.5.32)"""
+        to_csv.PLOTS_SEEN.clear()
+        to_csv.PLOTS_SEEN.update(["1", "2", "3", "4"])
+        row = {"layer": "B1;S;K", "1": "1・1", "2": "+", "3": "2・2", "4": "+",
+               "note": "印字は B1,S,K (B1 に二重下線・K に一重下線); 1: 二重下線; 3: 一重下線; 4: 下線"}
+        self.assertEqual(to_csv.cell_layer(row, "1"), "B1")
+        self.assertEqual(to_csv.cell_layer(row, "3"), "K")
+        self.assertEqual(to_csv.cell_layer(row, "2"), "S")          # 印の無い値は残りの階層
+        self.assertEqual(to_csv.cell_layer(row, "4"), "B1;S;K")     # 種類の分からない下線は決めない
+        wavy = {"layer": "B2;S;K", "2": "+", "note": "印字は B2,S,K (B2 に二重下線・S に波線); 2: 波線"}
+        self.assertEqual(to_csv.cell_layer(wavy, "2"), "S")
+        mixed = {"layer": "B1;B2;S", "1": "1・1", "2": "+",
+                 "note": "印字は B1,B2,S (B1 に下線，B2 に二重下線); 1: 下線"}   # 種類を書かない下線と二重下線
+        self.assertEqual(to_csv.cell_layer(mixed, "1"), "B1")
+        self.assertEqual(to_csv.cell_layer(mixed, "2"), "S")
+        to_csv.PLOTS_SEEN.clear()
+
     def test_cell_layer_by_layer_underline(self):
         """階層の字の下線が note に分かれば，下線の値はその階層，下線の無い値は残りの階層に決まる (multi を外す)"""
         row = {"layer": "B2;S", "note": "印字は B2,S (S に下線．B2 の 2 は白抜きの字)"}

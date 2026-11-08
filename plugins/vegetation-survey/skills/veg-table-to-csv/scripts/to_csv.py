@@ -166,10 +166,41 @@ def underlined_layers(note, layers):
     return out
 
 
+KIND_PART = re.compile(r'([A-Za-z]+\d?)\s*に\s*(二重|一重|波線の?)\s*下線|([A-Za-z]+\d?)\s*に\s*(波線)')
+
+
+def kind_layers(note, layers):
+    """3 つ書きの階層の行の note「(B1 に二重下線・K に一重下線)」から {'二重': 'B1', '一重': 'K'} を返す (0.5.32)．
+    下線の種類で値と階層を対応させる表のため．波線は '波線'．階層名が行の階層に無ければ空"""
+    out = {}
+    for m in KIND_PART.finditer(note):
+        name, kind = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+        kind = '波線' if kind.startswith('波線') else kind
+        if name in layers:
+            out[kind] = name
+    if out:                                           # 種類を書かない「X に下線」は，セルの「N: 下線」に当てる
+        for m in re.finditer(r'([A-Za-z]+\d?)\s*に下線', note):
+            if m.group(1) in layers and m.group(1) not in out.values():
+                out['下線'] = m.group(1)
+    return out
+
+
 def cell_layer(row, plot):
     """複数の階層の行で，そのセルの階層を返す．下線の階層が分かれば，下線の値はその階層，
-    下線の無い値は残りの階層 (残りが 1 つに決まるときだけ)．決まらなければ複数のまま (status=multi)"""
+    下線の無い値は残りの階層 (残りが 1 つに決まるときだけ)．決まらなければ複数のまま (status=multi)．
+    3 つ書きの行で note に「(B1 に二重下線・K に一重下線)」とあれば，セルの「N: 二重下線」「N: 一重下線」
+    「N: 波線」でその階層，印の無いセルは残りの階層 (1 つに決まるとき) にする"""
     layers = row.get('layer', '').split(';')
+    kinds = kind_layers(row.get('note', ''), layers)
+    if len(layers) >= 2 and kinds:
+        parts = cell_note(row.get('note', ''), plot).split(';')
+        for kind in ('二重', '一重', '波線'):
+            if kind in kinds and (kind + '下線' in parts or (kind == '波線' and '波線' in parts)):
+                return kinds[kind]
+        if '下線' in parts or '±' in row.get(plot, ''):
+            return kinds.get('下線', row.get('layer', ''))   # 種類を書かない下線は「X に下線」の階層．無ければ決めない
+        rest = [x for x in layers if x not in kinds.values()]
+        return rest[0] if len(rest) == 1 else row.get('layer', '')
     under = underlined_layers(row.get('note', ''), layers)
     if len(layers) < 2 or not under or len(under) == len(layers):
         return row.get('layer', '')
