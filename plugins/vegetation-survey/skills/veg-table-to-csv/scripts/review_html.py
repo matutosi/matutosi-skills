@@ -269,16 +269,19 @@ def n_plots_of(base, table):
         return sum(1 for c in f.readline().rstrip('\r\n').split('\t') if c.strip().isdigit())
 
 
-def narrow_crop(crop, xmap, plots, around=2):
+def narrow_crop(crop, xmap, plots, around=2, box=None):
     """確かめる地点 (plots) とその前後 around 地点だけが入るように，切り出しの左右を狭める．
-    狭められないとき (地点が表に無い・もとより狭い) は crop を返す"""
+    狭められないとき (地点が表に無い・もとより狭い・測った地点の x が赤枠 box の外) は crop を返す．
+    列の間隔が不ぞろいな表 (常在度の列が混じるなど) では当てはめが外れることがあるので，box で確かめる (中部 80)"""
     if not xmap or not plots:
         return crop
     n = max(xmap)
     lo, hi = max(1, min(plots) - around), min(n, max(plots) + around)
-    if lo not in xmap or hi not in xmap:
+    if lo not in xmap or hi not in xmap or min(plots) not in xmap or max(plots) not in xmap:
         return crop
     sp = (xmap[n] - xmap[1]) / max(1, n - 1)
+    if box and not (box[0] - sp <= xmap[min(plots)] and xmap[max(plots)] <= box[2] + sp):
+        return crop
     x0, x1 = int(xmap[lo] - 0.7 * sp), int(xmap[hi] + 0.7 * sp)
     if x1 - x0 >= crop[2] - crop[0]:
         return crop
@@ -596,7 +599,7 @@ def from_tsv(path, heads=None):
                         xmap = plot_x_map(load_page(base, page), hy0, n, [y0 - 300, y1 + 300])
                     except OSError:
                         xmap = None
-                    sp['crop'] = narrow_crop(sp['crop'], xmap, plots0)
+                    sp['crop'] = narrow_crop(sp['crop'], xmap, plots0, box=[x0, y0, x1, y1])
             lx = [(r.get(k) or '').strip() for k in ('layer_x0', 'layer_x1')]
             if all(lx):
                 sp['layer_x'] = [int(float(v)) for v in lx]
