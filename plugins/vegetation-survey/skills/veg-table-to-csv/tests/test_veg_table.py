@@ -668,6 +668,26 @@ class CheckTest(unittest.TestCase):
         run(to_csv.main, [self.d])
         self.assertIn("出現種数の無い表 1: Tab.1", run(chk.main, [self.d])[1])
 
+    def test_count_without_moss(self):
+        """出現種数が「蘚苔類を除く」表は，蘚苔類 (1 回出現の note「蘚苔・地衣類の段落」) を数えない"""
+        p = os.path.join(self.d, "transcripts", "Tab.1", "once.tsv")
+        with open(p, encoding="utf-8") as f:
+            text = f.read().rstrip("\n")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(text + "\n3\tBryum argenteum\tギンゴケ\t\t+\t蘚苔・地衣類の段落 (Moose u. Flechten)\n")
+        run(to_csv.main, [self.d])
+        self.assertIn("出現種数 3 に対し読んだ種 4", run(chk.main, [self.d])[1])     # 印字が蘚苔を数えるか分からない
+        self.assertIn("一致 3・不一致 0", run(chk.main, [self.d, "--no-moss"])[1])
+        h = os.path.join(self.d, "transcripts", "Tab.1", "header.tsv")
+        with open(h, encoding="utf-8") as f:
+            ht = f.read()
+        with open(h, "w", encoding="utf-8") as f:
+            f.write(ht.replace("出現種数\tArtenzahl\t", "出現種数\tArtenzahl (Ohne Moosarten)\t"))
+        run(to_csv.main, [self.d])
+        out = run(chk.main, [self.d])[1]
+        self.assertIn("一致 3・不一致 0", out)                                  # 項目名で見分ける
+        self.assertIn("種数から外した表 1: Tab.1", out)
+
     def _edit_csv(self, name, change):
         p = os.path.join(self.d, name)
         data = rows(p)

@@ -12,6 +12,8 @@
 5. **地点ごとの種数と，表頭の「出現種数」(Artenzahl) が合うか** (いちばん効く検算)．
    種は学名 (無ければ和名) で数え，階層が違っても 1 種と数える．1 回出現の種も含める．
    出現種数が 2 行 (維管束とコケなど) に分かれる表は，2 行の合計と比べる．
+   出現種数の項目名に「ohne Moos」「蘚苔類を除く」とある表は，蘚苔類・地衣類の行 (群の見出しが蘚苔・コケ・地衣か，
+   階層 M) を数えない (`--no-moss` で全部の表に当てる)．
    常在度の列は地点ではないので比べない．
    合わないときは，別の数え方 (種 × 階層，本体だけ，見出し × 種 × 和名) の数も並べる．
    `--list 表:地点` で，その地点で数えた種の一覧を出せる．
@@ -41,6 +43,16 @@ LAYER = re.compile(r'^(?:(?:[TBSKH][12]?|M|L)(?:;(?:[TBSKH][12]?|M|L))*)$')   # 
 JNAME = re.compile(r'^[゠-ヿー・一-鿿\dA-Za-z .()（）の？?]+$')
 COUNT_JA = ('出現種数', '種数')
 COUNT_DE = ('artenzahl',)
+NO_MOSS = re.compile(r'ohne\s*moos|ohne\s*bryo|蘚苔[類]?を除|コケ[類植物]*を除', re.I)   # 出現種数が蘚苔類を数えない表
+MOSS = re.compile(r'蘚|苔|コケ|地衣|moos|bryo|flecht|lichen|musci|hepat', re.I)
+MOSS_NOTE = re.compile(r'蘚苔|地衣|moose|flechten', re.I)    # note は「コケシノブ」などに当たらないよう語を絞る
+
+
+def is_moss(r):
+    """蘚苔類・地衣類の行か (群の見出し・階層 M・1 回出現の note「蘚苔・地衣類の段落」で見る)"""
+    g = (r.get('group_ja', '') + ' ' + r.get('group_de', ''))
+    return (bool(MOSS.search(g)) or r.get('layer', '').strip() == 'M'
+            or bool(MOSS_NOTE.search(r.get('note', ''))))
 
 
 def spkey(r):
@@ -90,6 +102,9 @@ def main(argv=None):
     ap.add_argument('dir')
     ap.add_argument('--list', metavar='表:地点',
                     help='その地点で数えた種の一覧を出して終わる (例: Tab.12:5)．出現種数が合わないときに使う')
+    ap.add_argument('--no-moss', action='store_true',
+                    help='どの表でも蘚苔類・地衣類の行を種数から外す (既定では，出現種数の項目名に'
+                         '「ohne Moos」「蘚苔類を除く」とある表だけ外す)')
     a = ap.parse_args(argv)
     sites = read(os.path.join(a.dir, 'sites.csv'))
     comp = read(os.path.join(a.dir, 'composition.csv'))
@@ -158,6 +173,12 @@ def main(argv=None):
         bad('地点', f'{t} の地点 {p} は表頭に無い．誤植と決めず，表の右端が切れていないかを確かめる')
 
     # 5. 出現種数
+    no_moss = {r['table'] for r in sites
+               if (any(w in r.get('item_ja', '') for w in COUNT_JA) or 'artenzahl' in r.get('item_de', '').lower())
+               and NO_MOSS.search(r.get('item_ja', '') + ' ' + r.get('item_de', ''))}
+    if a.no_moss:
+        no_moss |= {r['table'] for r in comp}
+    n_moss = 0
     counted = defaultdict(set)          # 種 (本体 + 1 回出現)
     by_layer = defaultdict(set)         # 種 × 階層
     body_only = defaultdict(set)        # 種 (本体だけ)
@@ -168,6 +189,9 @@ def main(argv=None):
         if r.get('constancy', '').strip():
             const_cols.add(key)
             continue                                  # 常在度の列は地点ではない
+        if r['table'] in no_moss and is_moss(r):
+            n_moss += 1
+            continue                                  # 出現種数が蘚苔類を数えない表
         sp = spkey(r)
         counted[key].add(sp)
         by_layer[key].add((sp, r['layer'].strip()))
@@ -229,6 +253,8 @@ def main(argv=None):
           f'status=check {n_check} 行・multi {n_multi} 行')
     if n_const:
         print(f'--- 常在度の列 {n_const} 列は，出現種数と比べていない')
+    if no_moss:
+        print(f'--- 蘚苔類・地衣類の行 ({n_moss} 行) を種数から外した表 {len(no_moss)}: {" ".join(sorted(no_moss))}')
     if n_ng:
         print('    合わない地点は `--list 表:地点` で数えた種の一覧を出し，画像の列と突き合わせる')
     no_count = sorted({r['table'] for r in comp} - with_count)
