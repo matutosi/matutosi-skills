@@ -537,7 +537,7 @@ python <skill>/scripts/review_html.py <出力>/user_review.tsv <出力>/review_u
    通し番号の行が無いページ (続きのページ・1 回出現や注記だけのページ) は y0・y1 を空にして note に理由を書く．
 4. `review_html.py <出力>/user_review.tsv <置き場> --split --region <地方> --head-rows review_ui/head_rows.tsv --head-region <地方>`
    で全項目を機械的に作り，切り出し画像を見て赤枠が外れた項目だけを
-   JSON の項目 (`marks`) で作り直す．全項目を手で作り直さない．ページ画像は使い回すので，170 項目で 20 秒ほど (0.5.17)．
+   JSON の項目 (`marks`) で作り直す．全項目を手で作り直さない．ページ画像は使い回すので，170 項目で 20 秒ほど (0.5.17)．回答を反映したあとは `--settled <回答.json>` で答えた項目を外し (番号は変えない)，`--only B` で作り直す区分を絞る (ユーザが作業中の区分の HTML は上書きしない．0.5.19)．
 5. 機械作業なので Sonnet でよい (印の位置の判断が難しい表だけ Opus)．報告は件数・HTML の場所・印に自信の無い項目だけ．
 
 ### 9. 報告

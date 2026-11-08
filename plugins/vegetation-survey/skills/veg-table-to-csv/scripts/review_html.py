@@ -643,6 +643,9 @@ def main(argv=None):
                     help='表頭の通し番号の行の位置の表 (列: region table page y0 y1 note)．user_review.tsv から作るとき，'
                          'その行を画像の上に貼る (列ごとの地点番号が読める)')
     ap.add_argument('--head-region', default=None, help='--head-rows の region 列の値 (例: shikoku)．省くと全部の行を使う')
+    ap.add_argument('--settled', nargs='*', default=[],
+                    help='反映済みの回答 JSON．選択肢を選んだ項目は HTML から外す (番号は変えない)')
+    ap.add_argument('--only', default=None, help='--split のとき作る区分 (例: B または BD)．省くと全部')
     a = ap.parse_args(argv)
     choices = [c for c in a.choices.split(',') if c in LABELS]
     if a.items.lower().endswith('.tsv'):
@@ -656,10 +659,21 @@ def main(argv=None):
         os.path.basename(os.path.normpath(os.path.abspath(a.out))) if a.split
         else os.path.splitext(os.path.basename(a.out))[0])
     title = a.title if a.title is not None else (f'確認 ({a.region})' if a.region else '確認')
+    done = set()
+    for p in a.settled:                  # 反映済みの回答 (選択肢を選んだもの) は外す
+        with open(p, encoding='utf-8-sig') as f:
+            done |= {k for k, v in json.load(f).items() if (v or {}).get('choice')}
+    if done:
+        items = [it for it in items if it['id'] not in done]
+        print(f'反映済み {len(done)} 件を外した')
+    if a.split and a.only:
+        items = [it for it in items if it.get('group', group_of(it.get('layer', ''))) in a.only]
     prerender(base, items)
     if a.split:
         os.makedirs(a.out, exist_ok=True)
         for g, name in GROUPS.items():
+            if a.only and g not in a.only:
+                continue
             sub = [it for it in items if it.get('group', group_of(it.get('layer', ''))) == g]
             if sub:
                 write_page(base, sub, choices, os.path.join(a.out, f'review_{g}.html'), f'{title} {g}. {name}', a.layout,
