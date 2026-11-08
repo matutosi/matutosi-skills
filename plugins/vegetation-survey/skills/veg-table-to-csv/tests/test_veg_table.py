@@ -312,6 +312,28 @@ class ReviewHtmlTest(unittest.TestCase):
         self.assertIn("通し番号", it["images"][0]["caption"])
         self.assertNotIn("head_y", review_html.from_tsv(tsv)[0]["images"][0])
 
+    def test_plot_x_map_and_narrow(self):
+        """通し番号の行のかたまりから地点の列の x を測り，確かめる地点の前後だけに切り出す (0.5.20)"""
+        import review_html as R
+        from PIL import Image, ImageDraw
+        im = Image.new("L", (2000, 800), 255)
+        dr = ImageDraw.Draw(im)
+        for k in range(12):                      # 通し番号の行 (y 100-130)．先頭のかたまり (x 200) は地点ではない
+            x = 200 + 100 * k
+            dr.rectangle((x - 8, 100, x + 8, 130), fill=0)
+            if k:                                # 地点の列 (x 300〜1300) には本体に点が並ぶ
+                for y in range(300, 600, 40):
+                    dr.ellipse((x - 4, y - 4, x + 4, y + 4), fill=0)
+        xmap = R.plot_x_map(im, [95, 135], 11, [280, 620])
+        self.assertEqual(xmap[1], 300)
+        self.assertEqual(xmap[11], 1300)
+        crop = R.narrow_crop([150, 250, 1450, 650], xmap, [9])
+        self.assertEqual(crop[1:4:2], [250, 650])
+        self.assertTrue(crop[0] < 1000 - 50 and crop[0] > 900 - 100)       # 地点 7 (x 900) の少し左から
+        self.assertTrue(crop[2] > 1300 and crop[2] < 1400)                 # 地点 11 (x 1300) の少し右まで
+        self.assertEqual(R.narrow_crop([150, 250, 1450, 650], None, [9]), [150, 250, 1450, 650])
+        self.assertEqual(R.parse_plots("30,32"), [30, 32])
+
     def test_options_from_what(self):
         """what に文で書いた選択肢をラジオボタンの選択肢に取り出す (2026-11-08．四国 U02)"""
         import review_html as R

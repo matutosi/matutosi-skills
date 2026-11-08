@@ -195,6 +195,96 @@ def plot_cols(base, page_rel, box, crop, plot_text):
     return [[(x0 + x1) // 2, f'地点 {plot_text}']], False
 
 
+def plot_x_map(page, head_y, n, band):
+    """表頭の通し番号の行 (head_y = [y0, y1]) の数字のかたまりから，地点 1〜n の列の中心 x を {地点: x} で返す．
+    等間隔に並ぶかたまりのうち，項目の行のあたり (band = [y0, y1]) に点や値が並ぶ n 本を地点の列とみる
+    (同じページの別の表や項目名の字を除くため)．決まらなければ None (2026-11-08．中部 82)"""
+    y0, y1 = head_y
+    strip = page.crop((0, y0, page.width, y1)).convert('L')
+    w, h = strip.size
+    px = strip.load()
+    proj = [sum(1 for y in range(h) if px[x, y] < 128) for x in range(w)]
+    segs, start = [], None
+    for x, v in enumerate(proj + [0]):
+        if v and start is None:
+            start = x
+        elif not v and start is not None:
+            segs.append([start, x - 1])
+            start = None
+    merged = []
+    for s in segs:                                   # 字の中の切れ目はつなぐ
+        if merged and s[0] - merged[-1][1] < 8:
+            merged[-1][1] = s[1]
+        else:
+            merged.append(s)
+    gaps = sorted(b[0] - a[1] for a, b in zip(merged, merged[1:]))
+    if not gaps:
+        return None
+    big = gaps[len(gaps) // 2]
+    cl = []
+    for s in merged:                                 # 2 桁・3 桁の数字はつなぐ
+        if cl and s[0] - cl[-1][1] < max(10, 0.35 * big):
+            cl[-1][1] = s[1]
+        else:
+            cl.append(list(s))
+    cs = [(a + b) // 2 for a, b in cl]
+    d = [b - a for a, b in zip(cs, cs[1:])]
+    if not d:
+        return None
+    sp = sorted(d)[len(d) // 2]
+    runs, cur = [], [cs[0]]                          # 等間隔に並ぶかたまりの続き
+    for k, g in enumerate(d):
+        if 0.7 * sp <= g <= 1.4 * sp:
+            cur.append(cs[k + 1])
+        else:
+            runs.append(cur)
+            cur = [cs[k + 1]]
+    runs.append(cur)
+    body = page.crop((0, max(0, band[0]), page.width, min(page.height, band[1]))).convert('L')
+    bw, bh = body.size
+    bp = body.load()
+
+    def ink(x):
+        return sum(1 for xx in range(max(0, x - 12), min(bw, x + 13)) for y in range(0, bh, 2) if bp[xx, y] < 128)
+    best = None
+    for run in runs:
+        if len(run) < n:
+            continue
+        for k in range(len(run) - n + 1):
+            win = run[k:k + n]
+            score = sum(ink(x) for x in win)
+            if best is None or score > best[0]:
+                best = (score, win)
+    if not best:
+        return None
+    return {p + 1: x for p, x in enumerate(best[1])}
+
+
+def n_plots_of(base, table):
+    """置き場の transcripts/Tab.NNN/body.tsv の見出しにある地点の列の数．無ければ 0"""
+    p = os.path.join(base, 'transcripts', 'Tab.%03d' % int(re.sub(r'\D', '', table) or 0), 'body.tsv')
+    if not os.path.exists(p):
+        return 0
+    with open(p, encoding='utf-8') as f:
+        return sum(1 for c in f.readline().rstrip('\r\n').split('\t') if c.strip().isdigit())
+
+
+def narrow_crop(crop, xmap, plots, around=2):
+    """確かめる地点 (plots) とその前後 around 地点だけが入るように，切り出しの左右を狭める．
+    狭められないとき (地点が表に無い・もとより狭い) は crop を返す"""
+    if not xmap or not plots:
+        return crop
+    n = max(xmap)
+    lo, hi = max(1, min(plots) - around), min(n, max(plots) + around)
+    if lo not in xmap or hi not in xmap:
+        return crop
+    sp = (xmap[n] - xmap[1]) / max(1, n - 1)
+    x0, x1 = int(xmap[lo] - 0.7 * sp), int(xmap[hi] + 0.7 * sp)
+    if x1 - x0 >= crop[2] - crop[0]:
+        return crop
+    return [max(0, x0), crop[1], x1, crop[3]]
+
+
 def page_path(base, rel):
     """ページ画像の場所．無ければ同じ置き場の work_* を探す (近畿の小古は work_sho．0.5.14)"""
     path = os.path.join(base, rel)
@@ -496,6 +586,17 @@ def from_tsv(path, heads=None):
             g = group_of(r.get('kind', ''))
             sp = {'page': page, 'crop': [max(0, x0 - PAD), max(0, y0 - PAD), x1 + PAD, y1 + PAD],
                   'caption': r['table'], 'marks': [{'box': [x0, y0, x1, y1]}]}
+            # 確かめる地点とその前後 2 地点だけを切り出す (通し番号の行の位置が分かる表．2026-11-08 ユーザ指示)
+            hy0 = heads.get((r['table'], r['page']))
+            plots0 = parse_plots(r.get('plot', ''))
+            if hy0 and plots0 and not is_paragraph(r.get('kind', ''), r['what']):
+                n = n_plots_of(base, r['table'])
+                if n:
+                    try:
+                        xmap = plot_x_map(load_page(base, page), hy0, n, [y0 - 300, y1 + 300])
+                    except OSError:
+                        xmap = None
+                    sp['crop'] = narrow_crop(sp['crop'], xmap, plots0)
             lx = [(r.get(k) or '').strip() for k in ('layer_x0', 'layer_x1')]
             if all(lx):
                 sp['layer_x'] = [int(float(v)) for v in lx]
