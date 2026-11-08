@@ -122,6 +122,18 @@ class ParseValueTest(unittest.TestCase):
         self.assertEqual(f("'80 6-11"), ("1980", "ok"))           # 6〜11 月の範囲 (日付ではない)
         self.assertIn("月の範囲 6-11", to_csv.norm_site("調査年月日", "", "'80 6-11")[2])
         self.assertEqual(f("'83 8 3"), ("1983-08-03", "ok"))      # ふつうの日付は今までどおり
+        g = to_csv.norm_site("調査年月日", "Datum d. Aufn. (1982)", "7 -", "1982")
+        self.assertEqual(g[:2], ("1982-07", "ok"))                 # 日が - で年は項目名にある
+        self.assertIn("年は項目名", g[2])
+        self.assertEqual(to_csv.norm_site("調査年月日", "", "7 -")[1], "check")   # 年が無ければ読めない
+
+    def test_arabic_in_roman_column(self):
+        """調査区数 5 以上の列 (ローマ数字の列) の算用数字 1(+-2) はローマ数字の誤植 (規則 X8)"""
+        v = to_csv.parse_value("1(+-2)", 12)
+        self.assertEqual(v[:4], ("+-2", "", "I", "ok"))
+        self.assertIn("規則 X8", v[4])
+        self.assertEqual(to_csv.parse_value("3(+)", 4)[:3], ("+", "", "3"))      # 5 未満の列は出現地点数のまま
+        self.assertEqual(to_csv.parse_value("2", 12)[:3], ("", "", "2"))          # 括弧の無い数字は今までどおり
 
     def test_layer_from_below_keeps_check_and_skips_constancy_only(self):
         """階層の欠け以外の check は消さない．値が常在度の列だけの行には下の階層を当てない (0.5.10)"""

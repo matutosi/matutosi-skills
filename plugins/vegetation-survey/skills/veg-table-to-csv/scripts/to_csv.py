@@ -66,6 +66,12 @@ def parse_value(raw, n_plots=0):
         notes.append('括弧付き')
     out = None
     m = re.fullmatch(rf'([1-9]\d*)(?:\s*\(\s*({COV})(?:\s*-\s*({COV}))?\s*\))?', s) if n_plots else None
+    if m and n_plots >= 5 and m.group(2) and 1 <= int(m.group(1)) <= 5:
+        # 調査区数 5 以上の列 (ローマ数字の列) の算用数字 1(+-2) は，ローマ数字 I(+-2) の誤植 (規則 X8・8.4)
+        roman = ['I', 'II', 'III', 'IV', 'V'][int(m.group(1)) - 1]
+        out = ((m.group(2) or '') + ('-' + m.group(3) if m.group(3) else ''), '', roman)
+        notes.append(f'印字は算用数字の {m.group(1)}．調査区数 {n_plots} の列なので {roman} とした (規則 X8)')
+        m = None
     if m and int(m.group(1)) <= n_plots:              # 出現地点数 2(3-4)
         out = ((m.group(2) or '') + ('-' + m.group(3) if m.group(3) else ''), '', m.group(1))
     m = None if out else re.fullmatch(rf'({ROMAN})(?:\s*\(\s*({COV})(?:\s*-\s*({COV}))?\s*\))?', s)
@@ -311,6 +317,9 @@ def norm_site(item_ja, item_de, raw, year=None):
         part = partial_date(s)
         if part:
             return part[0], st, ';'.join(x for x in (note, part[1]) if x)
+        m = re.fullmatch(r'(\d{1,2})(?:\s+[-—–])+', s) if year else None
+        if m and 1 <= int(m.group(1)) <= 12:          # `7 -` (日が -) で年は項目名にある (Datum d. Aufn. (1982))
+            return f'{int(year):04d}-{int(m.group(1)):02d}', st, ';'.join(x for x in (note, '日の印字は -．年は項目名の印字') if x)
         d = norm_date(s, year)
         if d:
             return d, st, note
