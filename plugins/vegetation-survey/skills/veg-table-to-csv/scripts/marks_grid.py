@@ -45,19 +45,80 @@ def table_dir(table):
     return re.sub(r'\d+', lambda m: '%03d' % int(m.group()), table)
 
 
-def read_body(path):
-    """種の行の名前 (和名か学名 + 階層) と，[行][列] の転記の値 (前後の空白を除いた文字列)"""
+def read_rows(path):
+    """種の行の名前 (和名か学名 + 階層)・[行][列] の転記の値・地点の数・階層・note"""
     with open(path, encoding='utf-8-sig', newline='') as f:
         rows = list(csv.reader(f, delimiter='\t', quoting=csv.QUOTE_NONE))
     cols = [i for i, c in enumerate(rows[0]) if c.strip().isdigit()]
-    names, vals, last = [], [], ''
+    ni = rows[0].index('note') if 'note' in rows[0] else None
+    names, vals, layers, notes, last = [], [], [], [], ''
     for r in rows[1:]:
         if not r or r[0] != 'sp':
             continue
+        named = bool((r[4] if len(r) > 4 else '') or (r[3] if len(r) > 3 else ''))
         last = (r[4] if len(r) > 4 else '') or (r[3] if len(r) > 3 else '') or last
         names.append(f"{last} {r[5] if len(r) > 5 else ''}".strip())
         vals.append([r[i].strip() if i < len(r) else '' for i in cols])
-    return names, vals, len(cols)
+        layers.append(r[5].strip() if len(r) > 5 else '')
+        note = r[ni] if ni is not None and ni < len(r) else ''
+        notes.append(note if named else '\x00' + note)  # 先頭の \x00 は名前の無い続きの行の印
+    return names, vals, len(cols), layers, notes
+
+
+def read_body(path):
+    """種の行の名前 (和名か学名 + 階層) と，[行][列] の転記の値 (前後の空白を除いた文字列)"""
+    names, vals, n, _, _ = read_rows(path)
+    return names, vals, n
+
+
+PRINTED = re.compile(r'印字は\s*([A-Za-z]\d?(?:\s*[,，]\s*[A-Za-z]\d?)+)')
+
+
+def split_groups(layers, notes, manual=()):
+    """1 つの印字の行を階層ごと (下線の種類で) に分けて書いた行の組 [[行, …], …] (0 始まり)．
+    名前のある行に続く名前の無い行で，note に同じ「印字は B1,B2,S」があり，各行の階層がその 1 つずつのとき．
+    note の先頭の \\x00 は名前の無い続きの行の印 (read_rows)．manual は手で渡す組 (0 始まり)"""
+    groups, used = [], set()
+    for g in manual:
+        groups.append(list(g))
+        used |= set(g)
+    i = 0
+    while i < len(layers):
+        m = PRINTED.search(notes[i]) if i not in used and not notes[i].startswith('\x00') else None
+        if m:
+            printed = [x.strip() for x in re.split(r'[,，]', m.group(1))]
+            g = [i]
+            j = i + 1
+            while (j < len(layers) and j not in used and len(g) < len(printed) and notes[j].startswith('\x00')
+                   and layers[j] in printed and layers[j] not in [layers[k] for k in g]
+                   and (PRINTED.search(notes[j]) or [None, m.group(1)])[1] == m.group(1)):   # 同じ印か印なし
+                g.append(j)
+                j += 1
+            if (len(g) > 1 and ';' not in layers[i] and all(layers[k] in printed and ';' not in layers[k] for k in g)
+                    and len({layers[k] for k in g}) == len(g)):
+                groups.append(g)
+                used |= set(g)
+                i = j
+                continue
+        i += 1
+    return sorted(groups)
+
+
+def merge_split(names, vals, groups):
+    """分けた行の組を 1 行にまとめる (値はどれかの行にあれば値．文字列は / でつなぐ)．
+    戻り値は (名前, 値, 元の行の組 [[行, …] …])"""
+    first = {g[0]: g for g in groups}
+    skip = {k for g in groups for k in g[1:]}
+    out_n, out_v, src = [], [], []
+    for r in range(len(vals)):
+        if r in skip:
+            continue
+        g = first.get(r, [r])
+        out_n.append(names[r] + (f' (+{len(g) - 1} 行)' if len(g) > 1 else ''))
+        out_v.append(['/'.join(v for v in (vals[k][c] for k in g) if has_value(v)) or vals[r][c]
+                      for c in range(len(vals[r]))])
+        src.append(g)
+    return out_n, out_v, src
 
 
 def has_value(v):
@@ -570,9 +631,25 @@ def main(argv=None):
     ap.add_argument('--band-png', help='帯の画像の出力先')
     ap.add_argument('--label', type=int, nargs=2, metavar=('X0', 'X1'), help='帯の画像の左に貼る範囲 (和名と階層の x)')
     ap.add_argument('--scale', type=float, default=1.0, help='帯の画像の縮小率')
+    ap.add_argument('--merge-split', action='store_true',
+                    help='1 つの印字の行を階層ごとに分けた転記 (note に「印字は B1,B2,S」・名前の無い続きの行) を 1 行にまとめて照合する')
+    ap.add_argument('--merge-rows', nargs='+', default=[], metavar='K0-K1',
+                    help='1 行にまとめて照合する転記の種の行 (1 始まり．括弧の中の種を分けた行など．例: 12-13 40-42)')
+    ap.add_argument('--shear', type=float, default=0.0,
+                    help='行の傾き: --box の右端で行が左端より何 px 下がるか (右下がりは正)．印の y を補正して格子を作る')
     a = ap.parse_args(argv)
 
-    names, vals, n = read_body(os.path.join(a.out, 'transcripts', table_dir(a.table), 'body.tsv'))
+    names, vals, n, layers, notes = read_rows(os.path.join(a.out, 'transcripts', table_dir(a.table), 'body.tsv'))
+    if a.merge_split or a.merge_rows:
+        manual = []
+        for s in a.merge_rows:
+            lo, _, hi = s.partition('-')
+            manual.append(list(range(int(lo) - 1, int(hi or lo))))
+        groups = split_groups(layers, notes, manual) if a.merge_split else sorted(manual)
+        if groups:
+            names, vals, _ = merge_split(names, vals, groups)
+            print(f'分けた行をまとめた: {len(groups)} 組 ' + ' '.join(f'{g[0] + 1}-{g[-1] + 1}' for g in groups[:12])
+                  + (' …' if len(groups) > 12 else ''))
     if not n:
         sys.exit('body.tsv の見出しに地点の列 (1, 2, …) が無い')
     if not vals:
@@ -582,6 +659,16 @@ def main(argv=None):
     comps = components(a.image, box, a.threshold, a.rule, a.min_area)
     if not len(comps):
         sys.exit('--box の中に字が無い')
+    width = max(1, box[2] - box[0])
+
+    def tilt(x):                                        # 行の傾きで下がる量 (右下がりは正)
+        return a.shear * (np.asarray(x, float) - box[0]) / width
+    if a.shear:                                         # 印の y を左端の高さにそろえる (出力では元の y に戻す)
+        off = tilt(comps[:, 0])
+        comps[:, 1] -= off
+        comps[:, 8] -= off
+        comps[:, 9] -= off
+        print(f'行の傾きを補正した: 右端で {a.shear:+.0f} px')
     dots = comps[[is_dot(q, a) for q in comps]]
     a.speck_area = a.speck * (float(np.median(dots[:, 4])) if len(dots) else 0)
     if a.centers:
@@ -614,6 +701,8 @@ def main(argv=None):
         rowy = [r[keep] for r in rowy]
         asg = [[s[k] for k in keep] for s in asg]
         nrows = len(keep)
+    if a.shear:                                         # 行の y を画像の元の高さに戻す (列ごとに列の x で)
+        rowy = [np.asarray(r, float) + float(tilt(cols.base[c])) for c, r in enumerate(rowy)]
     counts = [len(ms) for ms in marks]
     print(f'行の間隔 {pitch_y:.1f} px．画像の行 {nrows}・転記の種の行 {len(vals)}．起点の列 {seed + 1}．'
           f'印の数が行と合う列 {sum(k == nrows for k in counts)} / {n}')

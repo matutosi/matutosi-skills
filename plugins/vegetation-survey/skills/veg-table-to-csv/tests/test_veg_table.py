@@ -1149,6 +1149,55 @@ class ImageTest(unittest.TestCase):
         self.assertIn("等間隔", how)
         self.assertTrue(all(abs(b - c) <= 2 for b, c in zip(base, cols)), base)
 
+    def test_marks_split_groups(self):
+        """1 つの印字の行を階層ごとに分けた転記を見つけ，1 行にまとめる (0.5.33)"""
+        mg = self._mg()
+        layers = ["K", "B1", "S", "K", "S", "S", "K"]
+        notes = ["", "印字は B1,S,K (B1 に二重下線・K に一重下線)", "\x00", "\x00印字は B1,S,K", "", "印字は S,K", "\x00"]
+        groups = mg.split_groups(layers, notes)
+        self.assertEqual(groups, [[1, 2, 3], [5, 6]])
+        self.assertEqual(mg.split_groups(layers, notes, [[0, 1]])[0], [0, 1])       # 手で渡す組は先に取る
+        names = ["a K", "b B1", "b S", "b K", "c S", "d S", "d K"]
+        vals = [["+", "・"], ["1・1", "・"], ["・", "+"], ["・", "・"], ["+", "+"], ["・", "・"], ["・", "2・2"]]
+        n2, v2, src = mg.merge_split(names, vals, groups)
+        self.assertEqual(len(v2), 4)
+        self.assertEqual(v2[1], ["1・1", "+"])
+        self.assertEqual(src[1], [1, 2, 3])
+        self.assertIn("+2 行", n2[1])
+        self.assertEqual(v2[3], ["・", "2・2"])
+
+    def test_marks_grid_shear(self):
+        """--shear で右下がりの行の傾きを補正して格子を作る (0.5.33)"""
+        mg = self._mg()
+        from PIL import ImageDraw
+        d = tempfile.mkdtemp()
+        xs = [60 + 40 * c for c in range(14)]
+        im = self.Image.new("L", (700, 700), "white")
+        draw = ImageDraw.Draw(im)
+        value = {(3, 2), (7, 12), (15, 13)}
+        for r in range(25):
+            for c, x in enumerate(xs):
+                y = 50 + r * 22 + 2.2 * c                                   # 右端で約 29 px 下がる (行の間隔 22)
+                if (r, c) in value:
+                    draw.rectangle((x - 6, y - 1, x + 6, y + 1), fill=0)
+                    draw.rectangle((x - 1, y - 6, x + 1, y + 6), fill=0)
+                else:
+                    draw.ellipse((x - 4, y - 3, x + 4, y + 3), fill=0)
+        src = os.path.join(d, "t.png")
+        im.save(src)
+        body = os.path.join(d, "transcripts", "Tab.001")
+        os.makedirs(body)
+        with open(os.path.join(body, "body.tsv"), "w", encoding="utf-8", newline="") as f:
+            f.write("\t".join(["kind", "group_ja", "group_de", "s_name", "j_name", "layer"]
+                              + [str(i) for i in range(1, 15)] + ["note"]) + "\n")
+            for r in range(25):
+                cells = ["+" if (r, c) in value else "・" for c in range(14)]
+                f.write("\t".join(["sp", "", "", "A b", "ナ%d" % r, "K"] + cells + [""]) + "\n")
+        _, out = run(mg.main, [src, d, "Tab.1", "--box", "35", "30", "640", "640", "--shear", "28.6"])
+        self.assertIn("行の傾きを補正した", out)
+        self.assertIn("画像の行 25", out)
+        self.assertIn("食い違い 0 セル", out)
+
     def test_marks_const_columns(self):
         mg = self._mg()
         vals = [["+", "V(1-2)", "・"], ["・", "+(+)", "1・2"], ["2・2", "・", "・"]]
