@@ -360,12 +360,21 @@ class ReviewHtmlTest(unittest.TestCase):
     def test_col_x_and_box_check(self):
         """marks_grid.py が書く col_x.tsv を読み，赤枠が地点の列から外れていれば知らせる (0.5.21)"""
         import review_html as R
-        import marks_grid as M
         d = tempfile.mkdtemp()
         p = os.path.join(d, "col_x.tsv")
-        M.save_col_x(p, "Tab.9", "p001", [100.0, 200.0, 300.0])
-        M.save_col_x(p, "Tab.10", "p001", [150.0, 250.0])
-        M.save_col_x(p, "Tab.9", "p001", [110.0, 210.0, 310.0])     # 同じ表・ページは置き換える
+        try:                                     # marks_grid.py は読み込みに numpy と scipy が要る (CI には無い)
+            import marks_grid as M
+        except ImportError:
+            M = None
+        if M:
+            M.save_col_x(p, "Tab.9", "p001", [100.0, 200.0, 300.0])
+            M.save_col_x(p, "Tab.10", "p001", [150.0, 250.0])
+            M.save_col_x(p, "Tab.9", "p001", [110.0, 210.0, 310.0])     # 同じ表・ページは置き換える
+        else:                                    # save_col_x と同じ形を手で書いて，review_html の読みだけ確かめる
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("table\tpage\tplot\tx\n")
+                f.write("Tab.10\tp001\t1\t150\nTab.10\tp001\t2\t250\n")
+                f.write("Tab.9\tp001\t1\t110\nTab.9\tp001\t2\t210\nTab.9\tp001\t3\t310\n")
         R._COLX.clear()
         cx = R.load_col_x(d)
         self.assertEqual(cx[("Tab.9", "p001")], {1: 110, 2: 210, 3: 310})
