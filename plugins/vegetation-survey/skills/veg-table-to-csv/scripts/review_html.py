@@ -329,6 +329,105 @@ CONFIRM = [{'value': 'a', 'label': '今の転記でよい'},
 VALUE = [{'value': 'a', 'label': '今の転記でよい'},
          {'value': 'val', 'label': '値を入力', 'input': True},
          {'value': 'none', 'label': '値の印字は無い (出現なし)'}]
+OPT_RE = re.compile(r'選択肢\s*(?:\(おすすめの?順\))?\s*[:：]\s*')
+OPT_END = re.compile(r'(でよい|する|入力|のまま|まま|消す|直す|移す|残す|みる|とみる|分ける)\s*(\([^()]*\))?$')
+
+
+def _split_top(s, sep):
+    """括弧の外の sep で分ける"""
+    out, depth, cur, i = [], 0, '', 0
+    while i < len(s):
+        c = s[i]
+        depth += c in '(（'
+        depth -= c in ')）'
+        if depth == 0 and s.startswith(sep, i):
+            out.append(cur.strip())
+            cur = ''
+            i += len(sep)
+            continue
+        cur += c
+        i += 1
+    out.append(cur.strip())
+    return [x for x in out if x]
+
+
+def _cut_tail(s):
+    """括弧の外の最初の「．」で (前, 後ろ) に分ける"""
+    depth = 0
+    for i, c in enumerate(s):
+        depth += c in '(（'
+        depth -= c in ')）'
+        if c == '．' and depth == 0:
+            return s[:i].strip(), s[i + 1:].strip(' ．')
+    return s.strip(), ''
+
+
+CUR_END = re.compile(r'今の転記\s*\([^()]*\)$')
+
+
+def _split_dot(text):
+    """「A・B・C」を，括弧の外の「・」のうち直前が選択肢の終わり方 (〜でよい・〜とする・今の転記 (…) など) の所だけで分ける．
+    値の「1・2」や「11・23」では分けない"""
+    out, depth, cur = [], 0, ''
+    for c in text:
+        depth += c in '(（'
+        depth -= c in ')）'
+        if c == '・' and depth == 0 and (OPT_END.search(cur.strip()) or CUR_END.search(cur.strip())):
+            out.append(cur.strip())
+            cur = ''
+            continue
+        cur += c
+    out.append(cur.strip())
+    return [x for x in out if x]
+
+
+def _labels(text):
+    """「A / B / C」(なければ「A・B・C」) を選択肢の文のリストにする．選択肢らしくなければ []"""
+    labs = _split_top(text, ' / ')
+    if len(labs) < 2:
+        labs = _split_dot(text)
+        if len(labs) < 2:
+            return []
+    return labs
+
+
+def options_from_what(what):
+    """what に文で書いた選択肢 (「選択肢: A / B / C」．「選択肢:」が無く文末に「A / B」が並ぶ形も) を取り出す．
+    返り値は (選択肢を除いた説明, 選択肢の文のリスト)．無ければ (what, [])．2026-11-08 ユーザ指示 (四国 U02)"""
+    m = OPT_RE.search(what or '')
+    if m:
+        head, body = what[:m.start()].rstrip(' ．'), what[m.end():]
+    else:
+        k = (what or '').find(' / ')
+        if k < 0:
+            return what, []
+        depth, start = 0, -1                     # 「/」の前の，括弧の外の最後の「．」から後ろを選択肢とみる
+        for i, c in enumerate(what[:k]):
+            depth += c in '(（'
+            depth -= c in ')）'
+            if c == '．' and depth == 0:
+                start = i
+        head, body = what[:start].rstrip(' ．') if start >= 0 else '', what[start + 1:]
+    labs = _labels(body.strip().rstrip('．'))
+    if not labs:
+        return what, []
+    labs[-1], tail = _cut_tail(labs[-1])
+    note = head + ('．' if head else '') + (tail + '．' if tail else '')
+    return note, labs
+
+
+def options_of(g, labels, current):
+    """選択肢の文から options を作る．A は入力欄つきの「値を入力」が無ければ足す．
+    「今の転記」の選択肢が無く current があれば足す"""
+    opts = [{'value': 'abcdefgh'[j], 'label': lab, **({'input': True} if '入力' in lab else {})}
+            for j, lab in enumerate(labels)]
+    if current and not any(l.startswith('今の転記') for l in labels):
+        opts.append({'value': 'cur', 'label': f'今の転記 ({current}) でよい'})
+    if g == 'A' and not any(o.get('input') for o in opts):
+        opts.append({'value': 'val', 'label': '値を入力', 'input': True})
+    return opts
+
+
 def with_current(opts, current):
     """「今の転記でよい」の選択肢に今の値を書き込む (user_review.tsv の current 列．例: 今の転記 (K +・2) でよい)"""
     if not current:
@@ -423,10 +522,13 @@ def from_tsv(path, heads=None):
                 sp['caption'] += f'．赤枠は {where}'
                 sp['caption'] += ('．上の帯は表頭の通し番号の行' if 'head_y' in sp
                                   else ' (青字．上の数字は列ごとの地点番号)' if measured else ' (青字)')
+            cur = (r.get('current') or '').strip()
+            note, labels = options_from_what(r['what'])   # 文で書いた選択肢はラジオボタンにする
+            opts = options_of(g, labels, cur) if labels else with_current(VALUE if g == 'A' else CONFIRM, cur)
             items.append({'id': f'U{i:02d}', 'group': g,
                           'title': ' '.join(x for x in (r['table'], '地点 ' + r['plot'] if r['plot'] else '', r['j_name']) if x),
-                          'layer': r.get('kind', ''), 'note': r['what'],
-                          'options': with_current(VALUE if g == 'A' else CONFIRM, r.get('current', '')),
+                          'layer': r.get('kind', ''), 'note': note,
+                          'options': opts,
                           'images': [sp]})
     return items
 

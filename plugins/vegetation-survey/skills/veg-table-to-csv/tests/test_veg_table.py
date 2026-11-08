@@ -312,6 +312,23 @@ class ReviewHtmlTest(unittest.TestCase):
         self.assertIn("通し番号", it["images"][0]["caption"])
         self.assertNotIn("head_y", review_html.from_tsv(tsv)[0]["images"][0])
 
+    def test_options_from_what(self):
+        """what に文で書いた選択肢をラジオボタンの選択肢に取り出す (2026-11-08．四国 U02)"""
+        import review_html as R
+        note, labs = R.options_from_what("地点 10 に + がある．選択肢: 今の転記 (B2 に +．印字どおり) でよい / "
+                                         "地点 10 の + を S に移す (下の層とみる) / B1 に移す．赤枠は地点 10")
+        self.assertEqual(labs, ["今の転記 (B2 に +．印字どおり) でよい", "地点 10 の + を S に移す (下の層とみる)", "B1 に移す"])
+        self.assertEqual(note, "地点 10 に + がある．赤枠は地点 10．")
+        _, labs = R.options_from_what("点の上に + が重なる．今の転記 (+?) でよい / 出現なし (・) とする (点とみる)")
+        self.assertEqual(labs, ["今の転記 (+?) でよい", "出現なし (・) とする (点とみる)"])
+        _, labs = R.options_from_what("印字は 1・21．選択肢: 1・2 とする (余分な字とみる)・2・1 とする・今の転記 (1・2?) でよい")
+        self.assertEqual(labs, ["1・2 とする (余分な字とみる)", "2・1 とする", "今の転記 (1・2?) でよい"])
+        self.assertEqual(R.options_from_what("選択肢の無い説明．"), ("選択肢の無い説明．", []))
+        opts = R.options_of("A", ["今の転記 (+?) でよい", "出現なしとする"], "+?")
+        self.assertEqual([o["value"] for o in opts], ["a", "b", "val"])     # A には入力欄を足す
+        opts = R.options_of("B", ["S に移す", "B1 に移す"], "B2 +")
+        self.assertEqual(opts[-1]["label"], "今の転記 (B2 +) でよい")      # 今の転記の選択肢が無ければ足す
+
     def test_row_col_labels(self):
         """rows・cols を書くと，種名と地点番号の余白が付いて画像が大きくなる"""
         import review_html
