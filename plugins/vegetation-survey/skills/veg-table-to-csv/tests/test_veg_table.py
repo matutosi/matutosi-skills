@@ -476,6 +476,14 @@ class ReviewHtmlTest(unittest.TestCase):
         self.assertIn("縦の赤枠は地点 4", it[0]["images"][0]["caption"])
         self.assertEqual(len(it[1]["images"][0]["marks"]), 1)
 
+    def test_option_problems(self):
+        """判断の根拠と結果の無い選択肢を知らせる (2026-11-09 ユーザ指示．中国 U29)"""
+        import review_html as R
+        self.assertIn("選択肢が無い", R.option_problems([], ""))
+        self.assertIn("中身が無い", R.option_problems(["今の転記でよい", "K とする"], ""))
+        self.assertEqual(R.option_problems(["今の転記でよい", "K とする"], "B1;K +"), "")      # current 列で中身が付く
+        self.assertEqual(R.option_problems(["今の転記 (下線なしのため K 層) でよい", "B1 とする"], ""), "")
+
 
 class ConvertTest(unittest.TestCase):
     def test_golden(self):

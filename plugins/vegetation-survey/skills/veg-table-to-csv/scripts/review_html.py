@@ -569,6 +569,21 @@ def options_of(g, labels, current):
     return opts
 
 
+OPTION_WARNINGS = []
+BARE_CURRENT = re.compile(r'^今の転記(?:のまま)?\s*(?:で|が)?\s*(?:よい|良い)?\s*$')
+
+
+def option_problems(labels, current):
+    """選択肢に判断の根拠と結果が書かれているかを見る．問題の説明 (無ければ空)．
+    「今の転記でよい」だけで中身 (値・階層と根拠) が無い，選択肢が無い (既定の「今の転記でよい / 違う」になる) を知らせる"""
+    if not labels:
+        return '選択肢が無い (既定の「今の転記でよい」になる)．根拠と結果を書いた選択肢を足す'
+    bare = [l for l in labels if BARE_CURRENT.match(l.strip())]
+    if bare and not current:
+        return '「今の転記でよい」に中身が無い．「今の転記 (下線なしのため K) でよい」のように根拠と結果を書く'
+    return ''
+
+
 def with_current(opts, current):
     """「今の転記でよい」の選択肢に今の値を書き込む (user_review.tsv の current 列．例: 今の転記 (K +・2) でよい)"""
     if not current:
@@ -707,6 +722,9 @@ def from_tsv(path, heads=None):
             cur = (r.get('current') or '').strip()
             note, labels = options_from_what(r['what'])   # 文で書いた選択肢はラジオボタンにする
             opts = options_of(g, labels, cur) if labels else with_current(VALUE if g == 'A' else CONFIRM, cur)
+            weak = option_problems(labels, cur)
+            if weak:                                  # 判断の根拠と結果の無い選択肢 (2026-11-09 ユーザ指示．中国 U29)
+                OPTION_WARNINGS.append((f'U{i:02d}', r['table'], weak))
             items.append({'id': f'U{i:02d}', 'group': g,
                           'title': ' '.join(x for x in (r['table'], '地点 ' + r['plot'] if r['plot'] else '', r['j_name']) if x),
                           'layer': r.get('kind', ''), 'note': note,
@@ -850,8 +868,15 @@ def main(argv=None):
         print(f'反映済み {len(done)} 件を外した')
     if a.split and a.only:
         items = [it for it in items if it.get('group', group_of(it.get('layer', ''))) in a.only]
-    if WARNINGS:          # 赤枠が地点の列から外れている項目 (画像の準備の担当が画像を見て直す．SKILL.md 8 節)
-        print(f'!! 赤枠が確かめる地点の列から外れている項目が {len(WARNINGS)} 件．画像を見て user_review.tsv の座標を直す')
+    shown = {it['id'] for it in items}
+    box_warn = [w for w in WARNINGS if w[0] in shown]   # 回答済みで外した項目の警告は数えない
+    if box_warn:          # 赤枠が地点の列から外れている項目 (画像の準備の担当が画像を見て直す．SKILL.md 8 節)
+        print(f'!! 赤枠が確かめる地点の列から外れている項目が {len(box_warn)} 件．画像を見て user_review.tsv の座標を直す')
+    weak = [w for w in OPTION_WARNINGS if w[0] in shown]
+    for uid, table, msg in weak:
+        print(f'!! {uid} {table}: {msg}')
+    if weak:              # 判断の根拠と結果の無い選択肢 (SKILL.md 8.3)
+        print(f'!! 選択肢に根拠と結果の無い項目が {len(weak)} 件．user_review.tsv の what を直す')
     prerender(base, items)
     if a.split:
         os.makedirs(a.out, exist_ok=True)
