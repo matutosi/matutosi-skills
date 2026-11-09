@@ -135,9 +135,11 @@ class Store:
     def text(self, rel):
         path = rel if os.path.isabs(rel) else os.path.join(self.base, rel)
         try:
-            mtime = os.path.getmtime(path)
+            st = os.stat(path)
         except OSError:
             return None
+        # 更新時刻だけでは，Windows で同じ時刻のうちに書き直すと古い中身を返す (CI で時々落ちた)．大きさも鍵にする
+        mtime = (st.st_mtime_ns, st.st_size)
         hit = self._text.get(path)
         if hit and hit[0] == mtime:
             return hit[1]
