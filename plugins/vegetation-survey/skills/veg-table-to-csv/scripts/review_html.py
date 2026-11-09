@@ -544,9 +544,14 @@ def options_from_what(what):
             if c == '．' and depth == 0:
                 start = i
         head, body = what[:start].rstrip(' ．') if start >= 0 else '', what[start + 1:]
+    # 選択肢の頭の記号 (a: ・b) ・1) ・(2) ・A．) は付けない (2026-11-09 ユーザ指示．並べ替えて出すので記号はずれる)．
+    # 「1)」の閉じ括弧が括弧の深さの数えを狂わせるので，分ける前に外す
+    mark = r'[(（]?\s*(?:[a-hA-H]|[1-9])\s*[)）:：．.]\s*'
+    body = re.sub(rf'(^\s*|\s/\s){mark}', r'\1', body)
     labs = _labels(body.strip().rstrip('．'))
     if not labs:
         return what, []
+    labs = [re.sub(rf'^\s*{mark}', '', x) for x in labs]
     labs[-1], tail = _cut_tail(labs[-1])
     note = head + ('．' if head else '') + (tail + '．' if tail else '')
     return note, labs
@@ -594,7 +599,7 @@ TSV_COLS = ['table', 'plot', 'j_name', 'kind', 'what', 'page', 'x0', 'y0', 'x1',
 PAD = 150
 
 
-PARA_KIND = re.compile(r'見出しの欠け|注記の字')
+PARA_KIND = re.compile(r'見出しの欠け|注記の字|^G\. 注記|注記$|種数の差')
 PARA_WHAT = re.compile(r'1 回出現|出現 ?2 回|出現1回|^注記|調査地の注記|^出典|in \d+:')
 
 
@@ -655,6 +660,16 @@ def from_tsv(path, heads=None):
                     print(f'!! U{i:02d} {r["table"]} 地点 {r["plot"]}: {warn}')
                     WARNINGS.append((f'U{i:02d}', r['table'], r['plot'], warn))
                 sp['crop'] = narrow_crop(sp['crop'], xmap, plots0, box=[x0, y0, x1, y1])
+                if len(plots0) == 1 and xmap and plots0[0] in xmap and len(xmap) > 1 and not warn:
+                    # 見るのが 1 地点だけなのに赤枠が横に長い (行を囲んだ) ときは，その地点の列にも縦の赤枠を付ける
+                    # (2026-11-09 ユーザ指示．中国 U47．行と列の赤枠の交わりが見るセル)
+                    xs = sorted(xmap.values())
+                    pitch = sorted(b - a for a, b in zip(xs, xs[1:]))[(len(xs) - 1) // 2]
+                    if x1 - x0 > 1.6 * pitch:
+                        xc = xmap[plots0[0]]
+                        sp['marks'].append({'box': [int(xc - .5 * pitch), sp['crop'][1] + 6,
+                                                    int(xc + .5 * pitch), sp['crop'][3] - 6]})
+                        sp['caption'] += f'．縦の赤枠は地点 {plots0[0]} の列 (横の赤枠との交わりが見るセル)'
             nx = [(r.get(k) or '').strip() for k in ('names_x0', 'names_x1')]
             if all(nx):                               # 種名の列を左に貼る (赤枠を種名まで広げない．2026-11-08)
                 sp['names_x'] = [int(float(v)) for v in nx]

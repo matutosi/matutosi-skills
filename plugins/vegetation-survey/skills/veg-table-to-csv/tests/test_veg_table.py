@@ -452,6 +452,30 @@ class ReviewHtmlTest(unittest.TestCase):
         self.assertIn("階層の列", it[0]["images"][0]["caption"])
         self.assertNotIn("layer_x", it[1]["images"][0])
 
+    def test_option_marks_and_column_box(self):
+        """選択肢の頭の記号 (a: など) は外す．1 地点だけを見るのに赤枠が横に長いときは，その列にも縦の赤枠を付ける (2026-11-09)"""
+        import review_html as R
+        from PIL import Image
+        _, labs = R.options_from_what("+ か点か．選択肢: a: 点 (出現なし．出現種数が印字と一致) / b: + (出現種数が印字より 1 多い)")
+        self.assertEqual(labs, ["点 (出現なし．出現種数が印字と一致)", "+ (出現種数が印字より 1 多い)"])
+        _, labs = R.options_from_what("説明．選択肢: 1) 今の転記でよい / 2) 別の地点にも + がある")
+        self.assertEqual(labs, ["今の転記でよい", "別の地点にも + がある"])
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "work"))
+        Image.new("RGB", (1200, 600), "white").save(os.path.join(d, "work", "p001.png"))
+        with open(os.path.join(d, "col_x.tsv"), "w", encoding="utf-8") as f:
+            f.write("table\tpage\tplot\tx\n" + "".join(f"Tab.1\tp001\t{k}\t{100 + 50 * k}\n" for k in range(1, 15)))
+        with open(os.path.join(d, "user_review.tsv"), "w", encoding="utf-8") as f:
+            f.write("table\tplot\tj_name\tkind\twhat\tpage\tx0\ty0\tx1\ty1\n")
+            f.write("Tab.1\t4\tウバメガシ\tA. 読めない値\t1 桁だけ\tp001\t120\t200\t800\t260\n")   # 行を横に長く囲んだ
+            f.write("Tab.1\t5\tトベラ\tA. 読めない値\tかすれ\tp001\t330\t200\t370\t230\n")      # そのセルだけ
+        it = R.from_tsv(os.path.join(d, "user_review.tsv"))
+        marks = it[0]["images"][0]["marks"]
+        self.assertEqual(len(marks), 2)
+        self.assertEqual((marks[1]["box"][0] + marks[1]["box"][2]) // 2, 300)        # 地点 4 の列 (x 300)
+        self.assertIn("縦の赤枠は地点 4", it[0]["images"][0]["caption"])
+        self.assertEqual(len(it[1]["images"][0]["marks"]), 1)
+
 
 class ConvertTest(unittest.TestCase):
     def test_golden(self):
