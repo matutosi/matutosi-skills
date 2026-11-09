@@ -328,6 +328,8 @@ def narrow_crop(crop, xmap, plots, around=2, box=None):
     x0, x1 = int(xmap[lo] - 0.7 * sp), int(xmap[hi] + 0.7 * sp)
     if x1 - x0 >= crop[2] - crop[0]:
         return crop
+    if box and (box[0] < x0 - sp or box[2] > x1 + sp):
+        return crop      # 赤枠が狭めた範囲からはみ出す (段落や行を囲んだ) ときは狭めない (2026-11-09．中国 U86)
     return [max(0, x0), crop[1], x1, crop[3]]
 
 

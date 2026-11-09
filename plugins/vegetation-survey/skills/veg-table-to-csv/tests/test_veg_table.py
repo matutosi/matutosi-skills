@@ -344,6 +344,8 @@ class ReviewHtmlTest(unittest.TestCase):
         self.assertTrue(crop[0] < 1000 - 50 and crop[0] > 900 - 100)       # 地点 7 (x 900) の少し左から
         self.assertTrue(crop[2] > 1300 and crop[2] < 1400)                 # 地点 11 (x 1300) の少し右まで
         self.assertEqual(R.narrow_crop([150, 250, 1450, 650], None, [9]), [150, 250, 1450, 650])
+        # 赤枠が段落や行を囲んで狭めた範囲からはみ出すときは狭めない (中国 U86)
+        self.assertEqual(R.narrow_crop([150, 250, 1450, 650], xmap, [9], box=[250, 300, 1350, 340]), [150, 250, 1450, 650])
         self.assertEqual(R.parse_plots("30,32"), [30, 32])
 
     def test_plot_x_map_table_range(self):
