@@ -312,6 +312,59 @@ def n_plots_of(base, table):
         return sum(1 for c in f.readline().rstrip('\r\n').split('\t') if c.strip().isdigit())
 
 
+def _tsv(p):
+    import csv
+    if not os.path.exists(p):
+        return []
+    with open(p, encoding='utf-8-sig', newline='') as f:
+        return list(csv.DictReader(f, delimiter='\t'))
+
+
+def _cover(v):
+    """値の被度 (+ は 0.5・r は 0.1)．値でなければ -1"""
+    m = re.match(r'\s*([1-5+r])', v or '')
+    if not m:
+        return -1
+    return int(m.group(1)) if m.group(1).isdigit() else {'r': 0.1, '+': 0.5}[m.group(1)]
+
+
+def reference_info(base, table, plots, around=1, limit=10):
+    """表頭・注記の項目に添える参考情報 (SKILL.md 8.3)．群落名・その地点と前後の地点の表頭の全項目・調査地・
+    各階層の優占種 (被度の最も大きい種) を {'title', 'cols', 'rows'} で返す．転記が無ければ None"""
+    d = os.path.join(base, 'transcripts', 'Tab.%03d' % int(re.sub(r'\D', '', table) or 0))
+    head = _tsv(os.path.join(d, 'header.tsv'))
+    if not head or not plots:
+        return None
+    have = [int(c) for c in head[0] if c.strip().isdigit()]
+    cols = sorted({p for q in plots for p in range(q - around, q + around + 1) if p in have})
+    if len(cols) > limit:
+        cols = sorted(set(plots))[:limit]
+    rows = [[r['item_ja']] + [r.get(str(p), '') for p in cols] for r in head if r.get('item_ja')]
+    site = {}
+    for r in _tsv(os.path.join(d, 'notes.tsv')):
+        if r.get('item_ja') in ('調査地', '出典'):
+            for p in parse_plots(r.get('plot', '')):
+                site.setdefault(r['item_ja'], {})[p] = r.get('value', '')
+    for k, m in site.items():
+        rows.append([k] + [m.get(p, '') for p in cols])
+    best, name = {}, ''
+    for r in _tsv(os.path.join(d, 'body.tsv')):
+        if r.get('kind') != 'sp':
+            continue
+        name = r.get('j_name') or r.get('s_name') or name
+        lay = r.get('layer', '')
+        if ';' in lay or ',' in lay:     # 2 階層の行は階層が決まらないので数えない
+            continue
+        for p in cols:
+            c = _cover(r.get(str(p), ''))
+            if c > 0 and c > best.get((lay, p), ('', -1))[1]:
+                best[(lay, p)] = (f'{name} {r.get(str(p))}', c)
+    for lay in dict.fromkeys(k[0] for k in best):
+        rows.append([f'優占 ({lay})' if lay else '優占'] + [best.get((lay, p), ('',))[0] for p in cols])
+    meta = {r['key']: r['value'] for r in _tsv(os.path.join(d, 'meta.tsv')) if 'key' in r}
+    return {'title': meta.get('title_ja', ''), 'cols': cols, 'rows': rows}
+
+
 def narrow_crop(crop, xmap, plots, around=2, box=None):
     """確かめる地点 (plots) とその前後 around 地点だけが入るように，切り出しの左右を狭める．
     狭められないとき (地点が表に無い・もとより狭い・測った地点の x が赤枠 box の外) は crop を返す．
@@ -727,7 +780,8 @@ def from_tsv(path, heads=None):
             weak = option_problems(labels, cur)
             if weak:                                  # 判断の根拠と結果の無い選択肢 (2026-11-09 ユーザ指示．中国 U29)
                 OPTION_WARNINGS.append((f'U{i:02d}', r['table'], weak))
-            items.append({'id': f'U{i:02d}', 'group': g,
+            ref = reference_info(base, r['table'], plots0) if g == 'D' else None
+            items.append({'id': f'U{i:02d}', 'group': g, 'ref': ref,
                           'title': ' '.join(x for x in (r['table'], '地点 ' + r['plot'] if r['plot'] else '', r['j_name']) if x),
                           'layer': r.get('kind', ''), 'note': note,
                           'options': opts,
@@ -754,6 +808,8 @@ input[type=text]{padding:3px 6px;border:1px solid var(--line);border-radius:4px;
 .v{width:12em}.m{width:24em;max-width:100%}
 select{padding:4px;font-size:14px}#bar label{font-size:13px}
 button{padding:8px 16px;border:0;border-radius:6px;background:var(--acc);color:#fff;font-size:15px;cursor:pointer}
+.ref{margin:4px 0 8px;font-size:12px}.refw{overflow-x:auto}.ref table{border-collapse:collapse}
+.ref th,.ref td{border:1px solid var(--line);padding:1px 6px;white-space:nowrap;text-align:left}
 #bar{position:sticky;top:0;background:var(--bg);padding:8px 0;border-bottom:1px solid var(--line);z-index:2}
 """
 
@@ -808,6 +864,13 @@ def card(base, it, choices):
         out.append(f'<p class="meta">{e(it["meta"])}</p>')
     if it.get('note'):
         out.append(f'<p class="memo">{e(it["note"])}</p>')
+    ref = it.get('ref')
+    if ref:               # 表頭・注記の項目の参考情報 (群落名・前後の地点の表頭・調査地・優占種．SKILL.md 8.3)
+        th = ''.join(f'<th>{p}</th>' for p in ref['cols'])
+        tr = ''.join('<tr><th>' + e(r[0]) + '</th>' + ''.join(f'<td>{e(v)}</td>' for v in r[1:]) + '</tr>'
+                     for r in ref['rows'])
+        out.append(f'<details class="ref"><summary>参考: {e(ref["title"])} (地点ごとの表頭・調査地・優占種)</summary>'
+                   f'<div class="refw"><table><tr><th>地点</th>{th}</tr>{tr}</table></div></details>')
     out.append('<div class="pane"><div class="imgs">')
     for sp in it['images']:
         cap = e(sp.get('caption', '')) + '　(赤枠・赤線 = 該当)'
@@ -848,6 +911,8 @@ def main(argv=None):
     ap.add_argument('--settled', nargs='*', default=[],
                     help='反映済みの回答 JSON．選択肢を選んだ項目は HTML から外す (番号は変えない)')
     ap.add_argument('--only', default=None, help='--split のとき作る区分 (例: B または BD)．省くと全部')
+    ap.add_argument('--allow-box-warn', action='store_true',
+                    help='赤枠が地点の列から外れた項目があっても HTML を作る (既定は作らずに止める)')
     ap.add_argument('--export-png', default=None, metavar='DIR',
                     help='各項目の画像を DIR に PNG で書き出す (U12_0.png の形)．赤枠が説明の場所と合うかを 1 枚ずつ確かめるため')
     a = ap.parse_args(argv)
@@ -876,6 +941,9 @@ def main(argv=None):
     box_warn = [w for w in WARNINGS if w[0] in shown]   # 回答済みで外した項目の警告は数えない
     if box_warn:          # 赤枠が地点の列から外れている項目 (画像の準備の担当が画像を見て直す．SKILL.md 8 節)
         print(f'!! 赤枠が確かめる地点の列から外れている項目が {len(box_warn)} 件．画像を見て user_review.tsv の座標を直す')
+        if not a.allow_box_warn:
+            print('!! HTML は作らずに止めた (直してから作り直す．そのまま作るときは --allow-box-warn)')
+            return 2
     weak = [w for w in OPTION_WARNINGS if w[0] in shown]
     for uid, table, msg in weak:
         print(f'!! {uid} {table}: {msg}')

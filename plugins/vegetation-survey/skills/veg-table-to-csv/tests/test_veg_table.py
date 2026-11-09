@@ -1464,5 +1464,34 @@ class MergeTablesTest(unittest.TestCase):
             self.assertIn("## Tab.005", f.read())
 
 
+class ReferenceInfoTest(unittest.TestCase):
+    def test_reference_info(self):
+        import review_html as R
+        d = tempfile.mkdtemp()
+        t = os.path.join(d, "transcripts", "Tab.007")
+        os.makedirs(t)
+        files = {
+            "meta.tsv": ["key\tvalue", "title_ja\tスギ植林"],
+            "header.tsv": ["item_ja\titem_de\tunit\t1\t2\t3\t4", "高木第1層植被率\t\t%\t90\t15\t80\t85"],
+            "notes.tsv": ["plot\titem_ja\titem_de\tvalue\tunit\tvalue_raw\tstatus\tnote", "1-3\t調査地\t\tA村\t\t\tok\t"],
+            "body.tsv": ["kind\tgroup_ja\tgroup_de\ts_name\tj_name\tlayer\t1\t2\t3\t4\tnote",
+                         "sp\t\t\tC\tスギ\tB1\t5・5\t4・4\t+\t・\t",
+                         "sp\t\t\tD\tヒノキ\tB1\t1・1\t・\t3・3\t・\t",
+                         "sp\t\t\tE\tツタ\tS;K\t5・5\t5・5\t5・5\t5・5\t"],
+        }
+        for k, v in files.items():
+            with open(os.path.join(t, k), "w", encoding="utf-8") as f:
+                f.write("\n".join(v) + "\n")
+        r = R.reference_info(d, "Tab.7", [2])
+        self.assertEqual(r["title"], "スギ植林")
+        self.assertEqual(r["cols"], [1, 2, 3])                     # 前後 1 地点ずつ
+        rows = {x[0]: x[1:] for x in r["rows"]}
+        self.assertEqual(rows["高木第1層植被率"], ["90", "15", "80"])
+        self.assertEqual(rows["調査地"], ["A村", "A村", "A村"])
+        self.assertEqual(rows["優占 (B1)"], ["スギ 5・5", "スギ 4・4", "ヒノキ 3・3"])
+        self.assertNotIn("優占 (S;K)", rows)                      # 2 階層の行は数えない
+        self.assertIsNone(R.reference_info(d, "Tab.8", [2]))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
