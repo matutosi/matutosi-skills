@@ -848,6 +848,8 @@ def main(argv=None):
     ap.add_argument('--settled', nargs='*', default=[],
                     help='反映済みの回答 JSON．選択肢を選んだ項目は HTML から外す (番号は変えない)')
     ap.add_argument('--only', default=None, help='--split のとき作る区分 (例: B または BD)．省くと全部')
+    ap.add_argument('--export-png', default=None, metavar='DIR',
+                    help='各項目の画像を DIR に PNG で書き出す (U12_0.png の形)．赤枠が説明の場所と合うかを 1 枚ずつ確かめるため')
     a = ap.parse_args(argv)
     choices = [c for c in a.choices.split(',') if c in LABELS]
     if a.items.lower().endswith('.tsv'):
@@ -880,6 +882,17 @@ def main(argv=None):
     if weak:              # 判断の根拠と結果の無い選択肢 (SKILL.md 8.3)
         print(f'!! 選択肢に根拠と結果の無い項目が {len(weak)} 件．user_review.tsv の what を直す')
     prerender(base, items)
+    if a.export_png:      # 赤枠が説明の場所と合うかを確かめる画像 (2026-11-09 ユーザ指示．SKILL.md 8.6)
+        os.makedirs(a.export_png, exist_ok=True)
+        n = 0
+        for it in items:
+            for k, sp in enumerate(it.get('images', [])):
+                img = make_image(base, sp)
+                b64 = (img[0] if isinstance(img, tuple) else img).split(',', 1)[-1]
+                with open(os.path.join(a.export_png, f"{it['id']}_{k}.png"), 'wb') as f:
+                    f.write(base64.b64decode(b64))
+                n += 1
+        print(f'画像 {n} 枚を書き出した: {a.export_png} (赤枠が説明の場所と合うかを 1 枚ずつ確かめる)')
     if a.split:
         os.makedirs(a.out, exist_ok=True)
         for g, name in GROUPS.items():

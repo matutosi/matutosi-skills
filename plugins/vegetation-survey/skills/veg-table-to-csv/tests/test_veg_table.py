@@ -478,6 +478,21 @@ class ReviewHtmlTest(unittest.TestCase):
         self.assertIn("縦の赤枠は地点 4", it[0]["images"][0]["caption"])
         self.assertEqual(len(it[1]["images"][0]["marks"]), 1)
 
+    def test_export_png(self):
+        """--export-png で各項目の画像を PNG に書き出す (赤枠が説明の場所と合うかを確かめる．2026-11-09)"""
+        import review_html as R
+        from PIL import Image
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "work"))
+        Image.new("RGB", (800, 600), "white").save(os.path.join(d, "work", "p001.png"))
+        tsv = os.path.join(d, "user_review.tsv")
+        with open(tsv, "w", encoding="utf-8") as f:
+            f.write("table\tplot\tj_name\tkind\twhat\tpage\tx0\ty0\tx1\ty1\n")
+            f.write("Tab.1\t3\tヨシ\tA. 読めない値\tかすれ．選択肢: 今の転記 (+) でよい / 点とする\tp001\t250\t300\t300\t330\n")
+        png = os.path.join(d, "png")
+        run(R.main, [tsv, os.path.join(d, "r.html"), "--export-png", png])
+        self.assertTrue(os.path.exists(os.path.join(png, "U01_0.png")))
+
     def test_option_problems(self):
         """判断の根拠と結果の無い選択肢を知らせる (2026-11-09 ユーザ指示．中国 U29)"""
         import review_html as R
