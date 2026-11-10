@@ -23,6 +23,8 @@
   列の位置は `・` の並びから測る．測れないときは警告を出し，`--box` を地点の数で等分する (左右には `--pad` を足さない)．
   群の境で間隔が広がる表など，測れない・等分では合わない表は，`--centers` で全列の中心の x を，
   等間隔なら `--first-x` と `--pitch` を渡す．最後の列が切り出しの右端からはみ出せば警告する．
+  列の位置をどう決めたか (`列の位置: 測った`・`等分`・`引数`) を必ず表示する．
+  `--label` の左端が字に掛かる (名前の頭がはみ出す) ときは警告し，広げる先の x を出す．
 - `--tiles` は「行数x列数」(`3x2` は縦 3 枚・横 2 枚)．`--raw` は `--tiles` を使わず 1 枚で切る．
 
     python scripts/crop.py <表.png> --box 5180 1730 7260 7200 --dense 10 --plots 20 --label 3950 5170 --tiles 6x1 --out <置き場>
@@ -193,6 +195,53 @@ def measure_columns(im, plots, rough=None):
     return [left + start + i * pitch for i in range(plots)], ''
 
 
+def label_cut(im, x, y0, y1, look=300, near=12):
+    """--label の左端 x に字が掛かる (左の字から続いている) 所を探す．(掛かる所の y の並び, 左へ広げる先の x か None)
+
+    左端の 3 px と，そのすぐ左 near px の両方に字のある行が続く所を数える．
+    左端に沿って長く続く縦の線 (罫線) は字ではないので数えない"""
+    x0 = max(0, x - look)
+    if x - x0 < near + 2 or y1 <= y0:
+        return [], None
+    g = im.crop((x0, y0, x + 2, y1)).convert('L')
+    w, h = g.size
+    px = g.tobytes()
+    dark = [[px[y * w + i] < 128 for i in range(w)] for y in range(h)]
+    edge = x - x0                                     # 左端の列の添字
+    on = [any(r[edge - 1:edge + 2]) for r in dark]
+    left = [any(r[edge - 1 - near:edge - 1]) for r in dark]
+    hits, y = [], 0
+    while y < h:
+        if on[y]:
+            z = y
+            while z < h and on[z]:
+                z += 1
+            if z - y <= 80 and sum(left[y:z]) >= 3:     # 80 px を超えて続くのは縦の罫線
+                hits.append((y, z))
+            y = z
+        else:
+            y += 1
+    if not hits:
+        return [], None
+    merged = [list(hits[0])]                          # 1 字の画の切れ目で分かれた所を 1 か所にまとめる
+    for a, b in hits[1:]:
+        if a - merged[-1][1] <= 10:
+            merged[-1][1] = b
+        else:
+            merged.append([a, b])
+    hits = merged
+    to = None
+    run = 0
+    for i in range(edge - 1, -1, -1):                 # 掛かる所の 9 割以上で字の無い縦の隙間 (12 px．字の間より広い) を左へ探す
+        busy = sum(any(dark[yy][i] for yy in range(max(0, a - 4), min(h, b + 4))) for a, b in hits)
+        clear = busy <= .1 * len(hits)
+        run = run + 1 if clear else 0
+        if run >= 12:
+            to = x0 + i + 6                           # 字の頭から 6 px 左
+            break
+    return [y0 + (a + b) // 2 for a, b in hits], to
+
+
 def dense_tile(im, edges, label, first, last, y_range, grid_top=26, lines=False):
     """1 枚分: 左に種名・階層，右に first〜last 地点の値．edges は地点の境 (地点の数 + 1 個) の x
 
@@ -287,6 +336,7 @@ def main(argv=None):
             edges = ([g[0] - gaps[0] / 2] + [(c + b) / 2 for c, b in zip(g, g[1:])] + [g[-1] + gaps[-1] / 2])
             centers, why = None, ''
             print(f'列は引数のとおり: 第 1 列の中心 x={given[0]:.0f}・最後 x={given[-1]:.0f}・間隔 {min(gaps):.0f}-{max(gaps):.0f} px')
+            print('列の位置: 引数 (' + ('--centers' if a.centers else '--first-x・--pitch') + ')')
             search = None
         else:
             search = whole.crop((max(x0, origin) - a.label[0], 0, x1 - a.label[0], y1 - y0))
@@ -298,9 +348,13 @@ def main(argv=None):
             base = max(x0, origin) - a.label[0]
             edges = [base + c - w / 2 for c in centers] + [base + centers[-1] + w / 2]
             print(f'列を測った: 第 1 列の中心 x={round(base + centers[0] + a.label[0])}，間隔 {w:.1f} px')
+            weq = (a.box[2] - a.box[0]) / a.plots
+            print(f'列の位置: 測った (点の並びから)．--box を等分した場合の第 1 列の中心は x={a.box[0] + weq / 2:.0f}・'
+                  f'間隔 {weq:.1f} px')
         else:
             w = (a.box[2] - a.box[0]) / a.plots       # 等分は --pad を足す前の --box で行う
             edges = [a.box[0] - a.label[0] + i * w for i in range(a.plots + 1)]
+            print(f'列の位置: 等分 (測れなかった)．第 1 列の中心 x={a.box[0] + w / 2:.0f}・間隔 {w:.1f} px')
             print(f'警告: 列を測れなかった ({why})．--box を {a.plots} 等分した．--box の左右を第 1 列と最後の列の外側に'
                   '合わせ，1 枚目で札と値の列が合っているかを確かめる．間隔が不ぞろいなら --centers か --first-x・--pitch で渡す')
         if edges[-1] > whole.width - 2:               # 最後の列が切り出しの右端からはみ出す (右端の列の値が切れる)
@@ -309,6 +363,15 @@ def main(argv=None):
         label_w = min(a.label[1] - a.label[0], int(edges[0]))   # 第 1 列を種名の側に写さない
         if label_w < a.label[1] - a.label[0]:
             print(f'--label の右端が第 1 列に掛かるので，x={a.label[0] + label_w} で止めた')
+        cut, to = label_cut(im, a.label[0], y0, y1)
+        if cut:                                       # 名前の頭がはみ出す (左端が字のかたまりに掛かる)
+            ys = ' '.join(str(v) for v in cut[:8]) + (' …' if len(cut) > 8 else '')
+            more = f'左端を x={to} まで広げる' if to is not None else '左端を字の無い所まで広げる'
+            if len(cut) >= 5:
+                print(f'警告: --label の左端 x={a.label[0]} が字に掛かる ({len(cut)} 行．y={ys})．名前の頭が切れる．{more}')
+            else:
+                print(f'注意: --label の左端 x={a.label[0]} に字が掛かる ({len(cut)} 行．y={ys})．'
+                      f'長い学名の末尾なら問題ない．名前の頭なら{more}')
         rows = int(a.tiles.lower().split('x')[0])
         h = (y1 - y0) / rows
         print(f'行の傾き {dy} px を直した')

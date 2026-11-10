@@ -10,6 +10,7 @@
     ||S|2:+                                 学名と和名が空なら，上の種の別の階層
     学名|和名|階層|*+ ・ 1・2 ・ …          * なら全地点を左から順に書く
     学名|和名|S;K|2:+ 4:1・2|4: 下線; 印字は S,K (K に下線)     5 列目は note
+    # 帯 3 (y 5200-6400)                    #table 以外の # で始まる行はコメント (読み飛ばす)
 """
 import os
 import re
@@ -63,6 +64,8 @@ def main(argv=None):
                     write(argv[1], table, n, rows)
                 _, table, n = line.split()
                 n, rows = int(n), []
+            elif line.lstrip().startswith('#'):        # #table 以外の # で始まる行はコメント
+                continue
             else:
                 rows.append(expand(line, n))
     if table:

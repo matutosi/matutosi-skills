@@ -65,6 +65,7 @@ def parse_value(raw, n_plots=0):
         s = m.group(1).strip()
         notes.append('括弧付き')
     out = None
+    over = False                                      # 出現地点数が調査区数を超える
     m = re.fullmatch(rf'([1-9]\d*)(?:\s*\(\s*({COV})(?:\s*-\s*({COV}))?\s*\))?', s) if n_plots else None
     if m and n_plots >= 5 and m.group(2) and 1 <= int(m.group(1)) <= 5:
         # 調査区数 5 以上の列 (ローマ数字の列) の算用数字 1(+-2) は，ローマ数字 I(+-2) の誤植 (規則 X8・8.4)
@@ -74,6 +75,12 @@ def parse_value(raw, n_plots=0):
         m = None
     if m and int(m.group(1)) <= n_plots:              # 出現地点数 2(3-4)
         out = ((m.group(2) or '') + ('-' + m.group(3) if m.group(3) else ''), '', m.group(1))
+    elif m and int(m.group(1)) > n_plots:
+        # 常在度の列の出現地点数が調査区数を超える (規則で直す前の転記．印字のまま check)．
+        # 被度と読んで「列の種類と違う形のセル」にしない
+        out = ((m.group(2) or '') + ('-' + m.group(3) if m.group(3) else ''), '', m.group(1))
+        notes.append(f'出現地点数 {m.group(1)} が調査区数 {n_plots} を超える')
+        over = True
     m = None if out else re.fullmatch(rf'({ROMAN})(?:\s*\(\s*({COV})(?:\s*-\s*({COV}))?\s*\))?', s)
     if m:                                             # 常在度 IV(+-3)
         cov = m.group(2) or ''
@@ -99,7 +106,7 @@ def parse_value(raw, n_plots=0):
         out = (m.group(1), soc, '')
     if out is None:
         return ('', '', '', 'check', ';'.join(notes + [f'値として読めない: {raw}']))
-    return out + ('check' if unsure else 'ok', ';'.join(notes + (['読みに自信なし'] if unsure else [])))
+    return out + ('check' if unsure or over else 'ok', ';'.join(notes + (['読みに自信なし'] if unsure else [])))
 
 
 SOC_DEFAULT = 'one'                                   # 群度の印字が無いときの補い方: one | cover

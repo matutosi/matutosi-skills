@@ -17,7 +17,11 @@
    常在度の列は地点ではないので比べない．
    合わないときは，別の数え方 (種 × 階層，本体だけ，見出し × 種 × 和名) の数も並べる．
    `--list 表:地点` で，その地点で数えた種の一覧を出せる．
-   どれかと合えば読みではなく数え方の違い，どれとも合わなければ読み落としか行のずれを疑う
+   どれかと合えば読みではなく数え方の違い，どれとも合わなければ読み落としか行のずれを疑う．
+   合う数え方は各行の末尾に「本体だけと合う」のように書く．本体だけで合う地点のある表は
+   `[数え方]` の行に「本体 + 1 回出現で合う地点・本体だけで合う地点・どちらとも合わない地点」を並べる．
+   「以下略」(u. a.) で種の一部を載せていない表は，種数が合わなくて当たり前なので問題に数えず `[以下略]` の行に出す
+   (`--abridged Tab.15,Tab.2` で指定．sites.csv の値・備考に「以下略」とある表は指定しなくても同じ)
 6. 1 回出現の種が，本体の同じ地点に同じ種として出ていないか
 
 終わりに件数を表示する．問題が 0 件でも，読み違いが無いことの証明にはならない
@@ -46,6 +50,17 @@ COUNT_DE = ('artenzahl',)
 NO_MOSS = re.compile(r'ohne\s*moos|ohne\s*bryo|蘚苔[類]?を除|コケ[類植物]*を除', re.I)   # 出現種数が蘚苔類を数えない表
 MOSS = re.compile(r'蘚|苔|コケ|地衣|moos|bryo|flecht|lichen|musci|hepat', re.I)
 MOSS_NOTE = re.compile(r'蘚苔|地衣|moose|flechten', re.I)    # note は「コケシノブ」などに当たらないよう語を絞る
+
+
+ABRIDGED = '以下略'
+
+
+def tkey(t):
+    """表の名前の比べ方．`Tab.15`・`Tab.015`・`15` を同じとみる"""
+    t = t.strip()
+    if t.isdigit():
+        t = 'Tab.' + t
+    return re.sub(r'\d+', lambda m: str(int(m.group())), t).lower()
 
 
 def is_moss(r):
@@ -105,6 +120,11 @@ def main(argv=None):
     ap.add_argument('--no-moss', action='store_true',
                     help='どの表でも蘚苔類・地衣類の行を種数から外す (既定では，出現種数の項目名に'
                          '「ohne Moos」「蘚苔類を除く」とある表だけ外す)')
+    ap.add_argument('--abridged', metavar='表,表',
+                    help='「以下略」(u. a.) で種の一部を載せていない表 (例: Tab.15,Tab.2)．種数の不一致を問題に数えず'
+                         '[以下略] として出す．sites.csv に「以下略」とある表は指定しなくても同じに扱う')
+    ap.add_argument('--no-abridged-auto', action='store_true',
+                    help='sites.csv の「以下略」から以下略の表を自動で決めない (--abridged だけ使う)')
     a = ap.parse_args(argv)
     sites = read(os.path.join(a.dir, 'sites.csv'))
     comp = read(os.path.join(a.dir, 'composition.csv'))
@@ -214,22 +234,41 @@ def main(argv=None):
             continue
         with_count.add(r['table'])
         wants[(r['table'], r['plot'])].append(want)
+    abridged = {tkey(t) for t in (a.abridged or '').split(',') if t.strip()}
+    auto_abr = set()
+    if not a.no_abridged_auto:                        # 注記・表頭に「以下略」(u. a.) と書かれた表
+        auto_abr = {tkey(r['table']) for r in sites
+                    if any(ABRIDGED in r.get(k, '') for k in ('value', 'value_raw', 'item_ja', 'note'))}
+    abridged |= auto_abr
+    n_abr = 0
+    abr_msgs = []
+    how = defaultdict(lambda: defaultdict(list))     # 表 → 数え方 → [地点]．地点ごとに，どの数え方で印字と合うか
     for key, vals in wants.items():
         if key in const_cols and key not in counted:
             n_const += 1
             continue
         want, got = sum(vals), len(counted.get(key, ()))
+        n_body = len(body_only.get(key, ()))
+        how[key[0]]['本体 + 1 回出現' if got == want else '本体だけ' if n_body == want else 'どちらとも合わない'].append(key[1])
         if got == want:
             n_ok += 1
         else:
             n_ng += 1
+            alt = (f"種×階層 {len(by_layer.get(key, ()))}・本体だけの種 {n_body}・"
+                   f"見出し×種×和名 {len(by_row.get(key, ()))}")
+            match = [name for name, v in (('本体だけ', n_body), ('種×階層', len(by_layer.get(key, ()))),
+                                          ('見出し×種×和名', len(by_row.get(key, ())))) if v == want]
+            hit = f"．{'・'.join(match)}と合う" if match else ''
+            sum_note = f' ({len(vals)} 行の合計)' if len(vals) > 1 else ''
+            msg = (f"{key[0]} 地点 {key[1]}: 出現種数 {want}{sum_note} に対し読んだ種 {got} "
+                   f"({got - want:+d})．別の数え方: {alt}{hit}")
+            if tkey(key[0]) in abridged:              # 以下略の表は種数が合わなくて当たり前．問題に数えない
+                n_abr += 1
+                abr_msgs.append(msg)
+                continue
             if key[1].isdigit():
                 diffs[key[0]][int(key[1])] = (got, want)
-            alt = (f"種×階層 {len(by_layer.get(key, ()))}・本体だけの種 {len(body_only.get(key, ()))}・"
-                   f"見出し×種×和名 {len(by_row.get(key, ()))}")
-            sum_note = f' ({len(vals)} 行の合計)' if len(vals) > 1 else ''
-            bad('種数', f"{key[0]} 地点 {key[1]}: 出現種数 {want}{sum_note} に対し読んだ種 {got} "
-                        f"({got - want:+d})．別の数え方: {alt}")
+            bad('種数', msg)
 
     # 6. 1 回出現の種が本体にも
     body = {(r['table'], r['plot'], spkey(r))
@@ -244,6 +283,16 @@ def main(argv=None):
         print(f'[{kind}] {msg}')
     for msg in clues(comp, diffs):
         print(f'[手がかり] {msg}')
+    for msg in abr_msgs:
+        print(f'[以下略] {msg}')
+    for table in sorted(how, key=lambda t: (len(t), t)):   # 数え方が地点で分かれる表 (印字の取り違えか見出しのずれの手がかり)
+        h = how[table]
+        if not h.get('本体だけ') or tkey(table) in abridged:
+            continue
+        parts = [f"{name}{'' if name.startswith('どちら') else 'で合う'} {len(h[name])} 地点 "
+                 f"({' '.join(sorted(h[name], key=lambda p: (len(p), p)))})"
+                 for name in ('本体 + 1 回出現', '本体だけ', 'どちらとも合わない') if h.get(name)]
+        print(f"[数え方] {table}: {'・'.join(parts)}")
     n_check = sum(1 for r in comp + sites if r.get('status', '').strip() == 'check')
     n_multi = sum(1 for r in comp if r.get('status', '').strip() == 'multi')
     print(f'--- sites {len(sites)} 行・composition {len(comp)} 行 '
@@ -253,6 +302,11 @@ def main(argv=None):
           f'status=check {n_check} 行・multi {n_multi} 行')
     if n_const:
         print(f'--- 常在度の列 {n_const} 列は，出現種数と比べていない')
+    if abridged & {tkey(r['table']) for r in comp + sites}:
+        names = sorted({r['table'] for r in comp + sites if tkey(r['table']) in abridged}, key=lambda t: (len(t), t))
+        auto = sorted({r['table'] for r in comp + sites if tkey(r['table']) in auto_abr}, key=lambda t: (len(t), t))
+        print(f'--- 以下略の表 {len(names)}: {" ".join(names)}' + (f' (自動: {" ".join(auto)})' if auto else '')
+              + f'．種数の不一致 {n_abr} 地点は問題に数えない')
     if no_moss:
         print(f'--- 蘚苔類・地衣類の行 ({n_moss} 行) を種数から外した表 {len(no_moss)}: {" ".join(sorted(no_moss))}')
     if n_ng:
