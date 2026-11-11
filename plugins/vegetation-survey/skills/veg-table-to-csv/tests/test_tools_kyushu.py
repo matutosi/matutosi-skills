@@ -320,12 +320,89 @@ class ShiftCheckTest(unittest.TestCase):
         _, out = run(self.sc.main, args + ["--track", "up"])
         self.assertIn("列 7: 列全体で d=+1", out)
 
+    def test_track_chain_for_curved_rows(self):
+        """傾きが直線でない (中ほどだけ下がる) 表は --track chain で偽の指摘を出さず，ずれは見つける (Tab.084)"""
+        d = tempfile.mkdtemp()
+        rowy = [60 + 30 * r for r in range(self.R)]
+        src = os.path.join(d, "p.png")
+        drift = lambda r, c: 26.0 * (1 - abs(c - 3.5) / 3.5) * (r / (self.R - 1))   # 中の列の下ほど下がる
+        self.draw(src, rowy, drift=drift)
+        self.transcript(d)
+        args = [src, d, "Tab.11", "--box", "120", "60", "450", str(rowy[-1] + 30), "--ref", "35", "80", "--track", "chain"]
+        rc, out = run(self.sc.main, args)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("1 行ずれの疑いのある列は無い", out)
+        self.assertNotIn("[多い]", out)
+        self.transcript(d, shift_col={3})
+        _, out = run(self.sc.main, args)
+        self.assertIn("列 4: 列全体で d=+1", out)
+
+    def test_fold_column_is_excluded(self):
+        """--fold の x が通る列は [ずれ]・[多い] の判定から外す (Tab.021)"""
+        d = tempfile.mkdtemp()
+        rowy = [60 + 30 * r for r in range(self.R)]
+        src = os.path.join(d, "p.png")
+        self.draw(src, rowy)
+        self.transcript(d, shift_col={4})
+        args = [src, d, "Tab.11", "--box", "120", "60", "450", str(rowy[-1]), "--ref", "35", "80"]
+        _, out = run(self.sc.main, args)
+        self.assertIn("列 5: 列全体で d=+1", out)
+        rc, out = run(self.sc.main, args + ["--fold", "300"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("折り目の線が通る列 (ずれ・多いの判定から外す): 5", out)
+        self.assertIn("1 行ずれの疑いのある列は無い", out)
+        self.assertIn("折り目の列で食い違い: 5", out)
+
+    def test_words_and_rings(self):
+        """横に続く字は 1 つの印．+ は値，中に穴のある丸 (白抜きの点) は点"""
+        import numpy as np
+        from types import SimpleNamespace
+        a = SimpleNamespace(dot_fill=.5)
+        im = Image.new("L", (200, 60), "white")
+        dr = ImageDraw.Draw(im)
+        dr.ellipse((10, 20, 22, 32), outline=0, width=2)           # 白抜きの点
+        dr.rectangle((50, 25, 62, 27), fill=0)                     # +
+        dr.rectangle((55, 20, 57, 32), fill=0)
+        for x in (100, 112, 124):                                  # 1・1 (3 つのかたまり)
+            dr.rectangle((x, 20, x + 4, 32), fill=0)
+        path = os.path.join(tempfile.mkdtemp(), "w.png")
+        im.save(path)
+        comps = self.sc.components(Image.open(path).convert("L"), (0, 0, 200, 60), rule=0)
+        isdot = np.array([self.sc.is_dot(q, 16, a) for q in comps])
+        words = self.sc.make_words(comps, 30, 10)
+        kinds = sorted((round(float(comps[g[0], 0])), self.sc.word_kind(g, comps, isdot, 16, 40)) for g in words)
+        self.assertEqual(kinds, [(16, "r"), (56, "v"), (102, "v")])
+
     def test_best_segment(self):
         import numpy as np
         e0 = np.array([0, 1, 1, 1, 0, 0, 1, 0])
         ed = np.array([0, 0, 0, 0, 1, 0, 0, 1])
         self.assertEqual(self.sc.best_segment(e0, ed, 2), (3, 1, 3))
         self.assertIsNone(self.sc.best_segment(e0, ed, 4))
+
+
+class OnceLinesTest(unittest.TestCase):
+    def test_slanted_lines(self):
+        """右ほど下がる 4 行の段落を左右で測って 1 行ずつ切り，幅ごとに分けて貼る"""
+        try:
+            import once_lines
+        except (ImportError, SystemExit):
+            self.skipTest("numpy と scipy が無い")
+        from PIL import Image, ImageDraw
+        d = tempfile.mkdtemp()
+        im = Image.new("L", (3000, 400), "white")
+        dr = ImageDraw.Draw(im)
+        for i in range(4):
+            for x in range(20, 2980, 40):
+                y = 60 + 70 * i + 20 * x / 3000            # 右端で 20 px 下がる
+                dr.rectangle((x, y - 10, x + 24, y + 10), fill=0)
+        src = os.path.join(d, "p.png")
+        im.save(src)
+        rc, out = run(once_lines.main, [src, d, "--box", "0", "20", "3000", "380", "--width", "1200", "--overlap", "100"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("行: 4 行 (左右で測った)", out)
+        self.assertIn("(12 切れ)", out)                   # 4 行 × 3 切れ (0・1100・2200)
+        self.assertTrue(os.path.exists(os.path.join(d, "once_lines_01.png")))
 
 
 if __name__ == "__main__":

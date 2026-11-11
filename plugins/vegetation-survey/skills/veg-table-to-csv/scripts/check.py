@@ -110,6 +110,46 @@ def clues(comp, diffs):
     return out
 
 
+def heading_shifts(body, once, want, max_len=15):
+    """1 回出現の見出しのずれ (規則 X35) を種数で試す．続いた地点 s〜e の 1 回出現の段落を d (±1) 地点ずらすと，
+    関わる地点 (s〜e と s+d〜e+d) の種数がすべて印字と合い，今より合う地点が 2 つ以上増える組を返す．
+    body・once: 地点 (int) → 種の集合．want: 地点 → 印字の種数．戻り: [(s, e, d, 合う地点)]"""
+    plots = sorted(once)
+    if not plots:
+        return []
+
+    def n_ok(q, src):
+        return len(body.get(q, set()) | src.get(q, set())) == want[q]
+
+    out = []
+    lo, hi = plots[0], plots[-1]
+    for d in (-1, 1):
+        for s in range(lo, hi + 1):
+            for e in range(s, min(hi, s + max_len - 1) + 1):
+                if s not in once or e not in once:
+                    continue
+                moved = {q: v for q, v in once.items() if not s <= q <= e}
+                for q in range(s, e + 1):
+                    if q in once:
+                        moved.setdefault(q + d, set())
+                        moved[q + d] = moved[q + d] | once[q]
+                touched = set(range(s, e + 1)) | set(range(s + d, e + d + 1))
+                if any(q not in want and moved.get(q) for q in touched):   # 表に無い地点に種が残る
+                    continue
+                checked = [q for q in touched if q in want]
+                if not checked or not all(n_ok(q, moved) for q in checked):
+                    continue
+                gain = sum(1 for q in checked if not n_ok(q, once))
+                if gain >= 2:
+                    out.append((s, e, d, sorted(checked), gain))
+    best = {}
+    for s, e, d, ok, gain in out:                     # 同じ向きでは，合う地点の最も多い (同数なら短い) 組だけ
+        k = d
+        if k not in best or (gain, -(e - s)) > (best[k][4], -(best[k][1] - best[k][0])):
+            best[k] = (s, e, d, ok, gain)
+    return [v[:4] for v in best.values()]
+
+
 def main(argv=None):
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -202,6 +242,7 @@ def main(argv=None):
     counted = defaultdict(set)          # 種 (本体 + 1 回出現)
     by_layer = defaultdict(set)         # 種 × 階層
     body_only = defaultdict(set)        # 種 (本体だけ)
+    once_only = defaultdict(set)        # 種 (1 回出現だけ)
     by_row = defaultdict(set)           # 見出し × 学名 × 和名 (同じ種が 2 つの見出しに載ると 2)
     const_cols = set()
     for r in comp:
@@ -218,6 +259,8 @@ def main(argv=None):
         by_row[key].add((r.get('group_ja', ''), sp, r['j_name'].strip()))
         if r.get('source') == 'body':
             body_only[key].add(sp)
+        else:
+            once_only[key].add(sp)
     n_ok = n_ng = n_const = 0
     diffs = defaultdict(dict)                         # 表 → 地点 → (読んだ種, 印字の種数)
     with_count = set()
@@ -259,6 +302,12 @@ def main(argv=None):
             match = [name for name, v in (('本体だけ', n_body), ('種×階層', len(by_layer.get(key, ()))),
                                           ('見出し×種×和名', len(by_row.get(key, ())))) if v == want]
             hit = f"．{'・'.join(match)}と合う" if match else ''
+            rows_of = defaultdict(set)                # 同じ種が表の 2 か所 (見出し違い) に印字されていれば，1 種と数えている
+            for g, sp, jn in by_row.get(key, ()):
+                rows_of[sp].add(g)
+            dup = sorted(sp for sp, gs in rows_of.items() if len(gs) > 1)
+            if dup:
+                hit += f"．2 か所に印字された種 {len(dup)} ({', '.join(dup[:4])}{' …' if len(dup) > 4 else ''}) は 1 種と数えた"
             sum_note = f' ({len(vals)} 行の合計)' if len(vals) > 1 else ''
             msg = (f"{key[0]} 地点 {key[1]}: 出現種数 {want}{sum_note} に対し読んだ種 {got} "
                    f"({got - want:+d})．別の数え方: {alt}{hit}")
@@ -283,6 +332,14 @@ def main(argv=None):
         print(f'[{kind}] {msg}')
     for msg in clues(comp, diffs):
         print(f'[手がかり] {msg}')
+    for table in sorted(diffs, key=lambda t: (len(t), t)):   # 1 回出現の見出しのずれを種数で試す (規則 X35)
+        if len(diffs[table]) < 2:
+            continue
+        num = lambda d: {int(k[1]): v for k, v in d.items() if k[0] == table and k[1].isdigit()}
+        want = {int(k[1]): sum(v) for k, v in wants.items() if k[0] == table and k[1].isdigit()}
+        for s, e, d, ok in heading_shifts(num(body_only), num(once_only), want):
+            print(f'[見出しのずれ] {table}: 1 回出現の見出し in {s}〜{e} を {d:+d} 地点ずらす (in {s} → 地点 {s + d}) と，'
+                  f'地点 {" ".join(map(str, ok))} の種数がすべて印字と合う (規則 X35．画像で見出しを確かめてから移す)')
     for msg in abr_msgs:
         print(f'[以下略] {msg}')
     for table in sorted(how, key=lambda t: (len(t), t)):   # 数え方が地点で分かれる表 (印字の取り違えか見出しのずれの手がかり)

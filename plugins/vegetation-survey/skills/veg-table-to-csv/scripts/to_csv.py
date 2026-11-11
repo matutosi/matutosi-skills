@@ -111,6 +111,7 @@ def parse_value(raw, n_plots=0):
 
 SOC_DEFAULT = 'one'                                   # 群度の印字が無いときの補い方: one | cover
 PLOTS_SEEN = set()
+NAMELESS = []                                         # 1 回出現の名前の無い値 (規則 X53)
 
 
 def cell_note(note, plot):
@@ -489,13 +490,19 @@ def build(tdir):
                                  source='body', status=st, note=note))
 
     for r in read_tsv(os.path.join(tdir, 'once.tsv')):
+        if not r.get('s_name', '').strip() and not r.get('j_name', '').strip():
+            # 名前の無い値 (in 19: B2-1・2．規則 X53) は種に含めず，一覧 nameless.tsv に拾う
+            NAMELESS.append(dict(file=file, table=table, plot=r.get('plot', ''), layer=r.get('layer', ''),
+                                 value=r.get('value', ''), note=r.get('note', '')))
+            continue
         pv = parse_value(r.get('value', ''), n_plots.get(r.get('plot', ''), 0)) or ('', '', '', 'check', '値が空')
         cov, soc, const, st, note = pv
         once_layer = herb_layer(r.get('s_name', ''), r.get('layer', ''))
         st, note = merge(st, note, dict(r, layer=once_layer))
         if once_layer != r.get('layer', ''):
             note = ';'.join(x for x in (note, '草本のため K 層とした') if x)
-        comp.append(dict(file=file, table=table, plot=r.get('plot', ''), group_ja='', group_de='',
+        comp.append(dict(file=file, table=table, plot=r.get('plot', ''),
+                         group_ja=r.get('group', '') or r.get('group_ja', ''), group_de=r.get('group_de', ''),
                          s_name=r.get('s_name', ''), j_name=r.get('j_name', ''),
                          layer=once_layer, cover=cov, sociability=soc, constancy=const,
                          value_raw=r.get('value', ''), source='once', status=st, note=note))
@@ -567,6 +574,7 @@ def main(argv=None):
     if not os.path.isdir(root):
         sys.exit(f'転記表が無い: {root}')
     sites, comp = [], []
+    NAMELESS.clear()
     for name in sorted(os.listdir(root)):
         tdir = os.path.join(root, name)
         if os.path.isdir(tdir):
@@ -577,6 +585,15 @@ def main(argv=None):
     write(os.path.join(a.dir, 'sites.csv'), SITE_COLS, sites)
     write(os.path.join(a.dir, 'composition.csv'), COMP_COLS, comp)
     print(f'計: sites {len(sites)} 行・composition {len(comp)} 行 → {a.dir}')
+    path = os.path.join(a.dir, 'nameless.tsv')
+    if NAMELESS:
+        with open(path, 'w', encoding='utf-8', newline='') as f:
+            w = csv.DictWriter(f, ['file', 'table', 'plot', 'layer', 'value', 'note'], delimiter='\t', lineterminator='\n')
+            w.writeheader()
+            w.writerows(NAMELESS)
+        print(f'1 回出現の名前の無い値 {len(NAMELESS)} 件を種に含めず {path} に書いた (規則 X53)')
+    elif os.path.exists(path):
+        os.remove(path)
 
 
 if __name__ == '__main__':

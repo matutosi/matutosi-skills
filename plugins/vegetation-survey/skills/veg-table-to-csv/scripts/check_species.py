@@ -7,6 +7,8 @@ CSV は**書き換えない** (印字のまま残す)．読み違いの手がか
 
 - `none`・`similar` の和名は，画像に戻って読み直す
 - `same_genus` が 0 の行は，学名か和名のどちらかの読み違い，または行のずれを疑う
+- 画像で印字どおりと確かめた行は，names.tsv の `checked` 列に書いておく (例: `印字どおり`)．
+  次に回したときも (和名・学名) が同じ行には引き継ぎ，件数の表示で「確かめ済み」として分けて数える
 """
 import argparse
 import csv
@@ -17,7 +19,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.normpath(os.path.join(HERE, '..', '..', 'veg-sheet-to-csv', 'scripts')))
 import check_names as cn  # noqa: E402
 
-COLS = ['status', 'j_name', 's_name', 'count', 'hub', 'latin', 'family', 'same_genus', 'candidates', 'note']
+COLS = ['status', 'j_name', 's_name', 'count', 'hub', 'latin', 'family', 'same_genus', 'candidates', 'note', 'checked']
 ORDER = {'none': 0, 'similar': 1, 'ambiguous': 2, 'alias': 3, 'ok': 4, 'skip': 5}
 
 
@@ -57,6 +59,14 @@ def main(argv=None):
         rows = list(csv.DictReader(f))
     res = check(rows, cn.load_index(cn.resolve_xlsx(a)))
     path = os.path.join(a.dir, 'names.tsv')
+    done = {}                                         # 前回の names.tsv の「確かめ済み」を引き継ぐ
+    if os.path.exists(path):
+        with open(path, encoding='utf-8-sig', newline='') as f:
+            for r in csv.DictReader(f, delimiter='	'):
+                if (r.get('checked') or '').strip():
+                    done[(r.get('j_name', ''), r.get('s_name', ''))] = r['checked'].strip()
+    for r in res:
+        r['checked'] = done.get((r['j_name'], r['s_name']), '')
     with open(path, 'w', encoding='utf-8-sig', newline='') as f:
         w = csv.DictWriter(f, fieldnames=COLS, delimiter='\t', lineterminator='\n')
         w.writeheader()
@@ -66,6 +76,10 @@ def main(argv=None):
         counts[r['status']] = counts.get(r['status'], 0) + 1
     print('照合:', '，'.join(f'{k} {v}' for k, v in sorted(counts.items())))
     print(f'属が合わない行: {sum(r["same_genus"] == "0" for r in res)} → {path}')
+    kept = [r for r in res if r['checked']]
+    if kept:
+        left = sum(1 for r in res if not r['checked'] and r['status'] in ('none', 'similar'))
+        print(f'確かめ済み (checked 列を引き継いだ) {len(kept)} 行．none・similar のうち未確認 {left} 行')
     return 0
 
 

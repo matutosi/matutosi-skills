@@ -726,6 +726,36 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("出現種数 3 に対し読んだ種 2", out)
 
+    def test_heading_shifts(self):
+        """1 回出現の見出しが続けて 1 つずつずれた型 (九州 Tab.085) を種数で見つける (規則 X35)"""
+        body = {p: {f"b{p}_{i}" for i in range(5)} for p in range(1, 7)}
+        true_once = {1: {"a"}, 2: {"b", "c"}, 3: {"d"}, 4: {"e", "f", "g"}, 5: {"h"}, 6: {"i", "j"}}
+        want = {p: len(body[p] | true_once[p]) for p in body}
+        printed = {p + 1 if p >= 3 else p: v for p, v in true_once.items()}   # in 3〜6 が 1 つ後ろへ (7 は表に無い)
+        got = chk.heading_shifts(body, printed, want)
+        self.assertEqual(got, [(4, 7, -1, [3, 4, 5, 6])])
+        self.assertEqual(chk.heading_shifts(body, true_once, want), [])
+
+    def test_once_group_and_nameless(self):
+        """once.tsv の group 列は group_ja へ．名前の無い値は種に含めず nameless.tsv へ (X53)"""
+        p = os.path.join(self.d, "transcripts", "Tab.1", "once.tsv")
+        with open(p, encoding="utf-8") as f:
+            lines = f.read().rstrip("\n").split("\n")
+        head = lines[0].split("\t")
+        rows = [dict(zip(head, l.split("\t"))) for l in lines[1:]]
+        rows[0]["group"] = "出現 2 回の種"
+        rows.append(dict(plot=rows[0]["plot"], s_name="", j_name="", layer="B2", value="1・2", note="印字は B2-1・2"))
+        cols = head + ["group"]
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("\n".join(["\t".join(cols)] + ["\t".join(r.get(c, "") for c in cols) for r in rows]) + "\n")
+        _, out = run(to_csv.main, [self.d])
+        self.assertIn("名前の無い値 1 件", out)
+        with open(os.path.join(self.d, "nameless.tsv"), encoding="utf-8") as f:
+            self.assertIn("1・2", f.read())
+        comp = list(csv.DictReader(open(os.path.join(self.d, "composition.csv"), encoding="utf-8-sig")))
+        self.assertIn("出現 2 回の種", {r["group_ja"] for r in comp if r["source"] == "once"})
+        self.assertFalse([r for r in comp if not r["s_name"] and not r["j_name"]])
+
     def test_no_count_table(self):
         p = os.path.join(self.d, "transcripts", "Tab.1", "header.tsv")
         with open(p, encoding="utf-8") as f:

@@ -539,7 +539,19 @@ def assign_columns(comps, cols, const, a):
     col[tall & ~isconst & (np.abs(dx) > .3 * p)] = -1   # 列の間の縦の罫線の切れ・破線
     col[flat & (w < h) & ~isconst & (np.abs(dx) > 2 * a.dot_max)] = -1   # 列の間が広い表の枠の破線
     col[flat & (w < h) & isconst & (dx < -.3 * p)] = -1   # 常在度の列は値が右へ伸びるので，左だけを見る
-    col[(h > a.max_h) | (w > 1.3 * p)] = -1
+    after = np.isin(col - 1, list(const)) & (col >= 1)    # 常在度の列の長い値の右端の `)` が隣の列に掛かる
+    cand = np.where(after & (dx < -.3 * p) & (h >= 2 * w) & (w <= a.dot_max) & (comps[:, 5] < .5))[0]   # 括弧は曲がった細い線
+    near = max(6.0, 1.2 * (getattr(a, 'dot_size', 0) or 12))
+    for i in cand:                                      # すぐ左に同じ行の字が続くものだけ (値の続き．折り目の切れ端は除く)
+        left_edge = comps[i, 0] - comps[i, 2] / 2
+        rights = comps[:, 0] + comps[:, 2] / 2
+        if np.any((np.abs(comps[:, 1] - comps[i, 1]) < .5 * comps[i, 3]) & (rights < left_edge + 1)
+                  & (left_edge - rights <= near) & (np.arange(len(comps)) != i)
+                  & (comps[:, 2] >= max(5.0, .4 * near))):          # 左は字 (細い線の切れ同士ではない)
+            col[i] -= 1
+    gh = getattr(a, 'glyph_h', None) or a.max_h
+    glyph = (h <= gh) & (w >= .8 * (getattr(a, 'dot_size', 0) or 99)) & (w <= .8 * p)
+    col[((h > a.max_h) & ~glyph) | (w > 1.3 * p)] = -1
     col[comps[:, 4] < a.speck_area] = -1                # 点より小さいよごれ
     return col
 
@@ -881,9 +893,14 @@ def crop_white(src, box):
     return out
 
 
-def band_image(src, rowy, asg, cols, pitch_y, k0, k1, c0, c1, label, path, scale=1.0, const=()):
+def band_image(src, rowy, asg, cols, pitch_y, k0, k1, c0, c1, label, path, scale=1.0, const=(),
+               const_width=1.2, max_h=0, names=None):
     """画像の行 k0..k1 (1 始まり) を，列ごとの行の y で切って横にそろえる．印の当たらないセルは赤い枠．
-    常在度の列は値が右へ伸びるので，広めに切る"""
+    常在度の列は値が右へ伸びるので，広めに切る (const_width)．
+    - 左に貼る名前 (label) は，行の傾きを左へ延ばした y で切る (傾いた表で和名・階層の字が欠けないように)．
+    - 行の間が広い所 (群の見出し) は，名前の範囲だけを灰色の地で 1 段挟んで見せる．
+    - names があれば，行番号の横に転記の名前を書く．max_h (縮小後の px) を超えたら _1・_2 … に分ける．
+    戻り: [(パス, 大きさ)]"""
     H, P = int(pitch_y * 1.05), int(cols.pitch)
     LW = (label[1] - label[0]) if label else 0
     f = font(16)
@@ -892,7 +909,7 @@ def band_image(src, rowy, asg, cols, pitch_y, k0, k1, c0, c1, label, path, scale
     # 端の列の値が切れる・紙面の外が黒く写ることがあった．九州 Tab.008)
     left, widths = {}, {}
     for c in cl:
-        lw, rw = P / 2, (1.2 * P if c in const else P / 2)
+        lw, rw = P / 2, (const_width * P if c in const else P / 2)
         if c == c0:
             lw += P / 4
         if c == c1:
@@ -903,16 +920,61 @@ def band_image(src, rowy, asg, cols, pitch_y, k0, k1, c0, c1, label, path, scale
         starts[c] = pos
         pos += widths[c]
     W = pos + 50
-    can = Image.new('RGB', (W, 26 + (k1 - k0 + 1) * H), 'white')
-    d = ImageDraw.Draw(can)
-    for c in cl:
-        d.text((starts[c] + left[c] - 8, 4), str(c + 1), fill=(0, 0, 255), font=f)
-    for j, k in enumerate(range(k0 - 1, k1)):
-        yy = 26 + j * H
+    nr = len(rowy[0])
+    xs0, xs1 = float(cols.base[0]), float(cols.base[-1])
+    slope = (np.asarray(rowy[-1], float) - np.asarray(rowy[0], float)) / max(1.0, xs1 - xs0)
+    lab_x = (label[0] + label[1]) / 2 if label else xs0
+
+    def label_y(k):                                     # 行の傾きを名前の列まで延ばす
+        return float(rowy[0][k] + slope[k] * (lab_x - xs0))
+    items = []                                          # ('row', k) か ('gap', y0, y1)
+    for k in range(k0 - 1, k1):
+        if items and label and k > 0 and rowy[0][k] - rowy[0][k - 1] > 1.6 * pitch_y:
+            items.append(('gap', label_y(k - 1) + H / 2, label_y(k) - H / 2))
+        items.append(('row', k))
+    pages, cur, used = [], [], 26
+    limit = max_h / scale if max_h else 0
+    for it in items:
+        h = H if it[0] == 'row' else max(8, int(it[2] - it[1]))
+        if limit and cur and used + h > limit:
+            pages.append(cur)
+            cur, used = [], 26
+        cur.append(it)
+        used += h
+    pages.append(cur)
+    out = []
+    for n_page, page in enumerate(pages, 1):
+        hs = [H if it[0] == 'row' else max(8, int(it[2] - it[1])) for it in page]
+        can = Image.new('RGB', (W, 26 + sum(hs)), 'white')
+        d = ImageDraw.Draw(can)
+        for c in cl:
+            d.text((starts[c] + left[c] - 8, 4), str(c + 1), fill=(0, 0, 255), font=f)
+        yy = 26
+        for it, h in zip(page, hs):
+            if it[0] == 'gap':                          # 群の見出し (名前の範囲だけ)
+                d.rectangle([0, yy, W, yy + h - 1], fill=(235, 235, 235))
+                g = crop_white(src, (label[0], int(it[1]), label[1], int(it[1]) + h))
+                can.paste(g, (50, yy))
+                d.text((4, yy + 2), '見出し', fill=(120, 120, 120), font=f)
+                yy += h
+                continue
+            k = it[1]
+            _band_row(can, d, src, rowy, asg, cols, k, yy, H, cl, starts, widths, left, label, label_y(k), f, W,
+                      names[k] if names and k < len(names) else '')
+            yy += H
+        if scale != 1:
+            can = can.resize((int(can.width * scale), int(can.height * scale)), Image.LANCZOS)
+        pth = path if len(pages) == 1 else re.sub(r'(\.\w+)$', rf'_{n_page}\1', path)
+        can.save(pth)
+        out.append((pth, can.size))
+    return out
+
+
+def _band_row(can, d, src, rowy, asg, cols, k, yy, H, cl, starts, widths, left, label, ly, f, W, name):
+    if True:                                            # 1 行分 (元の band_image の行の処理)
         d.text((4, yy + H // 2 - 8), str(k + 1), fill=(255, 0, 0), font=f)
         if label:
-            y = rowy[0][k]
-            can.paste(crop_white(src, (label[0], int(y - H / 2), label[1], int(y - H / 2) + H)), (50, yy))
+            can.paste(crop_white(src, (label[0], int(ly - H / 2), label[1], int(ly - H / 2) + H)), (50, yy))
         for c in cl:
             y = rowy[c][k]
             x = float(cols.at(y)[0, c])
@@ -922,10 +984,6 @@ def band_image(src, rowy, asg, cols, pitch_y, k0, k1, c0, c1, label, path, scale
             if asg[c][k] < 0:
                 d.rectangle([xx + 1, yy + 1, xx + cw - 2, yy + H - 2], outline=(255, 0, 0), width=2)
         d.line([(0, yy + H - 1), (W, yy + H - 1)], fill=(225, 225, 225))
-    if scale != 1:
-        can = can.resize((int(can.width * scale), int(can.height * scale)), Image.LANCZOS)
-    can.save(path)
-    return can.size
 
 
 # ---- 本体 ----
@@ -969,6 +1027,9 @@ def main(argv=None):
     ap.add_argument('--speck', type=float, default=.45, help='点の面積の中央値のこの割合より小さいかたまりをよごれとして捨てる')
     ap.add_argument('--thin', type=int, default=5, help='この太さ以下の細長いかたまりを線の切れとみる')
     ap.add_argument('--max-h', type=int, default=45, help='これより高いかたまりを捨てる')
+    ap.add_argument('--glyph-h', type=int, default=None,
+                    help='--max-h より高くても，幅が点の 0.8 倍以上の字 (4 の長い斜線など) はこの高さまで残す '
+                         '(省くと点の大きさの 3.5 倍．九州の大新 Tab.121)')
     ap.add_argument('--limit', type=int, default=200, help='食い違いを表示する上限')
     ap.add_argument('--tsv', help='行 x 列の印の表を書く')
     ap.add_argument('--diff-png', help='食い違いのセルを切り出して並べた画像を書く')
@@ -983,6 +1044,15 @@ def main(argv=None):
                     help='1 行にまとめて照合する転記の種の行 (1 始まり．括弧の中の種を分けた行など．例: 12-13 40-42)．'
                          '学名か和名でも渡せる: "名" はその行とすぐ後の名前の無い行，"名A:名B" は名A から名B まで．'
                          '同じ名前が複数あれば "名@S" のように階層で選ぶ')
+    ap.add_argument('--shear-at', type=float, nargs='+', metavar='Y_PX',
+                    help='傾きが y で変わる表: Y と「右端で下がる px」の組を並べる (例: --shear-at 3000 0 7300 0 7400 -22 13000 -22)．'
+                         '間は直線で補う (九州 Tab.132)')
+    ap.add_argument('--keep-rows', action='store_true',
+                    help='印の当たる列が 3 割に満たない行 (群の見出し・値が 1〜2 列だけの行) も捨てない (常在度表．九州 Tab.149)')
+    ap.add_argument('--band-max-h', type=int, default=0,
+                    help='帯の画像の高さの上限 (px．縮小後)．超えたら _1・_2 … に分ける (0 で分けない)')
+    ap.add_argument('--const-width', type=float, default=1.2,
+                    help='帯の画像で常在度の列を右へ広げる幅 (列の間隔に対する倍率．長い値 V(+-2) が切れるときは 1.8)')
     ap.add_argument('--shear', type=float, default=0.0,
                     help='行の傾き: --box の右端で行が左端より何 px 下がるか (右下がりは正)．印の y を補正して格子を作る')
     a = ap.parse_args(argv)
@@ -1017,18 +1087,34 @@ def main(argv=None):
     else:
         print(f'--dot-max {a.dot_max} (引数)．測った点の大きさ: {size if size else "測れない"} px'
               + (f' (自動なら {auto_dot_max(size)})' if size and auto_dot_max(size) != a.dot_max else ''))
+    if a.glyph_h is None:
+        a.glyph_h = max(a.max_h, int(round(3.5 * size))) if size else a.max_h
     fixed = dots_on_lines(comps, a)
     if fixed:
         print(f'線 (折り目・罫線の切れ) の付いた点を点に戻した: {fixed} 個')
     width = max(1, box[2] - box[0])
 
-    def tilt(x):                                        # 行の傾きで下がる量 (右下がりは正)
-        return a.shear * (np.asarray(x, float) - box[0]) / width
+    if a.shear_at:                                      # y ごとの傾き (Y PX の組．間は直線で補う)
+        if len(a.shear_at) % 2:
+            sys.exit('--shear-at は Y PX の組で渡す (例: --shear-at 3000 0 7300 0 7400 -22 12000 -22)')
+        sy = np.array(a.shear_at[0::2], float)
+        sv = np.array(a.shear_at[1::2], float)
+        o = np.argsort(sy)
+        sy, sv = sy[o], sv[o]
+        a.shear = a.shear or float(np.median(sv)) or 1e-9   # 傾きの補正を有効にする印
+
+    def tilt(x, y=None):                                # 行の傾きで下がる量 (右下がりは正)
+        x = np.asarray(x, float)
+        if a.shear_at:
+            yy = np.full(x.shape, (box[1] + box[3]) / 2) if y is None else np.asarray(y, float)
+            return np.interp(yy, sy, sv) * (x - box[0]) / width
+        return a.shear * (x - box[0]) / width
     if a.shear:                                         # 印の y を左端の高さにそろえる (出力では元の y に戻す)
-        off = tilt(comps[:, 0])
+        off = tilt(comps[:, 0], comps[:, 1])
         for i in (1, 8, 9, 12, 13):
             comps[:, i] -= off
-        print(f'行の傾きを補正した: 右端で {a.shear:+.0f} px')
+        print('行の傾きを補正した: ' + ('y ごとに ' + ' '.join(f'{int(y)}:{v:+.0f}' for y, v in zip(sy, sv)) + ' (y:右端で下がる px)' if a.shear_at
+                                       else f'右端で {a.shear:+.0f} px'))
     dots = comps[[is_dot(q, a) for q in comps]]
     a.dot_area = float(np.median(dots[:, 4])) if len(dots) else 0
     a.speck_area = a.speck * a.dot_area
@@ -1062,6 +1148,8 @@ def main(argv=None):
         print('[注意] ' + msg)
     nrows, seed, rowy, asg, extra = build_grid(marks, pitch_y, a.rows, a.seed - 1 if a.seed else None)
     keep = [k for k in range(nrows) if sum(asg[c][k] >= 0 for c in range(n)) >= .3 * n]
+    if a.keep_rows:
+        keep = list(range(nrows))
     if len(keep) < nrows:                               # 起点の列のよごれで作った行
         print(f'印の当たる列が 3 割に満たない行を除いた: {[k + 1 for k in range(nrows) if k not in keep]}')
         for c in range(n):
@@ -1070,7 +1158,7 @@ def main(argv=None):
         asg = [[s[k] for k in keep] for s in asg]
         nrows = len(keep)
     if a.shear:                                         # 行の y を画像の元の高さに戻す (列ごとに列の x で)
-        rowy = [np.asarray(r, float) + float(tilt(cols.base[c])) for c, r in enumerate(rowy)]
+        rowy = [np.asarray(r, float) + tilt(np.full(len(r), cols.base[c]), r) for c, r in enumerate(rowy)]
     counts = [len(ms) for ms in marks]
     print(f'行の間隔 {pitch_y:.1f} px．画像の行 {nrows}・転記の種の行 {len(vals)}．起点の列 {seed + 1}．'
           f'印の数が行と合う列 {sum(k == nrows for k in counts)} / {n}')
@@ -1102,7 +1190,12 @@ def main(argv=None):
                                            f'画像は丸いかたまり {m[3] - m[2]:.0f}x{m[5] - m[4]:.0f} px'
                                            f' (行 {k + 1}・x={x:.0f} y={y:.0f})'))
                 else:
-                    diffs.append((r, k, c, f'[画像に値] {names[r]}: 地点 {c + 1} 転記 {vals[r][c] or "空"} (行 {k + 1}・x={x:.0f} y={y:.0f})'))
+                    hint = ''
+                    if m[3] - m[2] >= 3 * max(1.0, m[5] - m[4]):
+                        hint = '．横に細長い印 (折り目・枠の線・かすれの線のことが多い)'
+                    elif m[5] - m[4] >= 3 * max(1.0, m[3] - m[2]):
+                        hint = '．縦に細長い印 (縦の折り目・枠の線・隣の列の括弧のことが多い)'
+                    diffs.append((r, k, c, f'[画像に値] {names[r]}: 地点 {c + 1} 転記 {vals[r][c] or "空"} (行 {k + 1}・x={x:.0f} y={y:.0f}){hint}'))
             else:
                 what = '点' if asg[c][k] >= 0 else '印なし'
                 diffs.append((r, k, c, f'[転記に値] {names[r]}: 地点 {c + 1} 転記 {vals[r][c]}・画像は{what} (行 {k + 1}・x={x:.0f} y={y:.0f})'))
@@ -1117,6 +1210,10 @@ def main(argv=None):
     print(f'食い違い {len(diffs)} セル / {len(pairs) * n} セル (画像に値 {n_img}・転記に値 {len(diffs) - n_img - n_round}'
           + (f'・画像に点の形 {n_round}．点の形は点が大きいかよごれのことが多い．続くときは --dot-max を上げる' if n_round else '')
           + ')')
+    empty = [(names[r], c + 1) for r, k in pairs for c in range(n) if asg[c][k] < 0 and not typed[r][c]]
+    if empty:                                           # 点も値も無いセル (規則 X11 で出現なしとみる候補)
+        print(f'点も値も無いセル {len(empty)} (規則 X11 の候補．転記は出現なし): '
+              + ', '.join(f'{nm} 地点 {c}' for nm, c in empty[:10]) + (' …' if len(empty) > 10 else ''))
     if diffs:
         print('食い違いの多い行:', [(names[r], k) for r, k in collections.Counter(d[0] for d in diffs).most_common(5)])
         print('食い違いの多い列:', collections.Counter(d[2] + 1 for d in diffs).most_common(5))
@@ -1142,8 +1239,9 @@ def main(argv=None):
         src = src or Image.open(a.image).convert('L')
         k0, k1 = max(1, a.band[0]), min(nrows, a.band[1])
         c0, c1 = (a.band_cols[0] - 1, a.band_cols[1] - 1) if a.band_cols else (0, n - 1)
-        size = band_image(src, rowy, asg, cols, pitch_y, k0, k1, c0, c1, a.label, a.band_png, a.scale, const)
-        print(f'帯の画像: {a.band_png} {size}')
+        for pth, size in band_image(src, rowy, asg, cols, pitch_y, k0, k1, c0, c1, a.label, a.band_png, a.scale, const,
+                                    a.const_width, a.band_max_h):
+            print(f'帯の画像: {pth} {size}')
     print('(画像で確かめる．転記は書き換えていない)')
     return 0
 
