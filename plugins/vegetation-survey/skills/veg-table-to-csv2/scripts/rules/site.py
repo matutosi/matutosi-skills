@@ -1,4 +1,6 @@
 """表頭の値の決まり (県名・日付・単位など)"""
+import re
+
 from rules import Change, rule
 
 
@@ -61,17 +63,37 @@ DITTO = {'同左', '左同', '同 左', '左 同'}
 DASHES = {'-', '—', '–', '−', '―'}
 
 
-@rule('D17', '表頭の「同左」「左同」を左の地点の値にする', '表頭の値', old='(規則の番号なし)')
+DITTO_PLUS = re.compile(r'^(同\s*左|左\s*同)\s+(\S.*)$')
+
+
+def common_head(a, b):
+    """2 つの値に共通する頭の部分 (2 字以上．無ければ '')"""
+    n = 0
+    while n < min(len(a), len(b)) and a[n] == b[n]:
+        n += 1
+    return a[:n] if n >= 2 else ''
+
+
+@rule('D17', '表頭の「同左」「左同」を左の地点の値にする．「同左 X」は左の値どうしに共通する頭の地名 + X にする', '表頭の値',
+      old='(規則の番号なし．同左)')
 def ditto_left(t, param):
+    """「同左 X」(同左のあとに語が続く) は，左の 2 地点の値 (直したあとの値) に共通する頭 + X (阿蘇外輪山 + 北西部)．
+    左の値が 1 つしか無い・共通する頭が無いときは直さない"""
     plots = t.plots('header')
     for d in t.dicts('header'):
-        prev = ''
+        prev = []                                          # 左の地点の値 (同左を直したあとの値)
         for p in plots:
             v = (d.get(p) or '').strip()
+            m = DITTO_PLUS.match(v)
             if v in DITTO and prev:
-                yield Change('header', d['_row'], p, prev, f'印字は {v}．左の地点の値にした')
-            else:
-                prev = v
+                yield Change('header', d['_row'], p, prev[-1], f'印字は {v}．左の地点の値にした')
+                prev.append(prev[-1])
+            elif m and len(prev) >= 2 and common_head(prev[-1], prev[-2]):
+                new = common_head(prev[-1], prev[-2]) + m.group(2)
+                yield Change('header', d['_row'], p, new, f'印字は {v}．左の地点の値に共通する頭の地名に続けた')
+                prev.append(new)
+            elif v:
+                prev.append(v)
 
 
 @rule('D18', '表頭の横棒の重なり (- -) を - にする (日付・調査番号の行は除く)', '表頭の値', old='(規則の番号なし)')

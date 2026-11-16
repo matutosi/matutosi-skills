@@ -204,8 +204,10 @@ class DecideTest(unittest.TestCase):
 
     def test_rule_registry(self):
         ids = [r.id for r in rules.load_all()]
-        self.assertEqual(ids, sorted(ids))
         self.assertEqual(len(ids), len(set(ids)))
+        orders = [r.order for r in rules.RULES]
+        self.assertEqual(orders, sorted(orders))                # 当てる順に並ぶ
+        self.assertLess(ids.index("D26"), ids.index("D11"))     # D26 は order=10.5 で D11 の前
         for r in rules.RULES:
             self.assertTrue(r.title and r.group)
 
@@ -583,6 +585,9 @@ class AskRulesProposalsTest(unittest.TestCase):
                                                 ["Tab.001/h1/1", "0.2", "L:-", "", ""], ["Tab.001/h2/2", "Y", "L:-", "", ""],
                                                 ["Tab.001/b1/1", "+・2", "L:-", "", ""], ["Tab.001/h2/1", "K", "L:X1", "", ""],
                                                 ["Tab.001/o1/@layer", "K", "L:X51", "", ""]])
+        # これらの型はのちに規則 (D16・D21-D23) になった．群分けを確かめるため，ここでは不採用にして判断を残す
+        write(os.path.join(d, "rule_settings.tsv"), [["rule", "use", "param", "note"]] + [[r, "no", "", ""] for r in
+                                                                                         ("D16", "D20", "D21", "D22", "D23")])
         run(freeze.main, [d])
         run(decide.main, [d])
         by = {"L:-": [("a", "0:2", "", ""), ("b", "Y*", "", ""), ("c", "÷・2", "", ""), ("d", "1 2", "", ""),
@@ -617,6 +622,102 @@ class AskRulesProposalsTest(unittest.TestCase):
             text = f.read()
         self.assertNotIn('data-id="L:X51"', text)                       # 答え済みは外れる
         self.assertIn('data-id="L:-/値の字の乱れ"', text)
+
+
+class AnsweredRulesTest(unittest.TestCase):
+    """2026-11-16 のユーザの回答 (規則の確認 2) から足した規則 D20-D26 と，D11・D16・D17 の拡張"""
+    HEAD4 = ["item_ja", "item_de", "unit", "1", "2", "3", "4", "note"]
+    BODY4 = ["kind", "group_ja", "group_de", "s_name", "j_name", "layer", "1", "2", "3", "4", "note"]
+
+    def _run(self, d):
+        from rules import header, layer, names
+        header._TABLES.clear()
+        layer._WOODY.clear()
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        sites = {(r["item_ja"], r["plot"]): r for r in rows(os.path.join(d, "sites.csv"))}
+        comp = {(r["j_name"], r["plot"], r["source"]): r for r in rows(os.path.join(d, "composition.csv"))}
+        return sites, comp
+
+    def test_values_and_header_marks(self):
+        """D20 (中黒の落ち)・D21 (÷)・D22 (高さの行の 0:2)・D23 (末尾の *)・D17 (同左 X)"""
+        d = make([self.HEAD4,
+                  ["調査区数", "Zahl d. Aufn.", "", "-", "-", "-", "6", ""],
+                  ["草本層の高さ", "Höhe d. Krautschicht", "m", "0:2", "1:5", "0.3", "-", ""],
+                  ["調査面積", "Größe d. Probefläche", "m2", "1:5", "25", "25*", "-", ""],
+                  ["調査地", "Ort", "", "阿蘇外輪山東部", "阿蘇外輪山南部", "同左 北西部", "同左 宮地", ""],
+                  ["海抜高度", "Höhe ü. Meer", "m", "300", "同左 付近", "-", "-", ""]],
+                 [self.BODY4, ["sp", "", "", "Aa a", "エー", "K", "1 2", "÷・2", "+", "2 3", ""]])
+        sites, comp = self._run(d)
+        self.assertEqual((comp[("エー", "1", "body")]["value_decided"], comp[("エー", "1", "body")]["note_judge"]), ("1・2", "D20"))
+        self.assertEqual((comp[("エー", "2", "body")]["value_decided"], comp[("エー", "2", "body")]["note_judge"]), ("+・2", "D21"))
+        self.assertEqual(comp[("エー", "4", "body")]["note_judge"], "")                 # 常在度の列の「2 3」は直さない
+        self.assertEqual((sites[("草本層の高さ", "1")]["value"], sites[("草本層の高さ", "1")]["note_judge"]), ("0.2", "D22"))
+        self.assertEqual(sites[("調査面積", "1")]["note_judge"], "")                    # 高さの行だけ
+        self.assertEqual((sites[("調査面積", "3")]["value"], sites[("調査面積", "3")]["note_judge"]), ("25", "D23"))
+        self.assertEqual((sites[("調査地", "3")]["value"], sites[("調査地", "4")]["value"]), ("阿蘇外輪山北西部", "阿蘇外輪山宮地"))
+        self.assertEqual(sites[("調査地", "4")]["note_judge"], "D17")
+        self.assertEqual(sites[("海抜高度", "2")]["note_judge"], "")                    # 左の値が 1 つだけのときは直さない
+
+    def test_year_and_pref(self):
+        """D24 (年を出典に: 後で 1 字違い．翌年 1-3 月は除く)・D25 (県名を注記の県か地名の表で．記号が 2 つのセルは除く)"""
+        d = make([self.HEAD4,
+                  ["調査年月日", "Datum d. Aufn.", "", "'79 7 24", "'79 2 10", "'76 5 1", "'78 7 1", ""],
+                  ["調査地 (県名)", "Ort (Signal d. Präf.)", "", "Ka", "O", "N/F", "M", ""]],
+                 [self.BODY4, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", "+", ""]],
+                 notes=[["1,2,4", "出典", "Nachweis", "熊本県 1978", "", "Präf. Kumamoto 1978", "ok", ""],
+                        ["3", "出典", "Nachweis", "長崎県 1969", "", "1969", "ok", ""],
+                        ["1", "調査地", "Lage", "天草", "", "Amakusa 天草", "ok", ""],
+                        ["2", "調査地", "Lage", "宮崎県椎葉村", "", "Shiiba-mura 宮崎県椎葉村", "ok", ""],
+                        ["3", "調査地", "Lage", "阿蘇", "", "Aso 阿蘇", "ok", ""],
+                        ["4", "調査地", "Lage", "どこか", "", "irgendwo", "ok", ""]])
+        write(os.path.join(d, "pref_symbols.tsv"), [["symbol", "pref"], ["K", "熊本県"], ["Ka", "鹿児島県"], ["M", "宮崎県"], ["O", "大分県"]])
+        write(os.path.join(d, "place_pref.tsv"), [["place", "pref"], ["天草", "熊本県"], ["阿蘇", "熊本県"]])
+        sites, _ = self._run(d)
+        date = {p: (sites[("調査年月日", p)]["value"], sites[("調査年月日", p)]["note_judge"]) for p in "1234"}
+        self.assertEqual(date["1"], ("1978-07-24", "D24"))            # 出典 1978 の翌年 7 月
+        self.assertEqual(date["2"], ("1979-02-10", ""))               # 翌年の 1-3 月は年度の報告書とみて直さない
+        self.assertEqual(date["3"], ("1976-05-01", ""))               # 1976 と 1969 は 2 字違い
+        self.assertEqual(date["4"], ("1978-07-01", ""))
+        pref = {p: (sites[("調査地 (県名)", p)]["value"], sites[("調査地 (県名)", p)]["note_judge"]) for p in "1234"}
+        self.assertEqual(pref["1"], ("K", "D25"))                     # 地名の表 (天草 → 熊本県)
+        self.assertEqual(pref["2"], ("M", "D25"))                     # 注記に県名が書いてある
+        self.assertEqual(pref["3"], ("N/F", ""))                      # 記号が 2 つのセルは直さない
+        self.assertEqual(pref["4"], ("M", ""))                        # 県が決まらない地名は直さない
+
+    def test_once_layer_and_moves(self):
+        """D16 (木本以外は K)・D11 (段落の先頭の何行かを前の地点へ)・D26 (表頭に無い階層の段落を隣へ．種数が合うときだけ)"""
+        body = [self.BODY4, ["sp", "", "", "Quercus glauca", "アラカシ", "B", "+", "+", "+", "+", ""],
+                ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", "+", ""]]
+        d = make([self.HEAD4, ["出現種数", "Artenzahl", "", "3", "3", "2", "4", ""]], body,
+                 once=[["2", "Bb b", "ビー", "K", "+", ""], ["2", "Cc c", "シー", "K", "+", ""],      # 先頭の 1 行は地点 1 の種
+                       ["4", "Quercus glauca", "アラカシ", "", "+", ""], ["4", "Dd d", "ディー", "", "+", ""],
+                       ["4", "Ff f", "エフ", "K", "+", ""]])
+        sites, comp = self._run(d)
+        self.assertEqual((comp[("ビー", "1", "once")]["note_judge"], comp[("シー", "2", "once")]["note_judge"]), ("D11", ""))
+        self.assertEqual((comp[("ディー", "4", "once")]["layer"], comp[("ディー", "4", "once")]["note_judge"]), ("K", "D16"))
+        self.assertEqual(comp[("アラカシ", "4", "once")]["layer"], "")                 # 木本と分かる種は階層を補わない
+        # D26: in 2 の段落は，前へも後ろへも種数が合う (D11 は決められない)．地点 2 の表頭に高木層が無いのに B の値があり，
+        # 高木層があるのは地点 3 だけなので，地点 3 へ移す
+        d = make([HEAD3, ["出現種数", "Artenzahl", "", "4", "2", "4", ""],
+                  ["高木層の高さ", "Höhe d. Baumschicht", "m", "-", "-", "7", ""]],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", ""], ["sp", "", "", "Bb b", "ビー", "K", "+", "+", "+", ""]],
+                 once=[["2", "Ee e", "イー", "B", "+", ""], ["2", "Ff f", "エフ", "K", "+", ""]])
+        sites, comp = self._run(d)
+        self.assertEqual((comp[("イー", "3", "once")]["note_judge"], comp[("エフ", "3", "once")]["note_judge"]), ("D26", "D26"))
+        # 階層の手がかりが無ければ (どの地点にも高木層がある)，決められないので移さない
+        d = make([HEAD3, ["出現種数", "Artenzahl", "", "4", "2", "4", ""],
+                  ["高木層の高さ", "Höhe d. Baumschicht", "m", "8", "6", "7", ""]],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", ""], ["sp", "", "", "Bb b", "ビー", "K", "+", "+", "+", ""]],
+                 once=[["2", "Ee e", "イー", "B", "+", ""], ["2", "Ff f", "エフ", "K", "+", ""]])
+        sites, comp = self._run(d)
+        self.assertEqual(comp[("イー", "2", "once")]["note_judge"], "")
 
 
 if __name__ == "__main__":

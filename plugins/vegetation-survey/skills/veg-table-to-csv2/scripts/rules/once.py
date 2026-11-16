@@ -73,6 +73,88 @@ def heading_shift(t, param):
             if p.isdigit() and s <= int(p) <= e:
                 moved[row['_row']] = (p, f'地点 {" ".join(map(str, ok))} の出現種数がすべて印字と合う')
                 work.set('once', row['_row'], '@plot', str(int(p) + d))
+    # 段落の途中からのずれ (2026-11-16 ユーザ決定): 段落の先頭から k 行だけを前の地点へ移すと，両方の地点の出現種数が
+    # 印字と合うときも移す．合う k が 1 つだけのときに限る (偶然の一致を減らす)．まるごとのずれを当てたあとで見る
+    for _ in range(20):
+        body, once, want = species_sets(work)
+        found = None
+        for p in sorted(once):
+            q = p - 1
+            if q not in want or p not in want:
+                continue
+
+            def n(plot, sets):
+                return len(body.get(plot, set()) | sets.get(plot, set()))
+            if n(p, once) == want[p] or n(q, once) == want[q]:
+                continue                                    # どちらかがもう合っている地点は触らない
+            rows = [r for r in work.dicts('once') if r.get('plot', '').strip() == str(p) and r['_row'] not in moved
+                    and (r.get('s_name', '').strip() or r.get('j_name', '').strip())]
+            hits = []
+            for k in range(1, len(rows)):
+                head = {old_check.spkey(dict(s_name=r.get('s_name', '').strip(), j_name=r.get('j_name', '').strip())) for r in rows[:k]}
+                rest = {old_check.spkey(dict(s_name=r.get('s_name', '').strip(), j_name=r.get('j_name', '').strip())) for r in rows[k:]}
+                keep_p = (once.get(p, set()) - head) | rest
+                if len(body.get(p, set()) | keep_p) == want[p] and len(body.get(q, set()) | once.get(q, set()) | head) == want[q]:
+                    hits.append(k)
+            if len(hits) == 1:
+                found = (p, q, rows[:hits[0]])
+                break
+        if not found:
+            break
+        p, q, rows = found
+        for r in rows:
+            moved[r['_row']] = (str(p), f'段落の先頭の {len(rows)} 行を移すと地点 {q} {p} の出現種数が印字と合う')
+            work.set('once', r['_row'], '@plot', str(q))
     for row, (p, why) in sorted(moved.items()):
         new = work.get('once', row, '@plot')
         yield Change('once', row, '@plot', new, f'印字は in {p}．見出しのずれとみて地点 {new} へ移した ({why})')
+
+
+LAYER_ROWS = {'B': ('高木層',), 'B1': ('高木第1層', '高木第一層', '高木層1'), 'B2': ('高木第2層', '高木第二層', '高木層2'),
+              'S': ('低木層',), 'K': ('草本層',)}
+DASH = {'', '-', '—', '–', '−', '―'}
+
+
+def layer_absent(t):
+    """表頭で「その階層が無い」と分かる (階層, 地点) の集合．その階層の行 (高さ・植被率) があり，その地点の値が全部 - のとき"""
+    out = set()
+    plots = t.plots('header')
+    for layer, names in LAYER_ROWS.items():
+        rows = [d for d in t.dicts('header') if any(d.get('item_ja', '').replace(' ', '').startswith(n) for n in names)]
+        for p in plots:
+            if rows and all((d.get(p) or '').strip() in DASH for d in rows):
+                out.add((layer, p))
+    return out
+
+
+@rule('D26', '1 回出現の値の階層が表頭に無い地点の段落は，種数が合うときだけ，その階層のある隣の地点へ移す', '1 回出現',
+      old='(前回のユーザ確認から)', order=10.5)
+def paragraph_to_layer_plot(t, param):
+    """段落の中に，表頭でその地点に無いとされた階層 (B など) の値がある → 見出しの番号の印字ミスを疑う．
+    隣の地点 (片方だけ) にその階層があり，段落をまるごと移すと両方の地点の出現種数が印字と合うときだけ移す
+    (2026-11-16 ユーザ決定．前回のユーザ確認の 2 つの型を合わせた条件)．
+    D11 (種数だけで見る見出しのずれ) より先に当てる (order=10.5)．D11 は前後どちらへずらしても種数が合うときに
+    決められず見送るので，階層の手がかりで向きが決まるこの規則を先にする"""
+    absent = layer_absent(t)
+    if not absent:
+        return
+    body, once, want = species_sets(t)
+    rows_of = {}
+    for r in t.dicts('once'):
+        p = r.get('plot', '').strip()
+        if p.isdigit():
+            rows_of.setdefault(int(p), []).append(r)
+    for p, rows in sorted(rows_of.items()):
+        bad = {r.get('layer', '').strip() for r in rows if (r.get('layer', '').strip(), str(p)) in absent}
+        if not bad or p not in want:
+            continue
+        ok_q = [q for q in (p - 1, p + 1) if q in want and all((layer, str(q)) not in absent for layer in bad)]
+        if len(ok_q) != 1:
+            continue
+        q = ok_q[0]
+        sp = once.get(p, set())
+        if len(body.get(p, set())) == want[p] and len(body.get(q, set()) | once.get(q, set()) | sp) == want[q]:
+            for r in rows:
+                yield Change('once', r['_row'], '@plot', str(q),
+                             f'印字は in {p}．地点 {p} の表頭に無い階層 ({"・".join(sorted(bad))}) の値がある．'
+                             f'地点 {q} へ移すと両方の出現種数が印字と合う')
