@@ -1740,5 +1740,30 @@ class Review0543Test(unittest.TestCase):
         self.assertEqual(kept[1]["note"], "問い")
 
 
+class Fixes0544Test(unittest.TestCase):
+    def test_x8_exception_answered(self):
+        """調査区数の行の「N: ユーザ確認」があれば，調査区数の疑い (規則 X8 の例外) を ok にする (0.5.44)"""
+        d = tempfile.mkdtemp()
+        t = os.path.join(d, "transcripts", "Tab.1")
+        os.makedirs(t)
+        with open(os.path.join(t, "meta.tsv"), "w", encoding="utf-8") as f:
+            f.write("key\tvalue\nfile\tx_001\ntable\tTab.1\n")
+        head = "\t".join(["item_ja", "item_de", "unit", "1", "2", "note"]) + "\n"
+        body = ("\t".join(["kind", "group_ja", "group_de", "s_name", "j_name", "layer", "1", "2", "note"]) + "\n"
+                + "".join("\t".join(["sp", "", "", s, j, "S", "+", v, ""]) + "\n"
+                          for s, j, v in (("A a", "エー", "1(+)"), ("B b", "ビー", "2(+)"), ("C c", "シー", "1(1)"))))
+        with open(os.path.join(t, "body.tsv"), "w", encoding="utf-8") as f:
+            f.write(body)
+
+        def status(note):
+            with open(os.path.join(t, "header.tsv"), "w", encoding="utf-8") as f:
+                f.write(head + "\t".join(["調査区数", "Zahl d. Aufn.", "", "-", "7", note]) + "\n")
+            run(to_csv.main, [d])
+            return [r["status"] for r in rows(os.path.join(d, "sites.csv")) if r["item_ja"] == "調査区数の疑い"]
+        self.assertEqual(status(""), ["check"])
+        self.assertEqual(status("2: ユーザ確認 2026-11-16: 算用数字のまま"), ["ok"])
+        self.assertEqual(status("1: ユーザ確認 2026-11-16: 別の地点"), ["check"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

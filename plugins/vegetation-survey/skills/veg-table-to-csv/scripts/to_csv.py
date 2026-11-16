@@ -573,11 +573,16 @@ def build(tdir):
                          s_name=r.get('s_name', ''), j_name=r.get('j_name', ''),
                          layer=once_layer, cover=cov, sociability=soc, constancy=const,
                          value_raw=r.get('value', ''), source='once', status=st, note=note))
+    n_row = next((r for r in header if r.get('item_ja') == '調査区数'
+                  or r.get('item_de', '').lower().startswith('zahl d. aufn')), None)
     for p in sorted(keep_arabic, key=lambda x: int(x) if x.isdigit() else 0):
+        said = cell_note(n_row.get('note', ''), p) if n_row else ''
+        done = 'ユーザ確認' in said                     # 調査区数の行の「N: ユーザ確認 …」で答え済み (0.5.44)
         sites.append(dict(file=file, table=table, plot=p, item_ja='調査区数の疑い', item_de='', value=str(n_plots.get(p, '')),
-                          unit='', value_raw='', source='derived', status='check',
+                          unit='', value_raw='', source='derived', status='ok' if done else 'check',
                           note=f'算用数字の常在度が多数で最大 {keep_arabic[p]} < 調査区数 {n_plots.get(p)}．'
-                               'ローマ数字にそろえず，調査区数の印字を疑う (規則 X8 の例外)'))
+                               'ローマ数字にそろえず，調査区数の印字を疑う (規則 X8 の例外)'
+                               + (f'．{said}' if done else '')))
     add_column_kind(file, table, sorted(set(all_plots) | {c['plot'] for c in comp}), n_plots, comp, sites)
     region = re.sub(r'_\d+$', '', file)
     for row in sites + comp:
