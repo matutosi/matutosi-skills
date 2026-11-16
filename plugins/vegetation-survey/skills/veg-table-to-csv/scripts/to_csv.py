@@ -42,10 +42,31 @@ COMP_COLS = ['file', 'region', 'table', 'plot', 'group_ja', 'group_de', 's_name'
              'status', 'note']
 
 
-def parse_value(raw, n_plots=0):
+ARABIC_CONST = re.compile(rf'([1-9]\d*)(?:\s*\(\s*{COV}(?:\s*-\s*{COV})?\s*\))?')
+ROMAN_CONST = re.compile(rf'(?:V|IV|III|II|I)(?:\s*\(\s*{COV}(?:\s*-\s*{COV})?\s*\))?')
+
+
+def arabic_major_columns(body, n_plots):
+    """規則 X8 の例外の列 {列: 算用数字の最大} を返す (0.5.43．九州 Tab.076 列 10 のユーザ回答)．
+    調査区数 5 以上の列でも，算用数字の常在度 (`2(+)`) がローマ数字より多く (3 セル以上)，最大が調査区数より
+    小さければ，算用数字は出現地点数の印字で，調査区数の印字のほうが誤りとみる．ローマ数字にそろえない"""
+    out = {}
+    for p, n in n_plots.items():
+        if n < 5:
+            continue
+        vals = [(r.get(p) or '').translate(FIX).strip().rstrip('?') for r in body if r.get('kind') != 'group']
+        arabic = [int(ARABIC_CONST.fullmatch(v).group(1)) for v in vals if ARABIC_CONST.fullmatch(v)]
+        roman = [v for v in vals if ROMAN_CONST.fullmatch(v)]
+        if len(arabic) >= 3 and len(arabic) > len(roman) and max(arabic) < n:
+            out[p] = max(arabic)
+    return out
+
+
+def parse_value(raw, n_plots=0, keep_arabic=False):
     """印字の値を (cover, sociability, constancy, status, note) に分ける．非出現は None
 
-    n_plots は列の調査区数．調査区の少ない列は常在度を出現地点数で印字する (`2(3)`・`1`)"""
+    n_plots は列の調査区数．調査区の少ない列は常在度を出現地点数で印字する (`2(3)`・`1`)．
+    keep_arabic は規則 X8 の例外の列 (算用数字をローマ数字に直さない．arabic_major_columns)"""
     s = raw.translate(FIX).strip()
     underlined = '±' in s                             # ± は下線付きの +
     s = s.replace('±', '+')
@@ -67,7 +88,7 @@ def parse_value(raw, n_plots=0):
     out = None
     over = False                                      # 出現地点数が調査区数を超える
     m = re.fullmatch(rf'([1-9]\d*)(?:\s*\(\s*({COV})(?:\s*-\s*({COV}))?\s*\))?', s) if n_plots else None
-    if m and n_plots >= 5 and m.group(2) and 1 <= int(m.group(1)) <= 5:
+    if m and n_plots >= 5 and m.group(2) and 1 <= int(m.group(1)) <= 5 and not keep_arabic:
         # 調査区数 5 以上の列 (ローマ数字の列) の算用数字 1(+-2) は，ローマ数字 I(+-2) の誤植 (規則 X8・8.4)
         roman = ['I', 'II', 'III', 'IV', 'V'][int(m.group(1)) - 1]
         out = ((m.group(2) or '') + ('-' + m.group(3) if m.group(3) else ''), '', roman)
@@ -111,6 +132,8 @@ def parse_value(raw, n_plots=0):
 
 SOC_DEFAULT = 'one'                                   # 群度の印字が無いときの補い方: one | cover
 PLOTS_SEEN = set()
+INNER_CHECK = re.compile(r'[(（]\s*check\b')            # 括弧の中の check．書き方は「N: check …」にそろえる
+CHECK_STYLE = []                                      # 括弧の中の check を check とみた行 (報告用)
 NAMELESS = []                                         # 1 回出現の名前の無い値 (規則 X53)
 
 
@@ -133,6 +156,9 @@ def merge(status, note, row, plot=None):
     notes = [x for x in (note, extra) if x]
     if row.get('status', '').strip() == 'check' or any(x.strip().startswith('check') for x in extra.split(';')):
         status = 'check'
+    elif any(INNER_CHECK.search(x) for x in extra.split(';')):
+        status = 'check'                              # 括弧の中の check (「二重下線 (check)」) も check (0.5.43)
+        CHECK_STYLE.append(row.get('j_name') or row.get('item_ja') or row.get('s_name') or '')
     if ';' in row.get('layer', '') and status == 'ok':
         status = 'multi'                              # 値はあるが階層が 1 つに決まらない
     return status, ';'.join(notes)
@@ -193,26 +219,53 @@ def kind_layers(note, layers):
     return out
 
 
+def has_mark(parts, word):
+    """セルの note の断片に印 (`二重下線`・`下線`・`波線`) があるか．後ろに説明が続く形
+    (`二重下線 (check)`・`下線．枠の破線に重なる`) も当てる．`下線なし` は当てない
+    (0.5.43．九州 Tab.010 で「29: 二重下線 (check)」が効かず，層を誤った)"""
+    for p in parts:
+        p = p.strip()
+        if p == word or (p.startswith(word) and p[len(word):len(word) + 1] in (' ', '(', '（', '．', '.', ',', '，', '、')):
+            return True
+    return False
+
+
+CELL_LAYER = re.compile(r'層\s*[:：]?\s*([A-Z][A-Za-z]?\d?)')
+
+
+def cell_layer_spec(row, plot):
+    """セルの note の「N: 層 B1」(セルごとの階層の指定．0.5.43) を返す．無ければ ''"""
+    for p in cell_note(row.get('note', ''), plot).split(';'):
+        m = CELL_LAYER.fullmatch(p.strip())
+        if m:
+            return m.group(1)
+    return ''
+
+
 def cell_layer(row, plot):
     """複数の階層の行で，そのセルの階層を返す．下線の階層が分かれば，下線の値はその階層，
     下線の無い値は残りの階層 (残りが 1 つに決まるときだけ)．決まらなければ複数のまま (status=multi)．
     3 つ書きの行で note に「(B1 に二重下線・K に一重下線)」とあれば，セルの「N: 二重下線」「N: 一重下線」
-    「N: 波線」でその階層，印の無いセルは残りの階層 (1 つに決まるとき) にする"""
+    「N: 波線」でその階層，印の無いセルは残りの階層 (1 つに決まるとき) にする．
+    セルの note に「N: 層 X」があれば，下線より先にその階層にする (行を階層ごとに分けずに書ける．0.5.43)"""
+    spec = cell_layer_spec(row, plot)
+    if spec:
+        return spec
     layers = row.get('layer', '').split(';')
     kinds = kind_layers(row.get('note', ''), layers)
     if len(layers) >= 2 and kinds:
         parts = cell_note(row.get('note', ''), plot).split(';')
         for kind in ('二重', '一重', '波線'):
-            if kind in kinds and (kind + '下線' in parts or (kind == '波線' and '波線' in parts)):
+            if kind in kinds and (has_mark(parts, kind + '下線') or (kind == '波線' and has_mark(parts, '波線'))):
                 return kinds[kind]
-        if '下線' in parts or '±' in row.get(plot, ''):
+        if has_mark(parts, '下線') or '±' in row.get(plot, ''):
             return kinds.get('下線', row.get('layer', ''))   # 種類を書かない下線は「X に下線」の階層．無ければ決めない
         rest = [x for x in layers if x not in kinds.values()]
         return rest[0] if len(rest) == 1 else row.get('layer', '')
     under = underlined_layers(row.get('note', ''), layers)
     if len(layers) < 2 or not under or len(under) == len(layers):
         return row.get('layer', '')
-    marked = '±' in row.get(plot, '') or '下線' in cell_note(row.get('note', ''), plot).split(';')
+    marked = '±' in row.get(plot, '') or has_mark(cell_note(row.get('note', ''), plot).split(';'), '下線')
     rest = [x for x in layers if x not in under]
     if marked:
         return under[0] if len(under) == 1 else row.get('layer', '')
@@ -431,14 +484,21 @@ def build(tdir):
     body = layer_from_below(read_tsv(os.path.join(tdir, 'body.tsv')), plots_per_column(header))
     fixed_head = {'item_ja', 'item_de', 'unit', 'note', 'status'}
     fixed_body = {'kind', 'group_ja', 'group_de', 's_name', 'j_name', 'layer', 'note', 'status'}
+    # meta.tsv の drop_plots (例: `31` / `30,31`) の地点は CSV に出さない．転記の列は残す (0.5.43．九州 Tab.010)
+    drop = set(plot_list(meta.get('drop_plots', '').replace(' ', ''))) if meta.get('drop_plots', '').strip() else set()
     all_plots = []
     for rows, fixed in ((header, fixed_head), (body, fixed_body)):
         if rows:
             all_plots += [p for p in plots_of(list(rows[0].keys()), fixed) if p not in all_plots]
     PLOTS_SEEN.clear()
     PLOTS_SEEN.update(all_plots)
+    all_plots = [p for p in all_plots if p not in drop]
+    for p in sorted(drop, key=lambda x: int(x) if x.isdigit() else 0):
+        sites.append(dict(file=file, table=table, plot=p, item_ja='外した地点', item_de='', value='外した',
+                          unit='', value_raw='', source='derived', status='ok',
+                          note=meta.get('drop_plots_note', '') or 'meta.tsv の drop_plots で外した'))
     if header:
-        plots = plots_of(list(header[0].keys()), fixed_head)
+        plots = [p for p in plots_of(list(header[0].keys()), fixed_head) if p not in drop]
         for r in header:
             ym = re.search(r'(19|20)\d\d', r.get('item_de', '') + r.get('item_ja', ''))
             for p in plots:
@@ -454,14 +514,17 @@ def build(tdir):
     for r in read_tsv(os.path.join(tdir, 'notes.tsv')):
         # plot が空 = 全地点に共通．地点ごとに展開する (地点が分からなければ空のまま)
         for p in (plot_list(r.get('plot', '')) if r.get('plot', '') or not all_plots else all_plots):
+            if p in drop:
+                continue
             sites.append(dict(file=file, table=table, plot=p, item_ja=r.get('item_ja', ''),
                               item_de=r.get('item_de', ''), value=r.get('value', ''),
                               unit=r.get('unit', ''), value_raw=r.get('value_raw', ''),
                               source='note', status=r.get('status') or 'ok', note=r.get('note', '')))
 
     n_plots = plots_per_column(header)                 # 常在度の列の調査区数 {列: 数} (1 回出現でも使う)
+    keep_arabic = arabic_major_columns(body, n_plots)  # 規則 X8 の例外の列
     if body:
-        plots = plots_of(list(body[0].keys()), fixed_body)
+        plots = [p for p in plots_of(list(body[0].keys()), fixed_body) if p not in drop]
         g_ja = g_de = s_prev = j_prev = ''
         for r in body:
             if r.get('kind') == 'group':
@@ -472,14 +535,16 @@ def build(tdir):
                 s, j = s_prev, j_prev
             s_prev, j_prev = s, j
             for p in plots:
-                pv = parse_value(r.get(p, ''), n_plots.get(p, 0))
+                pv = parse_value(r.get(p, ''), n_plots.get(p, 0), keep_arabic=p in keep_arabic)
                 if pv is None:
                     continue
                 cov, soc, const, st, note = pv
                 layer = cell_layer(r, p)
                 by_herb = herb_layer(s, layer)
                 st, note = merge(st, note, dict(r, layer=by_herb), p)
-                if layer != r.get('layer', ''):         # 規則で階層を決めたものは note に残す
+                if cell_layer_spec(r, p):               # セルごとの階層の指定 (N: 層 X)．note の指定の断片は残っている
+                    pass
+                elif layer != r.get('layer', ''):       # 規則で階層を決めたものは note に残す
                     note = ';'.join(x for x in (note, f"下線の規則で階層を {layer} に決めた (印字は {r.get('layer', '').replace(';', ',')})") if x)
                 if by_herb != layer:
                     note = ';'.join(x for x in (note, '草本のため K 層とした') if x)
@@ -490,6 +555,8 @@ def build(tdir):
                                  source='body', status=st, note=note))
 
     for r in read_tsv(os.path.join(tdir, 'once.tsv')):
+        if r.get('plot', '') in drop:
+            continue
         if not r.get('s_name', '').strip() and not r.get('j_name', '').strip():
             # 名前の無い値 (in 19: B2-1・2．規則 X53) は種に含めず，一覧 nameless.tsv に拾う
             NAMELESS.append(dict(file=file, table=table, plot=r.get('plot', ''), layer=r.get('layer', ''),
@@ -506,6 +573,11 @@ def build(tdir):
                          s_name=r.get('s_name', ''), j_name=r.get('j_name', ''),
                          layer=once_layer, cover=cov, sociability=soc, constancy=const,
                          value_raw=r.get('value', ''), source='once', status=st, note=note))
+    for p in sorted(keep_arabic, key=lambda x: int(x) if x.isdigit() else 0):
+        sites.append(dict(file=file, table=table, plot=p, item_ja='調査区数の疑い', item_de='', value=str(n_plots.get(p, '')),
+                          unit='', value_raw='', source='derived', status='check',
+                          note=f'算用数字の常在度が多数で最大 {keep_arabic[p]} < 調査区数 {n_plots.get(p)}．'
+                               'ローマ数字にそろえず，調査区数の印字を疑う (規則 X8 の例外)'))
     add_column_kind(file, table, sorted(set(all_plots) | {c['plot'] for c in comp}), n_plots, comp, sites)
     region = re.sub(r'_\d+$', '', file)
     for row in sites + comp:
@@ -575,6 +647,7 @@ def main(argv=None):
         sys.exit(f'転記表が無い: {root}')
     sites, comp = [], []
     NAMELESS.clear()
+    CHECK_STYLE.clear()
     for name in sorted(os.listdir(root)):
         tdir = os.path.join(root, name)
         if os.path.isdir(tdir):
@@ -594,6 +667,9 @@ def main(argv=None):
         print(f'1 回出現の名前の無い値 {len(NAMELESS)} 件を種に含めず {path} に書いた (規則 X53)')
     elif os.path.exists(path):
         os.remove(path)
+    if CHECK_STYLE:
+        print(f'[check の書き方] 括弧の中の check を check とみたセル {len(CHECK_STYLE)} 個 '
+              f'(例: {"・".join(sorted(set(CHECK_STYLE))[:5])})．note は「N: check …」の形にそろえる')
 
 
 if __name__ == '__main__':

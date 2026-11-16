@@ -1555,5 +1555,54 @@ class ReferenceInfoTest(unittest.TestCase):
         self.assertIsNone(R.reference_info(d, "Tab.8", [2]))
 
 
+class Fixes0543Test(unittest.TestCase):
+    """九州の確認から出た修正 (0.5.43)"""
+
+    def test_mark_with_trailing_note(self):
+        """「29: 二重下線 (check)」のように後ろに説明が続いても下線の種類を当てる．下線なしは当てない (1)"""
+        to_csv.PLOTS_SEEN.clear()
+        to_csv.PLOTS_SEEN.update(["6", "20", "29"])
+        row = {"layer": "B2;S;K", "6": "+", "20": "+", "29": "+",
+               "note": "印字は B2,S,K (B2 に一重下線・S に二重下線); 6: 二重下線．枠に重なる; 29: 二重下線 (check)"}
+        self.assertEqual(to_csv.cell_layer(row, "29"), "S")
+        self.assertEqual(to_csv.cell_layer(row, "6"), "S")
+        self.assertEqual(to_csv.cell_layer(row, "20"), "K")
+        self.assertFalse(to_csv.has_mark(["下線なし"], "下線"))
+        self.assertTrue(to_csv.has_mark(["下線 (帯で確かめた)"], "下線"))
+        to_csv.PLOTS_SEEN.clear()
+
+    def test_inner_check_and_cell_layer_and_drop(self):
+        """括弧の中の check も check (2)．「N: 層 X」でセルごとの階層 (7)．meta.tsv の drop_plots (8)"""
+        d = workdir()
+        t = os.path.join(d, "transcripts", "Tab.1")
+        cells = ["sp", "", "", "Pinus thunbergii", "クロマツ", "B2;S;K", "+", "1・1", "+",
+                 "1: 二重下線 (check); 2: 層 S; 3: 層 K"]
+        with open(os.path.join(t, "body.tsv"), "a", encoding="utf-8") as f:
+            f.write("\t".join(cells) + "\n")
+        with open(os.path.join(t, "meta.tsv"), "a", encoding="utf-8") as f:
+            f.write("drop_plots\t3\n" + "drop_plots_note\t表頭だけの地点 (ユーザ確認)\n")
+        _, out = run(to_csv.main, [d])
+        comp = rows(os.path.join(d, "composition.csv"))
+        hit = {r["plot"]: (r["layer"], r["status"]) for r in comp if r["j_name"] == "クロマツ"}
+        self.assertEqual(hit["1"][1], "check")
+        self.assertEqual(hit["2"][0], "S")
+        self.assertNotIn("3", hit)                                    # 外した地点
+        self.assertFalse(any(r["plot"] == "3" for r in comp))
+        sites = rows(os.path.join(d, "sites.csv"))
+        self.assertTrue(any(r["plot"] == "3" and r["item_ja"] == "外した地点" for r in sites))
+        self.assertFalse(any(r["plot"] == "3" and r["source"] == "header" for r in sites))
+        self.assertIn("[check の書き方]", out)
+
+    def test_x8_exception(self):
+        """算用数字の常在度が多数で最大が調査区数より小さい列は，ローマ数字にそろえない (10)"""
+        body = [{"kind": "sp", "1": v} for v in ("1(+)", "2(+)", "4(1)", "3(+-1)", "I(+)")]
+        self.assertEqual(to_csv.arabic_major_columns(body, {"1": 5}), {"1": 4})
+        self.assertEqual(to_csv.arabic_major_columns(body, {"1": 3}), {})          # 調査区数 5 未満は対象外
+        roman = [{"kind": "sp", "1": v} for v in ("I(+)", "II(+)", "1(+)", "III", "IV(1)")]
+        self.assertEqual(to_csv.arabic_major_columns(roman, {"1": 5}), {})
+        self.assertEqual(to_csv.parse_value("2(+)", 5)[2], "II")
+        self.assertEqual(to_csv.parse_value("2(+)", 5, keep_arabic=True)[2], "2")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
