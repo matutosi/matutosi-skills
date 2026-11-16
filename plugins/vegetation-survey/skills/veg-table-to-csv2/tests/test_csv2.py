@@ -5,6 +5,7 @@
 import contextlib
 import csv
 import io
+import json
 import os
 import shutil
 import sys
@@ -568,6 +569,54 @@ class ConflictsAndAskTest(unittest.TestCase):
         self.assertEqual(sites[("方位", "2")], ("N", ""))
         comp = {(r["j_name"], r["plot"]): (r["value_decided"], r["note_judge"]) for r in rows(os.path.join(d, "composition.csv"))}
         self.assertEqual(comp[("ビー", "3")], ("1・1", "U:ユーザ確認"))
+
+
+class AskRulesProposalsTest(unittest.TestCase):
+    def test_groups_and_proposals(self):
+        """引き継ぎの判断を型ごとに分け，規則にしやすさと考えられる条件を選択肢に出す．--carry で答え済みを外す"""
+        import ask_rules
+        d = make([HEAD3, ["草本層の高さ", "Höhe d. Krautschicht", "m", "0:2", "0.5", "0.3", ""],
+                  ["調査地 (県名)", "Ort (Signal d. Präf.)", "", "Ka", "Y*", "M", ""]],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "K", "÷・2", "+", "・", ""]],
+                 once=[["2", "Bb b", "ビー", "", "+", ""], ["2", "Cc c", "シー", "K", "+", ""], ["3", "Dd d", "ディー", "K", "+", ""]])
+        write(os.path.join(d, "judgments.tsv"), [["cell_id", "value", "id", "date", "note"],
+                                                ["Tab.001/h1/1", "0.2", "L:-", "", ""], ["Tab.001/h2/2", "Y", "L:-", "", ""],
+                                                ["Tab.001/b1/1", "+・2", "L:-", "", ""], ["Tab.001/h2/1", "K", "L:X1", "", ""],
+                                                ["Tab.001/o1/@layer", "K", "L:X51", "", ""]])
+        run(freeze.main, [d])
+        run(decide.main, [d])
+        by = {"L:-": [("a", "0:2", "", ""), ("b", "Y*", "", ""), ("c", "÷・2", "", ""), ("d", "1 2", "", ""),
+                      ("e", "同左 北西部", "", ""), ("f", "なぞ", "", "")], "L:X1": [("g", "Ka", "", "")]}
+        self.assertEqual(list(ask_rules.legacy_groups(by)),
+                         ["L:-/小数点の乱れ", "L:-/脚注の印", "L:-/値の字の乱れ", "L:-/中黒の落ち", "L:-/同左つきの地名", "L:-/そのほか", "L:X1"])
+        page = os.path.join(d, "rules.html")
+        rc, out = run(ask_rules.main, [d, page])
+        self.assertEqual(rc, 0, out)
+        with open(page, encoding="utf-8") as f:
+            text = f.read()
+        for want in ('data-id="L:-/小数点の乱れ"', 'data-id="L:-/脚注の印"', 'data-id="L:-/値の字の乱れ"', 'data-id="L:X51"',
+                     "規則にしやすさ: 高", "規則にしやすさ: 低-中", 'value="r1"', "草本の一覧に足す", "不採用"):
+            self.assertIn(want, text)
+        self.assertLess(text.index('data-id="L:X51"'), text.index('data-id="L:X1"'))     # 規則にしやすい群が先
+        ans = os.path.join(d, "rule_answers.json")
+        with open(ans, "w", encoding="utf-8") as f:
+            json.dump({"L:X51": {"choice": "r1", "memo": ""}, "L:-/脚注の印": {"choice": "b", "memo": ""},
+                       "L:-/小数点の乱れ": {"choice": "r2", "memo": "植生高も"}, "L:X1": {"choice": "a", "memo": ""}}, f, ensure_ascii=False)
+        rc, out = run(ask_rules.main, [d, "--apply", ans])
+        self.assertEqual(rc, 0, out)
+        left = [r["cell_id"] for r in rows_tsv(os.path.join(d, "judgments.tsv"))]
+        self.assertNotIn("Tab.001/h2/2", left)                          # 脚注の印の群だけ外れる (同じ L:- のほかの型は残る)
+        self.assertIn("Tab.001/h1/1", left)
+        self.assertIn("Tab.001/b1/1", left)
+        todo = {r["id"]: (r["what"], r["memo"]) for r in rows_tsv(os.path.join(d, "rule_answers_todo.tsv"))}
+        self.assertEqual(todo["L:X51"][0], "規則にする")
+        self.assertIn("草本の一覧に足す", todo["L:X51"][1])
+        self.assertIn("メモ: 植生高も", todo["L:-/小数点の乱れ"][1])
+        rc, out = run(ask_rules.main, [d, page, "--carry", ans])
+        with open(page, encoding="utf-8") as f:
+            text = f.read()
+        self.assertNotIn('data-id="L:X51"', text)                       # 答え済みは外れる
+        self.assertIn('data-id="L:-/値の字の乱れ"', text)
 
 
 if __name__ == "__main__":

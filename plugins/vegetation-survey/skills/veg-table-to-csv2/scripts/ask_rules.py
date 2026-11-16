@@ -25,6 +25,7 @@ import collections
 import html
 import json
 import os
+import re
 import sys
 
 import common
@@ -38,7 +39,7 @@ body{background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,'Yu Gothic',sa
 #bar{position:sticky;top:0;background:var(--bg);padding:8px 0;border-bottom:1px solid var(--line);z-index:2}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin:16px 0}
 h2{font-size:17px;margin:0 0 4px}h3{margin:28px 0 0;padding:4px 8px;border-left:5px solid var(--acc);font-size:16px}
-.n{font-size:13px;opacity:.8;margin:0 0 6px}.tw{overflow-x:auto}
+.n{font-size:13px;opacity:.8;margin:0 0 6px}.tw{overflow-x:auto}.ease{font-size:14px;margin:0 0 8px}
 table{border-collapse:collapse;font-size:13px}th,td{border:1px solid var(--line);padding:2px 8px;text-align:left;white-space:nowrap}
 td.w{white-space:normal;min-width:16em}
 .ans{margin-top:8px;display:flex;flex-direction:column;gap:4px}
@@ -69,12 +70,63 @@ OPTIONS = {
     'L': [('a', 'このセルだけ今の判断を引き継ぐ (規則にはならない．ほかの表には効かない)'),
           ('b', '引き継がない (印字のままにする)'),
           ('c', '個別に見直す (確認の対象にする)'),
-          ('d', '規則にする (どういう条件で直すかをメモに．関数か対応の表を作る)')],
+          ('d', '別の条件で規則にする (条件をメモに)')],
     'U': [('a', '引き継がない (今のまま．印字のままにする)'),
           ('b', 'このセルだけ前回の答えを引き継ぐ (規則にはならない)'),
           ('c', '個別に見直す (確認の対象にする)'),
-          ('d', '規則にする (どういう条件で直すかをメモに)')],
+          ('d', '別の条件で規則にする (条件をメモに)')],
 }
+
+# 引き継ぎの判断を規則にするときの見込み: 群 -> (規則にしやすさ, 理由, [(値, 考えられる条件)])．
+# 選択肢の r1・r2 は「この条件で規則にする」(--apply は rule_answers_todo.tsv に書き出す．規則を書くのは次の作業)．
+# 九州の折り込み 62 表で残った判断を調べて決めた (2026-11-16)．ほかの地方で型が増えたら足す
+PROPOSALS = {
+    'L:X51': ('高', '残ったのは，草本の一覧 (herb_species.tsv) に載っていない草本・つる草．一覧に足せば今の規則 D16 が拾う', [
+        ('r1', '規則にする: これらの種を草本の一覧に足す (ほかの表でも，階層の無い 1 回出現は K になる)'),
+        ('r2', '規則にする (広い条件): 階層を書く表で階層の無い 1 回出現は，木本と分かる種を除いてすべて K にする')]),
+    'L:-/同左つきの地名': ('中', '「同左 北西部」のように，同左のあとに語が続く型．今の規則 D17 は「同左」だけの値しか見ない', [
+        ('r1', '規則にする: 「同左 X」は，左の地点の値どうしに共通する頭の地名 + X とする (阿蘇外輪山 + 北西部)'),
+        ('r2', '規則にする (狭い条件): 左の地点の値の最初の語 (括弧・空白の前まで) から方位の語を除いたもの + X とする')]),
+    'L:-/小数点の乱れ': ('高', '「0:2」「1:5」のように，小数点が縦に 2 つ見える型', [
+        ('r1', '規則にする: 表頭の数値の行の「数字:数字」は小数点の印字の乱れとみて「数字.数字」に直す'),
+        ('r2', '規則にする (狭い条件): 高さの行 (…層の高さ・植生高) だけに当てる')]),
+    'L:-/値の字の乱れ': ('高', '組成の値の「÷」(+ の印字の乱れ) の型', [
+        ('r1', '規則にする: 組成の値の「÷」は「+」の印字の乱れとみて「+」に直す')]),
+    'L:-/中黒の落ち': ('高', '「1 2」のように，被度と群度の間の中黒が落ちた型', [
+        ('r1', '規則にする: 地点の列の「被度 空白 群度」は中黒の落ちとみて「被度・群度」に直す (常在度の列は除く)')]),
+    'L:-/脚注の印': ('高', '「Y*」のように，値の後ろに脚注の印が付いた型', [
+        ('r1', '規則にする: 県名の記号の後ろの「*」を外す (Y* → Y)'),
+        ('r2', '規則にする (広い条件): 表頭のどの行でも，値の末尾の「*」を外す')]),
+    'L:X1': ('低-中', '表頭の県名の記号を，注記の調査地に合わせて直した型．注記に県名が書いてあるのはごく一部で，'
+             'ほかは地名 (天草・阿蘇・伊万里・唐津・小林・新宮 など) から県を引く知識が要る', [
+        ('r1', '規則にする (機械で決まる分だけ): 注記の調査地に県名 (「宮崎県…」「Präf. …」) が書いてあるときだけ，表頭の記号をそれに合わせる'),
+        ('r2', '規則にする (表を育てる): 地名 → 県の対応の表を作り，表にある地名が注記にあれば記号を合わせる')]),
+    'L:X34': ('中', '調査年月日の年を，出典の年に合わせて直した型 (調査が出典の発行より後になる)', [
+        ('r1', '規則にする: 調査年が出典の年より後で，1 字違いのときだけ出典の年に合わせる'),
+        ('r2', '規則にしない: 調査年が出典の年より後の地点は，矛盾として出すだけにする')]),
+    'L:X35': ('低', '今の規則 D11 は，段落まるごとを 1 地点ずらすと種数が合うときだけ移す．残ったのは，段落の途中からのずれ・'
+              '前後どちらへずらしても合う場合・候補に出ない続きのずれで，人が画像を見て決めたもの', [
+        ('r1', '規則にする (条件を広げる): 段落の先頭から何行かだけを隣の地点へ移すと両方の種数が合うときも移す (偶然に合う危険が増える)'),
+        ('r2', '規則にする (条件を広げる): 前後どちらでも合うときは，前の地点 (番号の小さい方) へ移す')]),
+    'U': ('低', '前回の答えの多くは 1 回出現の見出しの付け替えで，種数だけでは決まらず，表頭の階層や画像を見て答えたもの', [
+        ('r1', '規則にする: 1 回出現の値の階層 (B など) が表頭に無い地点の段落は，その階層のある隣の地点へ移す'),
+        ('r2', '規則にする: 段落の途中からのずれも，種数が合えば移す (見出しのずれの条件を広げる)')]),
+}
+PROPOSALS['L:X33'] = PROPOSALS['L:X1']
+SUB = [('同左つきの地名', re.compile(r'^(同\s*左|左\s*同)\s+\S')), ('小数点の乱れ', re.compile(r'^\d+\s*[:：]\s*\d+$')),
+       ('値の字の乱れ', re.compile(r'÷')), ('中黒の落ち', re.compile(r'^[1-5+r]\s+[1-5]$')), ('脚注の印', re.compile(r'[*＊]$'))]
+
+
+def legacy_groups(by):
+    """引き継ぎの判断を群に分ける {群の id: [セル]}．規則の番号の無いもの (L:-) は印字の型ごとに分ける"""
+    out = collections.OrderedDict()
+    for jid in sorted(k for k in by if k.startswith('L:')):
+        for cell in by[jid]:
+            gid = jid
+            if jid == 'L:-':
+                gid = 'L:-/' + next((name for name, pat in SUB if pat.search(cell[1] or '')), 'そのほか')
+            out.setdefault(gid, []).append(cell)
+    return out
 
 
 def cell_label(tables, root, cid):
@@ -132,8 +184,11 @@ def build(root, out_dir, n_examples):
     for rid in sorted(k for k in rule_list if k not in by):
         r = rule_list[rid]
         items.append((rid, 'D', f'{rid}　{r.title}', f'[{r.group}] 今の規則 {r.old or "-"}．この置き場では当たったセルが無い', []))
-    for jid in sorted(k for k in by if k.startswith('L:')):
-        items.append((jid, 'L', f'今のスキルの規則 {jid[2:]} で直したセル (関数になっていない)', count(by[jid]), examples(by[jid], every=True)))
+    rank = {'高': 0, '中': 1, '低-中': 2, '低': 3}           # 規則にしやすい群から並べる
+    groups = sorted(legacy_groups(by).items(), key=lambda g: (rank.get(PROPOSALS.get(g[0], ('',))[0], 9), g[0]))
+    for gid, cells in groups:
+        what =f'規則の番号の無い直し: {gid[4:]}' if gid.startswith('L:-/') else f'今のスキルの規則 {gid[2:]} で直したセル'
+        items.append((gid, 'L', f'{what} (関数になっていない)', count(cells), examples(cells, every=True)))
     old = read_side(os.path.join(root, 'old_user_judgments.tsv'))
     if old:
         cells = []
@@ -158,8 +213,13 @@ def write_html(items, path, title):
         tr = ''.join('<tr>' + ''.join(f'<td>{e(str(c))}</td>' for c in row) + '</tr>' for row in ex)
         table = (f'<div class="tw"><table><tr><th>表</th><th>種名・項目</th><th>場所</th><th>印字</th><th>決定</th></tr>{tr}</table></div>'
                  if ex else '')
-        radios = ''.join(f'<label><input type="radio" name="{e(iid)}" value="{v}"> {e(label)}</label>' for v, label in OPTIONS[kind])
-        parts.append(f'<section class="card" data-id="{e(iid)}"><h2>{e(name)}</h2><p class="n">{e(n)}</p>{table}'
+        opts, ease = list(OPTIONS[kind]), ''
+        if iid in PROPOSALS:                              # 規則にしやすさと，考えられる条件 (選択肢の先頭に出す)
+            level, why, props = PROPOSALS[iid]
+            ease = f'<p class="ease"><b>規則にしやすさ: {e(level)}</b>　{e(why)}</p>'
+            opts = list(props) + opts
+        radios = ''.join(f'<label><input type="radio" name="{e(iid)}" value="{v}"> {e(label)}</label>' for v, label in opts)
+        parts.append(f'<section class="card" data-id="{e(iid)}"><h2>{e(name)}</h2><p class="n">{e(n)}</p>{ease}{table}'
                      f'<div class="ans">{radios}<input type="text" class="m" placeholder="メモ (任意)"></div></section>')
     fname = 'rule_answers.json'
     page = (f'<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -199,7 +259,18 @@ def apply(root, answers_path, to_parent=False):
     if os.path.exists(jp):
         h, jrows, nl, trail = read_tsv_raw(jp)
         drop = {k for k, a in ans.items() if k.startswith('L:') and (a or {}).get('choice') == 'b'}
-        keep = [r for r in jrows if not (len(r) > 2 and r[2] in drop)]
+        cells = set()                                     # 型ごとに分けた群 (L:-/…) は，セルの ID で外す
+        dp = os.path.join(root, 'decisions.tsv')
+        if os.path.exists(dp) and any('/' in k for k in drop):
+            by = collections.defaultdict(list)
+            for cid, raw, decided, judge, modify in ((r + [''] * 5)[:5] for r in read_tsv_raw(dp)[1]):
+                for j in judge.split(';'):
+                    if j:
+                        by[j].append((cid, raw, decided, modify))
+            for gid, items in legacy_groups(by).items():
+                if gid in drop:
+                    cells |= {c[0] for c in items}
+        keep = [r for r in jrows if not (len(r) > 2 and (r[2] in drop or r[0] in cells))]
         if len(keep) != len(jrows):
             log.append(f'引き継がない旧規則 {sorted(drop)}: judgments.tsv から {len(jrows) - len(keep)} 行を外した')
         user = ans.get('U') or {}
@@ -215,6 +286,9 @@ def apply(root, answers_path, to_parent=False):
             todo.append([k, '個別に見直す', a.get('memo', '')])
         elif (k.startswith('L:') or k == 'U') and (a or {}).get('choice') == 'd':
             todo.append([k, '規則にする', a.get('memo', '')])
+        elif (k.startswith('L:') or k == 'U') and str((a or {}).get('choice', '')).startswith('r'):
+            label = dict(PROPOSALS.get(k, ('', '', []))[2]).get(a['choice'], a['choice'])
+            todo.append([k, '規則にする', label + (f"．メモ: {a['memo']}" if a.get('memo') else '')])
         elif (k.startswith('L:') or k == 'U') and (a or {}).get('memo'):
             todo.append([k, 'メモ', a['memo']])
     if todo:
