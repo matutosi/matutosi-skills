@@ -91,6 +91,10 @@ def classify(kind, row, part, cur):
             return out('個別に見る', plot, '')
         return out('戻せる', plot, h.group(1) + m.group(1)[-len(h.group(2)):] + now[h.end():])
     m = CELL.search(text)
+    if m and plot and kind in ('body', 'header') and user:
+        # ユーザ確認の断片は書き方が自由で，「印字は X」の X が説明文のことがある (九州 Tab.073「対島 と 西彼杵半島 の 2 行」)．
+        # 機械では戻さず，回答を当てる前の控えから取る
+        return Found('判断:控えから', kind, row, plot, '', 'ユーザ確認', part)
     if m and plot and kind in ('body', 'header'):
         raw = m.group(1).strip()
         d = DECIDED.search(text[m.end():])
@@ -202,9 +206,23 @@ def apply(root, out, found):
                 nl, trail = t.fmt[kind]
                 write_tsv_raw(os.path.join(tdir, kind + '.tsv'), t.head[kind], t.rows[kind], nl, trail)
     write_tsv_raw(os.path.join(out, 'restore_log.tsv'), ['cell_id', 'decided', 'raw', 'rule', 'note'], log)
-    # 引き継ぎの判断: 戻したセルの「今の決定の値」．decide.py に通すと，今の CSV と同じ決定になる．
-    # id は L:<今の規則の番号> (規則で直したもの)・U:ユーザ確認．決定の決まりを関数に移すたびに，規則と同じ結果の行を消していく
-    write_tsv_raw(os.path.join(out, 'judgments.tsv'), ['cell_id', 'value', 'id', 'date', 'note'], judg)
+    # 引き継ぎの判断: 規則で直したセルの「今の決定の値」(id は L:<今の規則の番号>)．decide.py に通すと，規則で直した分は
+    # 今の CSV と同じ決定になる．決定の決まりを関数に移すたびに，規則と同じ結果の行を消していく．
+    # 前回のユーザ確認 (U:) は判断がぶれている可能性があるので決定に引き継がず，参考の一覧 old_user_judgments.tsv に分ける
+    # (2026-11-16 ユーザ指示．規則を決めるときの例として使い，新しい決定と一致しなくてよい)
+    head = ['cell_id', 'value', 'id', 'date', 'note']
+    # 誤植の訂正 (規則 X20・X22) は「印字 → 正しい名」の表 name_fixes.tsv にまとめる (規則 D08・D09 が当てる．
+    # 同じ誤植がほかの表・地方に出ても直る)．印字の名は restore_log の raw
+    raw_of = {r[0]: r[2] for r in log}
+    fixes = {}
+    for cid, value, jid, _, note in judg:
+        field = cid.rsplit('/', 1)[-1]
+        if jid in ('L:X20', 'L:X22') and field in ('@j_name', '@s_name') and raw_of.get(cid) and raw_of[cid] != value:
+            fixes[(field[1:], raw_of[cid])] = [field[1:], raw_of[cid], value, jid[2:], cid]
+    write_tsv_raw(os.path.join(out, 'name_fixes.tsv'), ['field', 'raw', 'fixed', 'rule', 'first_cell'],
+                  [fixes[k] for k in sorted(fixes)])
+    write_tsv_raw(os.path.join(out, 'judgments.tsv'), head, [r for r in judg if not r[2].startswith('U:')])
+    write_tsv_raw(os.path.join(out, 'old_user_judgments.tsv'), head, [r for r in judg if r[2].startswith('U:')])
     return done, skipped
 
 

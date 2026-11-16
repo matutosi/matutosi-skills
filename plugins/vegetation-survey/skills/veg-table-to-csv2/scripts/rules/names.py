@@ -46,6 +46,51 @@ def binomial(name):
     return ' '.join((name or '').lower().split()[:2])
 
 
+_FIXES = {}
+
+
+def name_fixes(t):
+    """誤植の訂正の表 name_fixes.tsv (列: field raw fixed rule first_cell) を {(field, 印字): 正しい名} で．
+    置き場のものと 1 つ上のフォルダのもの (全地方で共通) を重ねる (置き場のものが勝つ)．無ければ {}"""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(t.dir)))
+    if root not in _FIXES:
+        from common import read_tsv_raw
+        out = {}
+        for p in (os.path.join(os.path.dirname(root), 'name_fixes.tsv'), os.path.join(root, 'name_fixes.tsv')):
+            if os.path.exists(p):
+                h, rows, _, _ = read_tsv_raw(p)
+                for r in rows:
+                    d = dict(zip(h, r + [''] * (len(h) - len(r))))
+                    if d.get('field') in ('j_name', 's_name') and d.get('raw') and d.get('fixed'):
+                        out[(d['field'], d['raw'])] = d['fixed']
+        _FIXES[root] = out
+    return _FIXES[root]
+
+
+def _fix_names(t, field, label):
+    fixes = name_fixes(t)
+    if not fixes:
+        return
+    for kind in ('body', 'once'):
+        if field not in t.head[kind]:
+            continue
+        for d in t.dicts(kind):
+            raw = d.get(field, '').strip()
+            new = fixes.get((field, raw))
+            if raw and new and new != raw:
+                yield Change(kind, d['_row'], '@' + field, new, f'{label}の印字は「{raw}」．誤植の訂正の表 (name_fixes.tsv) で直した')
+
+
+@rule('D08', '和名の明らかな誤植を，訂正の表 (name_fixes.tsv) で直す', '種名', old='X20')
+def fix_j_name(t, param):
+    yield from _fix_names(t, 'j_name', '和名')
+
+
+@rule('D09', '学名の明らかな誤植を，訂正の表 (name_fixes.tsv) で直す', '種名', old='X22')
+def fix_s_name(t, param):
+    yield from _fix_names(t, 's_name', '学名')
+
+
 @rule('D10', '学名と和名の属が合わない行は，和名を優先してチェックリストの学名にする', '種名', old='和名優先')
 def prefer_ja_name(t, param):
     """param が species なら，属は同じで種 (先頭の 2 語) が合わない行も直す (既定は属が合わない行だけ)．

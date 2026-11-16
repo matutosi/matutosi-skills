@@ -365,5 +365,77 @@ class NameRulesTest(unittest.TestCase):
             names.MISSING[:] = keep_missing
 
 
+class OnceAndFixesTest(unittest.TestCase):
+    HEAD = ["item_ja", "item_de", "unit", "1", "2", "3", "4", "note"]
+    BODY = ["kind", "group_ja", "group_de", "s_name", "j_name", "layer", "1", "2", "3", "4", "note"]
+
+    def _table(self, counts, once):
+        body = [self.BODY] + [["sp", "", "", f"Aa a{i}", f"エー{i}", "K", "+", "+", "+", "+", ""] for i in range(3)]
+        return make([self.HEAD, ["出現種数", "Artenzahl", ""] + counts + [""]], body, once=once)
+
+    def test_heading_shift(self):
+        """D11: 1 地点ずらすと関わる地点の出現種数がすべて印字と合うときだけ，1 回出現の行を移す"""
+        once = [["3", "Bb b1", "ビー1", "K", "+", ""], ["3", "Bb b2", "ビー2", "K", "+", ""]]
+        d = self._table(["3", "5", "3", "3"], once)            # in 3 の 2 種を地点 2 へ移すと 2・3 とも合う
+        run(freeze.main, [d])
+        rc, out = run(decide.main, [d])
+        self.assertEqual(rc, 0, out)
+        got = {r["j_name"]: (r["plot"], r["note_judge"]) for r in rows(os.path.join(d, "composition.csv")) if r["source"] == "once"}
+        self.assertEqual(got, {"ビー1": ("2", "D11"), "ビー2": ("2", "D11")})
+        d = self._table(["3", "5", "5", "3"], once)            # 地点 3 の種数は印字と合っている: 移さない
+        run(freeze.main, [d])
+        run(decide.main, [d])
+        got = {r["j_name"]: r["plot"] for r in rows(os.path.join(d, "composition.csv")) if r["source"] == "once"}
+        self.assertEqual(got, {"ビー1": "3", "ビー2": "3"})
+        d = self._table(["3", "5", "3", "5"], once)            # 前へも後ろへも合う: 決められないので移さない
+        run(freeze.main, [d])
+        run(decide.main, [d])
+        got = {r["j_name"]: r["plot"] for r in rows(os.path.join(d, "composition.csv")) if r["source"] == "once"}
+        self.assertEqual(got, {"ビー1": "3", "ビー2": "3"})
+
+    def test_name_fixes(self):
+        """D08・D09: 誤植の訂正の表 (name_fixes.tsv) で和名・学名を直す．表が無ければ何もしない"""
+        from rules import names
+        body = [BODY3, ["sp", "", "", "Cyrtominum falcatum", "オニヤブソテツ", "K", "+", "・", "・", ""],
+                ["sp", "", "", "Elaeagnus macrophylla", "オオナワシロクミ", "S", "+", "・", "・", ""]]
+        d = make([HEAD3], body)
+        run(freeze.main, [d])
+        names._FIXES.clear()
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")                  # 和名優先 (D10) はここでは当てない
+        try:
+            run(decide.main, [d])
+            self.assertEqual([r["note_judge"] for r in rows(os.path.join(d, "composition.csv"))], ["", ""])
+            write(os.path.join(d, "name_fixes.tsv"), [["field", "raw", "fixed", "rule", "first_cell"],
+                                                     ["s_name", "Cyrtominum falcatum", "Cyrtomium falcatum", "X22", ""],
+                                                     ["j_name", "オオナワシロクミ", "オオナワシログミ", "X20", ""]])
+            names._FIXES.clear()
+            run(decide.main, [d])
+        finally:
+            names.lookup = keep
+            names._FIXES.clear()
+        got = [(r["s_name"], r["j_name"], r["note_judge"]) for r in rows(os.path.join(d, "composition.csv"))]
+        self.assertEqual(got, [("Cyrtomium falcatum", "オニヤブソテツ", "D09"), ("Elaeagnus macrophylla", "オオナワシログミ", "D08")])
+
+    def test_restore_writes_fixes_and_separates_user(self):
+        """restore.py: 誤植 (X20・X22) は name_fixes.tsv に，前回のユーザ確認は old_user_judgments.tsv に分ける"""
+        import restore
+        d = make([HEAD3, ["海抜高度", "Höhe", "m", "400", "300", "-", "1: 印字は 40．ユーザ確認 2026-11-16: 400 に直す"]],
+                 [BODY3, ["sp", "", "", "Cyrtomium falcatum", "オニヤブソテツ", "K", "+", "・", "・",
+                          "学名の印字は Cyrtominum falcatum．誤植なので Cyrtomium falcatum に直した (規則 X22)"]],
+                 once=[["2", "A a", "エー", "K", "+", "印字は in 1．ユーザ確認 2026-11-16: 地点 2 へ移す"]])
+        out = os.path.join(d, "restored")
+        rc, log = run(restore.main, [d, "--out", out])
+        self.assertEqual(rc, 0, log)
+        fixes = rows_tsv(os.path.join(out, "name_fixes.tsv"))
+        self.assertEqual([(r["field"], r["raw"], r["fixed"]) for r in fixes], [("s_name", "Cyrtominum falcatum", "Cyrtomium falcatum")])
+        self.assertEqual([r["id"] for r in rows_tsv(os.path.join(out, "judgments.tsv"))], ["L:X22"])
+        user = rows_tsv(os.path.join(out, "old_user_judgments.tsv"))
+        self.assertEqual([(r["cell_id"], r["value"]) for r in user], [("Tab.001/o1/@plot", "2")])
+        t = common.Table(os.path.join(out, "transcripts", "Tab.001"))
+        self.assertEqual(t.get("once", 1, "@plot"), "1")                  # 印字に戻っている
+        self.assertEqual(t.get("header", 1, "1"), "400")                 # 自由な書き方のユーザ確認は機械で戻さない (控えから)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
