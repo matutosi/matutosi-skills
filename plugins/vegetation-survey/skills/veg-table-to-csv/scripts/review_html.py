@@ -365,6 +365,15 @@ def n_plots_of(base, table):
         return sum(1 for c in f.readline().rstrip('\r\n').split('\t') if c.strip().isdigit())
 
 
+def say(msg):
+    """警告を出す．出力の文字コードで書けない字 (Windows の cp1252 など) は置き換える (0.5.44．CI の windows で落ちた)"""
+    enc = getattr(sys.stdout, 'encoding', None) or 'utf-8'
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode(enc, 'replace').decode(enc, 'replace'))
+
+
 def _tsv(p):
     import csv
     if not os.path.exists(p):
@@ -507,7 +516,7 @@ def trim_blank_cols(im, gap_min=GAP_MIN, keep=GAP_KEEP):
     「間が空白のときは，その部分を削除して，切り詰めて」)．点ほどのごみ (列に 2 px 以下) は空白とみる．
     左右の端の空白も keep まで詰める"""
     g = im.convert('L').point(lambda v: 255 if v < 128 else 0)       # 字 = 255
-    prof = list(g.resize((g.width, 1), Image.BOX).getdata())         # 列ごとの字の割合 (0〜255)
+    prof = list(g.resize((g.width, 1), Image.BOX).tobytes())         # 列ごとの字の割合 (0〜255．L は 1 画素 1 バイト)
     limit = 255 * 2.5 / max(1, g.height)
     blank = [v <= limit for v in prof]
     keepcols, i, n = [], 0, len(blank)
@@ -822,7 +831,7 @@ def from_tsv(path, heads=None):
                         xmap = None
                 warn = box_off_column(xmap, plots0, [x0, y0, x1, y1])
                 if warn:                                  # 赤枠がその地点の列から外れている (2026-11-08．中部 145)
-                    print(f'!! U{i:02d} {r["table"]} 地点 {r["plot"]}: {warn}')
+                    say(f'!! U{i:02d} {r["table"]} 地点 {r["plot"]}: {warn}')
                     WARNINGS.append((f'U{i:02d}', r['table'], r['plot'], warn))
                 sp['crop'] = narrow_crop(sp['crop'], xmap, plots0, box=[x0, y0, x1, y1])
                 if len(plots0) == 1 and xmap and plots0[0] in xmap and len(xmap) > 1 and not warn:
@@ -839,7 +848,7 @@ def from_tsv(path, heads=None):
             if rname and not is_paragraph(r.get('kind', ''), r['what']):
                 warn = box_off_row(load_row_y(base).get((table_key(r['table']), r['page'])), rname, [x0, y0, x1, y1])
                 if warn:                                  # 赤枠が別の行を囲んでいる (0.5.43．九州 U38・U39)
-                    print(f'!! U{i:02d} {r["table"]} {rname}: {warn}')
+                    say(f'!! U{i:02d} {r["table"]} {rname}: {warn}')
                     WARNINGS.append((f'U{i:02d}', r['table'], r['plot'], warn))
             strip = load_strips(base).get((table_key(r['table']), r['page']), {})
             nx = [(r.get(k) or '').strip() or str(strip.get(k, '')) for k in ('names_x0', 'names_x1')]
@@ -854,7 +863,7 @@ def from_tsv(path, heads=None):
             if g == 'B' and not (all(nx) and all(lx)):   # 下線・階層の項目は種名と階層の欄を必ず付ける (0.5.43)
                 miss = '・'.join(x for x, ok in (('種名の列', all(nx)), ('階層の列', all(lx))) if not ok)
                 warn = f'下線・階層の項目に{miss}が無い (strips.tsv に表とページの列の左右を書く)'
-                print(f'!! U{i:02d} {r["table"]}: {warn}')
+                say(f'!! U{i:02d} {r["table"]}: {warn}')
                 WARNINGS.append((f'U{i:02d}', r['table'], r['plot'], warn))
             # 赤枠の行 (種名) と列 (地点) を画像の余白に青で書く (2026-11-08 ユーザ指示．四国 U53 で行と列が分からなかった)
             name = r.get('j_name', '').strip()
