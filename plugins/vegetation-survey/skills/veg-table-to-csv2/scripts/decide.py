@@ -34,6 +34,7 @@ import tempfile
 
 import common
 from common import TOKEN, Table, parse_id, read_side, table_dirs, to_csv
+import conflicts
 import freeze
 import rules as rules_pkg
 
@@ -212,7 +213,8 @@ def decide(root, out=None, settings_path='', soc_default='one', allow_unfrozen=F
             except ValueError as e:
                 errors.append(f'{name}: {e}')
     counts = collections.Counter()
-    sites, comp, log, redundant = [], [], [], []
+    sites, comp, log, redundant, conf = [], [], [], [], []
+    old_user = read_side(os.path.join(root, 'old_user_judgments.tsv'))     # 前回のユーザ確認 (当てない．矛盾の U に出す)
     if errors:
         return sites, comp, counts, errors
     to_csv.NAMELESS.clear()
@@ -230,6 +232,9 @@ def decide(root, out=None, settings_path='', soc_default='one', allow_unfrozen=F
         counts['個別の判断 (judgments)'] += n
         errors += err
         s, c = to_rows(t, t_read, trace, soc_default)
+        found = conflicts.collect(t, s, c, trace, old_user)               # 矛盾を洗い出し，note_conflict に区分を入れる
+        conflicts.fill(s + c, found)
+        conf += found
         sites += s
         comp += c
         for key in sorted(set(trace.judge) | set(trace.read)):
@@ -244,6 +249,9 @@ def decide(root, out=None, settings_path='', soc_default='one', allow_unfrozen=F
     write_csv(os.path.join(out, 'sites.csv'), SITE_COLS, sites)
     write_csv(os.path.join(out, 'composition.csv'), COMP_COLS, comp)
     common.write_tsv_raw(os.path.join(out, 'decisions.tsv'), ['cell_id', 'raw', 'decided', 'judge', 'modify'], log)
+    common.write_tsv_raw(os.path.join(out, 'conflicts.tsv'), ['cell_id', 'kind', 'detail'], conf)
+    for k, n in collections.Counter(r[1] for r in conf).items():
+        counts[f'矛盾 {k} ({conflicts.KINDS.get(k, "")})'] = n
     # 規則がもう同じ値にしている判断 (消せる)．規則を関数に移した進み具合の目安
     common.write_tsv_raw(os.path.join(out, 'judgments_redundant.tsv'), ['cell_id', 'value', 'id', 'rule'], redundant)
     counts['判断のうち規則と同じ結果 (消せる)'] = len(redundant)

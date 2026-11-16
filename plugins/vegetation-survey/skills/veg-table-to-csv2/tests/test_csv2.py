@@ -497,5 +497,78 @@ class SmallRulesTest(unittest.TestCase):
         self.assertEqual((v[("草本層の高さ", "2")], s[("草本層の高さ", "2")][1]), ("3.0", "D19"))
 
 
+class ConflictsAndAskTest(unittest.TestCase):
+    def _place(self):
+        d = make([HEAD3, ["出現種数", "Artenzahl", "", "2", "1", "1", ""],
+                  ["方位", "Exposition", "", "ES", "N", "S", ""],
+                  ["調査年月日", "Datum d. Aufn.", "", "'80 5 1", "??", "'80 5 2", ""]],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "S;K", "+", "+?", "・", ""],
+                  ["sp", "", "", "Bb b", "ビー", "K", "・", "・", "+", ""]])
+        write(os.path.join(d, "judgments.tsv"), [["cell_id", "value", "id", "date", "note"],
+                                                ["Tab.001/h2/2", "NE", "L:X1", "", "今の規則で直した"],
+                                                ["Tab.001/h2/1", "SE", "L:X31", "", "規則と同じ結果"]])
+        write(os.path.join(d, "old_user_judgments.tsv"), [["cell_id", "value", "id", "date", "note"],
+                                                         ["Tab.001/b2/3", "1・1", "U:ユーザ確認", "", "前回の答え"]])
+        run(freeze.main, [d])
+        return d
+
+    def test_conflicts(self):
+        """矛盾の区分 N (種数)・V (値)・L (階層)・S (表頭)・J (引き継ぎの判断)・U (前回のユーザ確認) を洗い出し，CSV に入れる"""
+        import conflicts
+        d = self._place()
+        rc, out = run(decide.main, [d])
+        self.assertEqual(rc, 0, out)
+        conf = rows_tsv(os.path.join(d, "conflicts.tsv"))
+        kinds = {(r["cell_id"], r["kind"]) for r in conf}
+        self.assertIn(("Tab.001/h1/1", "N"), kinds)                   # 地点 1: 印字 2・読んだ種 1
+        self.assertNotIn(("Tab.001/h1/3", "N"), kinds)                # 地点 3 は合っている
+        self.assertIn(("Tab.001/b1/2", "V"), kinds)                   # +? (自信なし)
+        self.assertIn(("Tab.001/b1/1", "L"), kinds)                   # S;K で下線の手がかりなし
+        self.assertIn(("Tab.001/h3/2", "S"), kinds)                   # 日付として読めない
+        self.assertIn(("Tab.001/h2/2", "J"), kinds)                   # 規則になっていない引き継ぎの判断
+        self.assertNotIn(("Tab.001/h2/1", "J"), kinds)                # 規則 (D06) と同じ結果の判断は矛盾に数えない
+        self.assertIn(("Tab.001/b2/3", "U"), kinds)
+        comp = {(r["j_name"], r["plot"]): r["note_conflict"] for r in rows(os.path.join(d, "composition.csv"))}
+        self.assertEqual(comp[("エー", "1")], "L")
+        self.assertEqual(comp[("ビー", "3")], "U")
+        self.assertEqual(rows(os.path.join(d, "composition.csv"))[-1]["value_raw"], "+")     # 前回の答えは当てていない
+        sites = {(r["item_ja"], r["plot"]): r["note_conflict"] for r in rows(os.path.join(d, "sites.csv"))}
+        self.assertEqual((sites[("出現種数", "1")], sites[("方位", "2")]), ("N", "J"))
+        rc, out = run(conflicts.main, [d])
+        self.assertEqual(rc, 0)
+        self.assertIn("N 出現種数が印字と合わない", out)
+
+    def test_ask_rules_and_apply(self):
+        """規則ごとの件数と例の HTML を作り，回答を rule_settings.tsv・judgments.tsv に当てる"""
+        import ask_rules
+        d = self._place()
+        run(decide.main, [d])
+        page = os.path.join(d, "rules.html")
+        rc, out = run(ask_rules.main, [d, page])
+        self.assertEqual(rc, 0, out)
+        with open(page, encoding="utf-8") as f:
+            text = f.read()
+        for want in ('data-id="D06"', 'data-id="L:X1"', 'data-id="U"', "方位", "<td>ES</td><td>SE</td>", "rule_answers.json"):
+            self.assertIn(want, text)
+        ans = os.path.join(d, "rule_answers.json")
+        with open(ans, "w", encoding="utf-8") as f:
+            f.write('{"D06": {"choice": "b", "memo": ""}, "D01": {"choice": "c", "memo": "記号表のある地方だけ"},'
+                    ' "L:X1": {"choice": "b", "memo": ""}, "U": {"choice": "b", "memo": ""}}')
+        rc, out = run(ask_rules.main, [d, "--apply", ans])
+        self.assertEqual(rc, 0, out)
+        use = {r["rule"]: r["use"] for r in rows_tsv(os.path.join(d, "rule_settings.tsv"))}
+        self.assertEqual((use["D06"], use["D01"], use["D03"]), ("no", "yes", "yes"))
+        ids = [r["id"] for r in rows_tsv(os.path.join(d, "judgments.tsv"))]
+        self.assertEqual(sorted(ids), ["L:X31", "U:ユーザ確認"])       # L:X1 は外れ，前回のユーザ確認が足された
+        todo = rows_tsv(os.path.join(d, "rule_answers_todo.tsv"))
+        self.assertEqual([(r["id"], r["what"]) for r in todo], [("D01", "条件を変える")])
+        run(decide.main, [d])                                          # 作り直すと，採らない規則は当たらず，引き継ぐ判断が効く
+        sites = {(r["item_ja"], r["plot"]): (r["value"], r["note_judge"]) for r in rows(os.path.join(d, "sites.csv"))}
+        self.assertEqual(sites[("方位", "1")], ("SE", "L:X31"))        # D06 を外したので，引き継ぎの判断が効く
+        self.assertEqual(sites[("方位", "2")], ("N", ""))
+        comp = {(r["j_name"], r["plot"]): (r["value_decided"], r["note_judge"]) for r in rows(os.path.join(d, "composition.csv"))}
+        self.assertEqual(comp[("ビー", "3")], ("1・1", "U:ユーザ確認"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
