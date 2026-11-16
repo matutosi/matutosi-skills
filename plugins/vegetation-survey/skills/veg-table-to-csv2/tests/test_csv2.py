@@ -315,5 +315,55 @@ class MoreRulesTest(unittest.TestCase):
         self.assertEqual(asp, {"1": ("SE", "D06"), "2": ("N", "L:X1"), "3": ("SW", "D06")})
 
 
+class NameRulesTest(unittest.TestCase):
+    def test_prefer_ja_name(self):
+        """D10: 属が合わない行だけ，和名を優先してチェックリストの学名にする．似た名・あいまいな名は直さない"""
+        from rules import names
+        table = {"バクチノキ": ("ok", "Laurocerasus zippeliana"), "ヒメジョオン": ("ok", "Erigeron annuus"),
+                 "ナゾノキ": ("similar", "Aaa bbb"), "アオキ": ("alias", "Aucuba japonica")}
+        keep = names.lookup
+        names.lookup = lambda j: table.get(j, ("none", ""))
+        try:
+            d = make([HEAD3], [BODY3,
+                               ["sp", "", "", "Prunus zippeliana", "バクチノキ", "B", "+", "・", "・", ""],
+                               ["sp", "", "", "Erigeron canadensis", "ヒメジョオン", "K", "+", "・", "・", ""],
+                               ["sp", "", "", "Xxx yyy", "ナゾノキ", "K", "+", "・", "・", ""],
+                               ["sp", "", "", "Aucuba japonica", "アオキ", "S", "+", "・", "・", ""]],
+                     once=[["2", "Cerasus zippeliana", "バクチノキ", "S", "+", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+            self.assertEqual(rc, 0, out)
+            got = {(r["j_name"], r["source"]): (r["s_name"], r["note_judge"]) for r in rows(os.path.join(d, "composition.csv"))}
+            self.assertEqual(got[("バクチノキ", "body")], ("Laurocerasus zippeliana", "D10"))
+            self.assertEqual(got[("バクチノキ", "once")], ("Laurocerasus zippeliana", "D10"))
+            self.assertEqual(got[("ヒメジョオン", "body")], ("Erigeron canadensis", ""))      # 属は同じ: 既定では直さない
+            self.assertEqual(got[("ナゾノキ", "body")], ("Xxx yyy", ""))                      # 似た名は直さない
+            self.assertEqual(got[("アオキ", "body")], ("Aucuba japonica", ""))
+            write(os.path.join(d, "rule_settings.tsv"), [["rule", "use", "param", "note"], ["D10", "yes", "species", ""]])
+            run(decide.main, [d])
+            got = {(r["j_name"], r["source"]): r["s_name"] for r in rows(os.path.join(d, "composition.csv"))}
+            self.assertEqual(got[("ヒメジョオン", "body")], "Erigeron annuus")               # param=species で種の違いも直す
+        finally:
+            names.lookup = keep
+
+    def test_missing_checklist_is_reported(self):
+        """チェックリストが使えないときは D10 を当てず，その旨を知らせる (止めない)"""
+        from rules import names
+        keep_state, keep_missing = dict(names._STATE), list(names.MISSING)
+        names._STATE.update(idx=None, tried=True, why="無い")
+        names.MISSING[:] = ["D10 (和名優先) は当てていない: チェックリストが無い"]
+        try:
+            d = make([HEAD3], [BODY3, ["sp", "", "", "Prunus zippeliana", "バクチノキ", "B", "+", "・", "・", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+            self.assertEqual(rc, 0, out)
+            self.assertIn("D10 (和名優先) は当てていない", out)
+            self.assertEqual(rows(os.path.join(d, "composition.csv"))[0]["s_name"], "Prunus zippeliana")
+        finally:
+            names._STATE.clear()
+            names._STATE.update(keep_state)
+            names.MISSING[:] = keep_missing
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

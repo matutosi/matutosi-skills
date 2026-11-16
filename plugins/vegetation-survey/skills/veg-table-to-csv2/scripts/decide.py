@@ -293,6 +293,10 @@ def main(argv=None):
     for k in sorted(counts):
         title = next((r.title for r in rule_list if r.id == k), '')
         print(f'  {k}: {counts[k]} セル' + (f'  {title}' if title else ''))
+    for mod in list(sys.modules.values()):                # 当てられなかった規則の知らせ (チェックリストが無い など)
+        if getattr(mod, '__name__', '').startswith('rules.'):
+            for msg in dict.fromkeys(getattr(mod, 'MISSING', [])):
+                print('[注意] ' + msg)
     if a.prune_judgments:
         out_dir = a.out or a.dir
         gone = {r['cell_id'] for r in read_side(os.path.join(out_dir, 'judgments_redundant.tsv')).values()
