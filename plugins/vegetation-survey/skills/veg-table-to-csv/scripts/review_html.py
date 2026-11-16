@@ -61,6 +61,14 @@ work/ のページ名か画像のパス．置き場からの相対)．範囲を�
   決める．地方ごとの HTML の回答がダウンロードフォルダで同じ名前にならないように．2026-11-05)．
   「回答を読み込む」はファイル名を見ないので，どの名前の JSON でも読める．
 
+0.5.43 から:
+- HTML と一緒に項目の一覧 (`<出力>.items.json`．`--split` なら `<置き場>/review_items.json`) を書く．`review_apply.py` が回答を当てる．
+  user_review.tsv の任意の列 `actions` (選択肢の value ごとの操作の JSON) と `target` (確認済みの印を書く行の JSON) を引き継ぐ．
+- 置き場の `row_y.tsv` (marks_grid.py が書く) に種の行があれば，赤枠の高さにその行が無いときに止まる．
+- 置き場の `strips.tsv` (列: table page names_x0 names_x1 layer_x0 layer_x1) から種名・階層の列を補う．
+  下線・階層の項目 (B 区分) で種名か階層の列が無いと止まる．
+- `--carry <回答.json>`: 選択肢を選んだ項目を外し，判断できない・未回答の項目を前回のメモを添えて残す．
+
 標準ライブラリと Pillow だけで動く．
 """
 import argparse
@@ -287,6 +295,49 @@ def load_col_x(base):
                     out.setdefault((table_key(r['table']), r['page']), {})[int(r['plot'])] = int(float(r['x']))
         _COLX[base] = out
     return _COLX[base]
+
+
+_ROWY = {}
+_STRIPS = {}
+
+
+def load_row_y(base):
+    """置き場の row_y.tsv (列: table page row name y．marks_grid.py が書く) を {(表, ページ): [(名前, y)]} で返す．
+    名前は転記の和名 (無ければ学名) と階層 (`アオツヅラフジ B2;S;K`)．無ければ {}"""
+    if base not in _ROWY:
+        out = {}
+        for r in _tsv(os.path.join(base, 'row_y.tsv')):
+            out.setdefault((table_key(r['table']), r['page']), []).append((r['name'], int(float(r['y']))))
+        _ROWY[base] = out
+    return _ROWY[base]
+
+
+def load_strips(base):
+    """置き場の strips.tsv (列: table page names_x0 names_x1 layer_x0 layer_x1) を {(表, ページ): {列名: x}} で返す．
+    表ごとに 1 回測った種名の列・階層の列の左右 (0.5.43．項目ごとに書くと書き損じる．九州 Tab.010)．無ければ {}"""
+    if base not in _STRIPS:
+        out = {}
+        for r in _tsv(os.path.join(base, 'strips.tsv')):
+            out[(table_key(r['table']), r['page'])] = {k: int(float(v)) for k, v in r.items()
+                                                       if k.endswith(('_x0', '_x1')) and (v or '').strip()}
+        _STRIPS[base] = out
+    return _STRIPS[base]
+
+
+def box_off_row(rows, name, box):
+    """赤枠の上下の範囲に，その種の行 (row_y.tsv) の y が入っていなければ，ずれの説明を返す (入っていれば None)．
+    表に row_y が無い・名前が行に無い (「階層 B,S,K の行」など) ときは None (0.5.43．九州 U38・U39 で別の行を囲んでいた)"""
+    if not rows or not name:
+        return None
+    ys = sorted(y for n, y in rows)
+    pitch = sorted(b - a for a, b in zip(ys, ys[1:]) if b > a)
+    tol = .5 * pitch[len(pitch) // 2] if pitch else 20
+    hit = [y for n, y in rows if n == name or n.startswith(name + ' ')]
+    if not hit:
+        return None
+    if any(box[1] - tol <= y <= box[3] + tol for y in hit):
+        return None
+    return f'赤枠の高さ y={box[1]}-{box[3]} に行「{name}」が無い (row_y.tsv の y={",".join(map(str, hit))})'
 
 
 def box_off_column(xmap, plots, box):
@@ -784,15 +835,27 @@ def from_tsv(path, heads=None):
                         sp['marks'].append({'box': [int(xc - .5 * pitch), sp['crop'][1] + 6,
                                                     int(xc + .5 * pitch), sp['crop'][3] - 6]})
                         sp['caption'] += f'．縦の赤枠は地点 {plots0[0]} の列 (横の赤枠との交わりが見るセル)'
-            nx = [(r.get(k) or '').strip() for k in ('names_x0', 'names_x1')]
+            rname = r.get('j_name', '').strip()
+            if rname and not is_paragraph(r.get('kind', ''), r['what']):
+                warn = box_off_row(load_row_y(base).get((table_key(r['table']), r['page'])), rname, [x0, y0, x1, y1])
+                if warn:                                  # 赤枠が別の行を囲んでいる (0.5.43．九州 U38・U39)
+                    print(f'!! U{i:02d} {r["table"]} {rname}: {warn}')
+                    WARNINGS.append((f'U{i:02d}', r['table'], r['plot'], warn))
+            strip = load_strips(base).get((table_key(r['table']), r['page']), {})
+            nx = [(r.get(k) or '').strip() or str(strip.get(k, '')) for k in ('names_x0', 'names_x1')]
             if all(nx):                               # 種名の列を左に貼る (赤枠を種名まで広げない．2026-11-08)
                 sp['names_x'] = [int(float(v)) for v in nx]
                 sp['caption'] += '．左は同じ高さの種名の列'
-            lx = [(r.get(k) or '').strip() for k in ('layer_x0', 'layer_x1')]
+            lx = [(r.get(k) or '').strip() or str(strip.get(k, '')) for k in ('layer_x0', 'layer_x1')]
             if all(lx):
                 sp['layer_x'] = [int(float(v)) for v in lx]
                 if layer_strip_needed(sp):
                     sp['caption'] += '．左は同じ高さの階層の列'
+            if g == 'B' and not (all(nx) and all(lx)):   # 下線・階層の項目は種名と階層の欄を必ず付ける (0.5.43)
+                miss = '・'.join(x for x, ok in (('種名の列', all(nx)), ('階層の列', all(lx))) if not ok)
+                warn = f'下線・階層の項目に{miss}が無い (strips.tsv に表とページの列の左右を書く)'
+                print(f'!! U{i:02d} {r["table"]}: {warn}')
+                WARNINGS.append((f'U{i:02d}', r['table'], r['plot'], warn))
             # 赤枠の行 (種名) と列 (地点) を画像の余白に青で書く (2026-11-08 ユーザ指示．四国 U53 で行と列が分からなかった)
             name = r.get('j_name', '').strip()
             plot = r.get('plot', '').strip()
@@ -825,11 +888,18 @@ def from_tsv(path, heads=None):
             if weak:                                  # 判断の根拠と結果の無い選択肢 (2026-11-09 ユーザ指示．中国 U29)
                 OPTION_WARNINGS.append((f'U{i:02d}', r['table'], weak))
             ref = reference_info(base, r['table'], plots0) if g == 'D' else None
-            items.append({'id': f'U{i:02d}', 'group': g, 'ref': ref,
-                          'title': ' '.join(x for x in (r['table'], '地点 ' + r['plot'] if r['plot'] else '', r['j_name']) if x),
-                          'layer': r.get('kind', ''), 'note': note,
-                          'options': opts,
-                          'images': [sp]})
+            acts = json.loads(r['actions']) if (r.get('actions') or '').strip() else {}
+            for o in opts:                            # 選択肢ごとの操作 (review_apply.py が当てる．0.5.43)
+                if o.get('value') in acts:
+                    o['actions'] = acts[o['value']]
+            it = {'id': f'U{i:02d}', 'group': g, 'ref': ref,
+                  'title': ' '.join(x for x in (r['table'], '地点 ' + r['plot'] if r['plot'] else '', r['j_name']) if x),
+                  'layer': r.get('kind', ''), 'note': note,
+                  'options': opts,
+                  'images': [sp]}
+            if (r.get('target') or '').strip():       # 確認済みの印を書く行 (review_apply.py)
+                it['target'] = json.loads(r['target'])
+            items.append(it)
     return items
 
 
@@ -954,6 +1024,8 @@ def main(argv=None):
     ap.add_argument('--head-region', default=None, help='--head-rows の region 列の値 (例: shikoku)．省くと全部の行を使う')
     ap.add_argument('--settled', nargs='*', default=[],
                     help='反映済みの回答 JSON．選択肢を選んだ項目は HTML から外す (番号は変えない)')
+    ap.add_argument('--carry', nargs='*', default=[],
+                    help='前回の回答 JSON．選択肢を選んだ項目は外し，判断できない・未回答の項目はメモを添えて残す (次の確認を作る)')
     ap.add_argument('--only', default=None, help='--split のとき作る区分 (例: B または BD)．省くと全部')
     ap.add_argument('--allow-box-warn', action='store_true',
                     help='赤枠が地点の列から外れた項目があっても HTML を作る (既定は作らずに止める)')
@@ -961,6 +1033,8 @@ def main(argv=None):
                     help='各項目の画像を DIR に PNG で書き出す (U12_0.png の形)．赤枠が説明の場所と合うかを 1 枚ずつ確かめるため')
     a = ap.parse_args(argv)
     choices = [c for c in a.choices.split(',') if c in LABELS]
+    WARNINGS.clear()                     # 前の呼び出しの警告を持ち越さない
+    OPTION_WARNINGS.clear()
     if a.items.lower().endswith('.tsv'):
         heads = load_head_rows(a.head_rows, a.head_region) if a.head_rows else {}
         items = from_tsv(a.items, heads)
@@ -979,12 +1053,30 @@ def main(argv=None):
     if done:
         items = [it for it in items if it['id'] not in done]
         print(f'反映済み {len(done)} 件を外した')
+    if a.carry:                          # 判断できない・未回答の項目だけを残し，前回のメモを添える (0.5.43)
+        prev = {}
+        for p in a.carry:
+            with open(p, encoding='utf-8-sig') as f:
+                prev.update(json.load(f))
+        keep = []
+        for it in items:
+            v = prev.get(it['id']) or {}
+            if v.get('choice') not in (None, '', 'skip'):
+                continue
+            memo = (v.get('memo') or '').strip()
+            if v or memo:
+                said = '判断できない' if v.get('choice') == 'skip' else '未回答'
+                it = dict(it, note=f'【前回: {said}' + (f'．メモ「{memo}」' if memo else '') + '】' + it.get('note', ''))
+            keep.append(it)
+        print(f'--carry: 回答済み {len(items) - len(keep)} 件を外し，{len(keep)} 件を残した')
+        items = keep
     if a.split and a.only:
         items = [it for it in items if it.get('group', group_of(it.get('layer', ''))) in a.only]
     shown = {it['id'] for it in items}
     box_warn = [w for w in WARNINGS if w[0] in shown]   # 回答済みで外した項目の警告は数えない
     if box_warn:          # 赤枠が地点の列から外れている項目 (画像の準備の担当が画像を見て直す．SKILL.md 8 節)
-        print(f'!! 赤枠が確かめる地点の列から外れている項目が {len(box_warn)} 件．画像を見て user_review.tsv の座標を直す')
+        print(f'!! 赤枠が確かめる地点の列・種の行から外れているか，種名・階層の列の無い項目が {len(box_warn)} 件．'
+              '画像を見て user_review.tsv の座標 (または strips.tsv) を直す')
         if not a.allow_box_warn:
             print('!! HTML は作らずに止めた (直してから作り直す．そのまま作るときは --allow-box-warn)')
             return 2
@@ -993,6 +1085,7 @@ def main(argv=None):
         print(f'!! {uid} {table}: {msg}')
     if weak:              # 判断の根拠と結果の無い選択肢 (SKILL.md 8.3)
         print(f'!! 選択肢に根拠と結果の無い項目が {len(weak)} 件．user_review.tsv の what を直す')
+    save_items(items, os.path.join(a.out, 'review_items.json') if a.split else os.path.splitext(a.out)[0] + '.items.json')
     prerender(base, items)
     if a.export_png:      # 赤枠が説明の場所と合うかを確かめる画像 (2026-11-09 ユーザ指示．SKILL.md 8.6)
         os.makedirs(a.export_png, exist_ok=True)
@@ -1017,6 +1110,15 @@ def main(argv=None):
         return 0
     write_page(base, items, choices, a.out, title, a.layout, region)
     return 0
+
+
+def save_items(items, path):
+    """項目の一覧 (id・題・選択肢と操作・target．画像は除く) を書く．review_apply.py が回答を当てるのに使う (0.5.43)"""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    keep = ('id', 'group', 'title', 'layer', 'note', 'options', 'target')
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump([{k: it[k] for k in keep if k in it} for it in items], f, ensure_ascii=False, indent=1)
+    print(f'項目の一覧: {path} (review_apply.py で回答を当てる)')
 
 
 def prerender(base, items):

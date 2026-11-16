@@ -1001,6 +1001,19 @@ def save_col_x(path, table, page, xs):
         f.write('table\tpage\tplot\tx\n' + ''.join('\t'.join(r) + '\n' for r in rows))
 
 
+def save_row_y(path, table, page, items):
+    """転記の行と対応した画像の行の y を row_y.tsv (列: table page row name y) に書く．同じ表・ページの行は置き換える．
+    items は [(転記の行番号 (1 から), 名前, y)]．確認の HTML (review_html.py) が赤枠の行のずれを見るのに使う (0.5.43)"""
+    rows = []
+    if os.path.exists(path):
+        with open(path, encoding='utf-8') as f:
+            rows = [l.rstrip('\r\n').split('\t') for l in f if l.strip()][1:]
+    rows = [r for r in rows if not (r[0] == table and r[1] == page)]
+    rows += [[table, page, str(k), name, f'{y:.0f}'] for k, name, y in items]
+    with open(path, 'w', encoding='utf-8', newline='') as f:
+        f.write('table\tpage\trow\tname\ty\n' + ''.join('\t'.join(r) + '\n' for r in rows))
+
+
 def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, 'reconfigure'):
@@ -1175,6 +1188,9 @@ def main(argv=None):
     lost_r = [names[r] for r in range(len(vals)) if r not in done_r]
     lost_k = [k + 1 for k in range(nrows) if k not in done_k]
     print(f'対応した行 {len(pairs)}．転記だけの行 {len(lost_r)} {lost_r[:8]}・画像だけの行 {len(lost_k)} {lost_k[:8]}')
+    if pairs:                                           # 種の行の y (列ごとの y の中央値) を row_y.tsv に残す
+        save_row_y(os.path.join(a.out, 'row_y.tsv'), a.table, os.path.splitext(os.path.basename(a.image))[0],
+                   [(r + 1, names[r], float(np.median([rowy[c][k] for c in range(n)]))) for r, k in sorted(pairs)])
 
     diffs = []
     for r, k in pairs:

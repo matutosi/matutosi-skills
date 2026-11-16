@@ -9,6 +9,7 @@ Pillow・PyMuPDF が無いときは，画像を使う試験だけを飛ばす．
 import contextlib
 import csv
 import io
+import json
 import os
 import shutil
 import sys
@@ -284,8 +285,9 @@ class ReviewHtmlTest(unittest.TestCase):
             f.write("Tab.1\t4\tヨシ\tB. 下線の対応\t下線\tp001\t300\t200\t400\t260\n")
             f.write("Tab.1\t5\t\t表頭の値\t入れ替わり\tp001\t300\t200\t400\t260\n")
         out = os.path.join(d, "ui")
-        run(review_html.main, [os.path.join(d, "user_review.tsv"), out, "--split"])
-        self.assertEqual(sorted(os.listdir(out)), ["review_A.html", "review_B.html", "review_D.html"])
+        # B の項目に種名・階層の列が無いと止まる (0.5.43) ので，ここでは --allow-box-warn で作る
+        run(review_html.main, [os.path.join(d, "user_review.tsv"), out, "--split", "--allow-box-warn"])
+        self.assertEqual(sorted(os.listdir(out)), ["review_A.html", "review_B.html", "review_D.html", "review_items.json"])
         self.assertIn('data-opt="val"', open(os.path.join(out, "review_A.html"), encoding="utf-8").read())
 
     def test_plot_labels_and_head_rows(self):
@@ -1603,55 +1605,6 @@ class Fixes0543Test(unittest.TestCase):
         self.assertEqual(to_csv.parse_value("2(+)", 5)[2], "II")
         self.assertEqual(to_csv.parse_value("2(+)", 5, keep_arabic=True)[2], "2")
 
-
-class Fixes0543Test(unittest.TestCase):
-    """九州の確認から出た修正 (0.5.43)"""
-
-    def test_mark_with_trailing_note(self):
-        """「29: 二重下線 (check)」のように後ろに説明が続いても下線の種類を当てる．下線なしは当てない (1)"""
-        to_csv.PLOTS_SEEN.clear()
-        to_csv.PLOTS_SEEN.update(["6", "20", "29"])
-        row = {"layer": "B2;S;K", "6": "+", "20": "+", "29": "+",
-               "note": "印字は B2,S,K (B2 に一重下線・S に二重下線); 6: 二重下線．枠に重なる; 29: 二重下線 (check)"}
-        self.assertEqual(to_csv.cell_layer(row, "29"), "S")
-        self.assertEqual(to_csv.cell_layer(row, "6"), "S")
-        self.assertEqual(to_csv.cell_layer(row, "20"), "K")
-        self.assertFalse(to_csv.has_mark(["下線なし"], "下線"))
-        self.assertTrue(to_csv.has_mark(["下線 (帯で確かめた)"], "下線"))
-        to_csv.PLOTS_SEEN.clear()
-
-    def test_inner_check_and_cell_layer_and_drop(self):
-        """括弧の中の check も check (2)．「N: 層 X」でセルごとの階層 (7)．meta.tsv の drop_plots (8)"""
-        d = workdir()
-        t = os.path.join(d, "transcripts", "Tab.1")
-        cells = ["sp", "", "", "Pinus thunbergii", "クロマツ", "B2;S;K", "+", "1・1", "+",
-                 "1: 二重下線 (check); 2: 層 S; 3: 層 K"]
-        with open(os.path.join(t, "body.tsv"), "a", encoding="utf-8") as f:
-            f.write("\t".join(cells) + "\n")
-        with open(os.path.join(t, "meta.tsv"), "a", encoding="utf-8") as f:
-            f.write("drop_plots\t3\n" + "drop_plots_note\t表頭だけの地点 (ユーザ確認)\n")
-        _, out = run(to_csv.main, [d])
-        comp = rows(os.path.join(d, "composition.csv"))
-        hit = {r["plot"]: (r["layer"], r["status"]) for r in comp if r["j_name"] == "クロマツ"}
-        self.assertEqual(hit["1"][1], "check")
-        self.assertEqual(hit["2"][0], "S")
-        self.assertNotIn("3", hit)                                    # 外した地点
-        self.assertFalse(any(r["plot"] == "3" for r in comp))
-        sites = rows(os.path.join(d, "sites.csv"))
-        self.assertTrue(any(r["plot"] == "3" and r["item_ja"] == "外した地点" for r in sites))
-        self.assertFalse(any(r["plot"] == "3" and r["source"] == "header" for r in sites))
-        self.assertIn("[check の書き方]", out)
-
-    def test_x8_exception(self):
-        """算用数字の常在度が多数で最大が調査区数より小さい列は，ローマ数字にそろえない (10)"""
-        body = [{"kind": "sp", "1": v} for v in ("1(+)", "2(+)", "4(1)", "3(+-1)", "I(+)")]
-        self.assertEqual(to_csv.arabic_major_columns(body, {"1": 5}), {"1": 4})
-        self.assertEqual(to_csv.arabic_major_columns(body, {"1": 3}), {})          # 調査区数 5 未満は対象外
-        roman = [{"kind": "sp", "1": v} for v in ("I(+)", "II(+)", "1(+)", "III", "IV(1)")]
-        self.assertEqual(to_csv.arabic_major_columns(roman, {"1": 5}), {})
-        self.assertEqual(to_csv.parse_value("2(+)", 5)[2], "II")
-        self.assertEqual(to_csv.parse_value("2(+)", 5, keep_arabic=True)[2], "2")
-
     def test_prefer_ja_name_keeps_user_name(self):
         """note に「学名はユーザ確認」がある行は prefer_ja_name が学名を直さない (9)"""
         import prefer_ja_name as pj
@@ -1671,6 +1624,114 @@ class Fixes0543Test(unittest.TestCase):
         body = open(os.path.join(d, "transcripts", "Tab.1", "body.tsv"), encoding="utf-8").read().splitlines()
         self.assertIn("Schizophragma hydrangeoides", body[1])
         self.assertIn("Hydrangea hydrangeoides", body[2])
+
+
+class Review0543Test(unittest.TestCase):
+    """確認の HTML と回答の反映 (0.5.43)"""
+
+    def _tsv(self, d, rows, extra_cols=()):
+        cols = ["table", "plot", "j_name", "kind", "what", "page", "x0", "y0", "x1", "y1"] + list(extra_cols)
+        with open(os.path.join(d, "user_review.tsv"), "w", encoding="utf-8", newline="") as f:
+            f.write("\t".join(cols) + "\n")
+            for r in rows:
+                f.write("\t".join(r) + "\n")
+
+    def test_row_y_and_strips(self):
+        """赤枠が row_y.tsv の種の行にかからなければ警告 (3)．strips.tsv から種名・階層の列を補い，
+        B 区分で欠ければ警告 (4)"""
+        import marks_grid
+        import review_html as R
+        from PIL import Image
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "work"))
+        Image.new("RGB", (800, 600), "white").save(os.path.join(d, "work", "p001.png"))
+        marks_grid.save_row_y(os.path.join(d, "row_y.tsv"), "Tab.001", "p001",
+                              [(1, "アオツヅラフジ B2;S;K", 200.4), (2, "クロキ", 260), (3, "トベラ S", 320)])
+        marks_grid.save_row_y(os.path.join(d, "row_y.tsv"), "Tab.001", "p001", [(1, "アオツヅラフジ B2;S;K", 201)])
+        with open(os.path.join(d, "row_y.tsv"), encoding="utf-8") as f:
+            self.assertEqual(len(f.read().splitlines()), 2)                # 同じ表・ページは置き換える
+        marks_grid.save_row_y(os.path.join(d, "row_y.tsv"), "Tab.001", "p001",
+                              [(1, "アオツヅラフジ B2;S;K", 200), (2, "クロキ", 260), (3, "トベラ S", 320)])
+        with open(os.path.join(d, "strips.tsv"), "w", encoding="utf-8") as f:
+            f.write("table\tpage\tnames_x0\tnames_x1\tlayer_x0\tlayer_x1\nTab.1\tp001\t10\t100\t100\t160\n")
+        self._tsv(d, [
+            ["Tab.001", "6", "アオツヅラフジ", "B. 下線の対応", "下線か．選択肢: B2 / S", "p001", "500", "190", "560", "215"],
+            ["Tab.001", "6", "アオツヅラフジ", "B. 下線の対応", "下線か．選択肢: B2 / S", "p001", "500", "300", "560", "330"],
+            ["Tab.002", "6", "クロキ", "B. 下線の対応", "下線か．選択肢: B2 / S", "p001", "500", "250", "560", "270"],
+        ])
+        R.WARNINGS.clear()
+        R._ROWY.clear()
+        R._STRIPS.clear()
+        items = R.from_tsv(os.path.join(d, "user_review.tsv"))
+        warns = {w[0]: w[3] for w in R.WARNINGS}
+        self.assertNotIn("U01", warns)
+        self.assertEqual(items[0]["images"][0]["layer_x"], [100, 160])     # strips.tsv から
+        self.assertIn("行「アオツヅラフジ」が無い", warns["U02"])            # 別の行を囲んでいる
+        self.assertIn("種名の列・階層の列が無い", warns["U03"])               # Tab.002 は strips.tsv に無い
+        R.WARNINGS.clear()
+
+    def test_apply_answers(self):
+        """選択肢の actions を回答どおりに当て，target に確認済みの印を書く (5)．skip は何もしない"""
+        import review_apply as A
+        d = workdir()
+        t = os.path.join(d, "transcripts", "Tab.1")
+        with open(os.path.join(t, "body.tsv"), "a", encoding="utf-8") as f:
+            f.write("\t".join(["sp", "", "", "Pinus thunbergii", "クロマツ", "S;K", "+", "1・1", "+", "1: check 点か + か"]) + "\n")
+        tgt = {"table": "Tab.1", "file": "body", "match": {"j_name": "クロマツ"}, "plot": "1"}
+        items = [
+            {"id": "U01", "target": tgt, "options": [
+                {"value": "a", "label": "出現なし (・) とする",
+                 "actions": [{"op": "set", "col": "1", "from": "+", "to": "・"}]},
+                {"value": "b", "label": "今の転記 (+) でよい"}]},
+            {"id": "U02", "target": dict(tgt, plot="2"), "options": [
+                {"value": "a", "label": "S とする", "actions": [{"op": "layer", "plot": "2", "layer": "S"}]}]},
+            {"id": "U03", "options": [{"value": "a", "label": "地点 3 を外す",
+                                       "actions": [{"op": "drop_plot", "table": "Tab.1", "plot": "3", "note": "表頭だけ"}]}]},
+            {"id": "U04", "target": tgt, "options": [{"value": "val", "label": "値を入力", "input": True,
+                                                      "actions": [{"op": "set", "col": "3", "to": "{value}"}]}]},
+            {"id": "U05", "target": tgt, "options": [{"value": "a", "label": "x"}]},
+        ]
+        ip, an = os.path.join(d, "it.items.json"), os.path.join(d, "ans.json")
+        with open(ip, "w", encoding="utf-8") as f:
+            json.dump(items, f, ensure_ascii=False)
+        with open(an, "w", encoding="utf-8") as f:
+            json.dump({"U01": {"choice": "a", "value": "", "memo": ""}, "U02": {"choice": "a"},
+                       "U03": {"choice": "a"}, "U04": {"choice": "val", "value": "2・2"},
+                       "U05": {"choice": "skip", "memo": "画像では分からない"}}, f, ensure_ascii=False)
+        rc, out = run(A.main, [d, ip, an, "--date", "2026-11-16"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("判断できない/未回答 1 件", out)
+        body = open(os.path.join(t, "body.tsv"), encoding="utf-8").read().splitlines()[-1].split("\t")
+        self.assertEqual(body[6:9], ["・", "1・1", "2・2"])
+        self.assertNotIn("check", body[9])
+        self.assertIn("1: ユーザ確認 2026-11-16: 出現なし (・) とする", body[9])
+        self.assertIn("2: 層 S", body[9])
+        meta = open(os.path.join(t, "meta.tsv"), encoding="utf-8").read()
+        self.assertIn("drop_plots\t3", meta)
+        self.assertTrue(any(x.startswith("review_backup_") for x in os.listdir(d)))
+        # from が今の値と違えば何も書かずに止める
+        rc, out = run(A.main, [d, ip, an])
+        self.assertEqual(rc, 2)
+        self.assertIn("今の値", out)
+
+    def test_carry(self):
+        """--carry: 選択肢を選んだ項目は外し，判断できない・未回答はメモを添えて残す (6)．項目の一覧も書く"""
+        import review_html as R
+        d = tempfile.mkdtemp()
+        items = [{"id": f"U0{i}", "title": f"t{i}", "note": "問い", "options": [{"value": "a", "label": "x"}], "images": []}
+                 for i in range(1, 4)]
+        ip, an, out = os.path.join(d, "it.json"), os.path.join(d, "ans.json"), os.path.join(d, "next.html")
+        with open(ip, "w", encoding="utf-8") as f:
+            json.dump(items, f)
+        with open(an, "w", encoding="utf-8") as f:
+            json.dump({"U01": {"choice": "a"}, "U02": {"choice": "skip", "memo": "種名を別画像で"}}, f, ensure_ascii=False)
+        rc, log = run(R.main, [ip, out, "--carry", an])
+        self.assertEqual(rc, 0, log)
+        with open(os.path.join(d, "next.items.json"), encoding="utf-8") as f:
+            kept = json.load(f)
+        self.assertEqual([it["id"] for it in kept], ["U02", "U03"])
+        self.assertIn("メモ「種名を別画像で」", kept[0]["note"])
+        self.assertEqual(kept[1]["note"], "問い")
 
 
 if __name__ == "__main__":
