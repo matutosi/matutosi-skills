@@ -5,16 +5,20 @@
 
 先に decide.py を回しておく (decisions.tsv・conflicts.tsv を読む)．個別のセルではなく，規則の単位で聞く:
 
-- 決定の決まり (D 規則): 当てたセルの数・表の数と例 (印字 → 決定)．「採る / 採らない / 条件を変える (メモに)」
+- 決定の決まり (D 規則): 当てたセルの数・表の数と例 (印字 → 決定)．「採用 / 不採用 / 条件を変える (メモに)」
 - 引き継ぎの判断 (L:<今の規則>): まだ関数になっていない今のスキルの規則で直したセル．
-  「今の判断を引き継ぐ / 引き継がない (印字のまま) / 個別に見直す」
-- 前回のユーザ確認 (U): 決定に引き継いでいない前回の答え．「引き継がない (今のまま) / 引き継ぐ / 個別に見直す」
+  「このセルだけ引き継ぐ / 引き継がない (印字のまま) / 個別に見直す / 規則にする」
+- 前回のユーザ確認 (U): 決定に引き継いでいない前回の答え．「引き継がない (今のまま) / このセルだけ引き継ぐ / 個別に見直す / 規則にする」
+
+**「引き継ぐ」は規則にはならない**．そのセルの値を judgments.tsv に持ち続けるだけで，ほかの表・これから読む表には効かない．
+規則にするには，条件を関数に書く (rules/) か，対応の表 (name_fixes.tsv のようなもの) を作る．
 
 --apply は回答 ({id: {choice, memo}}) を当てる:
-- D 規則: rule_settings.tsv の use を yes / no にする (条件を変えるは yes のまま note にメモ)
+- D 規則: rule_settings.tsv の use を yes (採用) / no (不採用) にする (条件を変えるは yes のまま．メモを書き出す)．
+  --global を付けると 1 つ上のフォルダ (全地方で共通) に書く
 - 引き継ぎの判断: 「引き継がない」の規則の行を judgments.tsv から外す
 - 前回のユーザ確認: 「引き継ぐ」なら old_user_judgments.tsv の行を judgments.tsv に足す
-「個別に見直す」とメモは rule_answers_todo.tsv に書き出す (あとで確認の対象にする)．
+「条件を変える」「個別に見直す」「規則にする」とメモは rule_answers_todo.tsv に書き出す (あとで規則の直しや確認の対象にする)．
 """
 import argparse
 import collections
@@ -59,9 +63,17 @@ document.getElementById('dl').addEventListener('click',()=>{const out={};
 save();
 """
 OPTIONS = {
-    'D': [('a', '採る (規則どおり直す)'), ('b', '採らない (印字のままにする)'), ('c', '条件を変える (どう変えるかをメモに)')],
-    'L': [('a', '今の判断を引き継ぐ'), ('b', '引き継がない (印字のままにする)'), ('c', '個別に見直す (確認の対象にする)')],
-    'U': [('a', '引き継がない (今のまま．印字のままにする)'), ('b', '前回の答えを引き継ぐ'), ('c', '個別に見直す (確認の対象にする)')],
+    'D': [('a', '採用 (規則どおり直す)'), ('b', '不採用 (印字のままにする)'), ('c', '条件を変える (どう変えるかをメモに)')],
+    # 引き継ぎ: a は「このセルだけ」の判断として残る (規則にはならない．ほかの表・これから読む表には効かない)．
+    # 規則にしたいときは d (条件や対応の表を作る作業が要る)
+    'L': [('a', 'このセルだけ今の判断を引き継ぐ (規則にはならない．ほかの表には効かない)'),
+          ('b', '引き継がない (印字のままにする)'),
+          ('c', '個別に見直す (確認の対象にする)'),
+          ('d', '規則にする (どういう条件で直すかをメモに．関数か対応の表を作る)')],
+    'U': [('a', '引き継がない (今のまま．印字のままにする)'),
+          ('b', 'このセルだけ前回の答えを引き継ぐ (規則にはならない)'),
+          ('c', '個別に見直す (確認の対象にする)'),
+          ('d', '規則にする (どういう条件で直すかをメモに)')],
 }
 
 
@@ -96,16 +108,17 @@ def build(root, out_dir, n_examples):
                 by[j].append((cid, raw, decided, modify))
     tables, items = {}, []
 
-    def examples(cells):
+    def examples(cells, every=False):
+        """every なら同じ直し方もまとめず，全部のセルを並べる (引き継ぎの判断・前回のユーザ確認は 1 件ずつ見るため)"""
         seen, out = set(), []
         for cid, raw, decided, modify in cells:           # 例は表をばらして，同じ直し方の重なりを避ける
             name, who, where = cell_label(tables, root, cid)
             key = (name, raw, decided)
-            if key in seen or cid.endswith('/@note'):
+            if (key in seen and not every) or cid.endswith('/@note'):
                 continue
             seen.add(key)
             out.append([name, who, where, raw or '(空)', decided or '(空)'])
-            if len(out) >= n_examples:
+            if len(out) >= n_examples and not every:
                 break
         return out
 
@@ -120,7 +133,7 @@ def build(root, out_dir, n_examples):
         r = rule_list[rid]
         items.append((rid, 'D', f'{rid}　{r.title}', f'[{r.group}] 今の規則 {r.old or "-"}．この置き場では当たったセルが無い', []))
     for jid in sorted(k for k in by if k.startswith('L:')):
-        items.append((jid, 'L', f'今のスキルの規則 {jid[2:]} で直したセル (関数になっていない)', count(by[jid]), examples(by[jid])))
+        items.append((jid, 'L', f'今のスキルの規則 {jid[2:]} で直したセル (関数になっていない)', count(by[jid]), examples(by[jid], every=True)))
     old = read_side(os.path.join(root, 'old_user_judgments.tsv'))
     if old:
         cells = []
@@ -130,7 +143,7 @@ def build(root, out_dir, n_examples):
             except (IndexError, KeyError):
                 raw = ''
             cells.append((cid, raw, d.get('value', ''), d.get('note', '')))
-        items.append(('U', 'U', '前回のユーザ確認 (決定に引き継いでいない)', count(cells) + '．「決定」の欄は前回の答え', examples(cells)))
+        items.append(('U', 'U', '前回のユーザ確認 (決定に引き継いでいない)', count(cells) + '．「決定」の欄は前回の答え', examples(cells, every=True)))
     return items
 
 
@@ -160,11 +173,11 @@ def write_html(items, path, title):
         f.write(page)
 
 
-def apply(root, answers_path):
+def apply(root, answers_path, to_parent=False):
     with open(answers_path, encoding='utf-8-sig') as f:
         ans = json.load(f)
     rule_list = rules_pkg.load_all()
-    sp = os.path.join(root, 'rule_settings.tsv')
+    sp = os.path.join(os.path.dirname(os.path.abspath(root)) if to_parent else root, 'rule_settings.tsv')
     cur = {rid: d for rid, d in read_side(sp, key='rule').items()}
     todo, log = [], []
     rows = []
@@ -175,7 +188,7 @@ def apply(root, answers_path):
             d['use'] = 'yes'
         elif a.get('choice') == 'b':
             d['use'] = 'no'
-            log.append(f'{r.id}: 採らない')
+            log.append(f'{r.id}: 不採用')
         elif a.get('choice') == 'c':
             todo.append([r.id, '条件を変える', a.get('memo', '')])
         if a.get('memo') and a.get('choice') != 'c':
@@ -200,6 +213,8 @@ def apply(root, answers_path):
     for k, a in ans.items():
         if (k.startswith('L:') or k == 'U') and (a or {}).get('choice') == 'c':
             todo.append([k, '個別に見直す', a.get('memo', '')])
+        elif (k.startswith('L:') or k == 'U') and (a or {}).get('choice') == 'd':
+            todo.append([k, '規則にする', a.get('memo', '')])
         elif (k.startswith('L:') or k == 'U') and (a or {}).get('memo'):
             todo.append([k, 'メモ', a['memo']])
     if todo:
@@ -217,9 +232,12 @@ def main(argv=None):
     ap.add_argument('--examples', type=int, default=8, help='規則ごとの例の数')
     ap.add_argument('--title', default=None)
     ap.add_argument('--apply', default=None, metavar='回答.json', help='回答を rule_settings.tsv などに当てる')
+    ap.add_argument('--carry', default=None, metavar='回答.json', help='答え済みの項目を外し，未回答だけの HTML を作る')
+    ap.add_argument('--global', dest='to_parent', action='store_true',
+                    help='--apply のとき，rule_settings.tsv を 1 つ上のフォルダ (全地方で共通) に書く')
     a = ap.parse_args(argv)
     if a.apply:
-        log, todo = apply(a.dir, a.apply)
+        log, todo = apply(a.dir, a.apply, a.to_parent)
         for m in log:
             print('  ' + m)
         print(f'rule_settings.tsv を書いた (決定は decide.py で作り直す)．あとで見るもの {len(todo)} 件'
@@ -231,7 +249,12 @@ def main(argv=None):
     if not os.path.exists(os.path.join(out_dir, 'decisions.tsv')):
         sys.exit(f'無い: {out_dir}/decisions.tsv (先に decide.py を回す)')
     items = build(a.dir, out_dir, a.examples)
-    title = a.title or f'規則の確認 ({os.path.basename(os.path.normpath(a.dir))})'
+    if a.carry:                                           # 答え済みの項目を外し，未回答だけを残す
+        with open(a.carry, encoding='utf-8-sig') as f:
+            done = {k for k, v in json.load(f).items() if (v or {}).get('choice')}
+        items = [it for it in items if it[0] not in done]
+        print(f'--carry: 答え済み {len(done)} 件を外した')
+    title =a.title or f'規則の確認 ({os.path.basename(os.path.normpath(a.dir))})'
     write_html(items, a.html, title)
     print(f'{len(items)} 件 → {a.html} (回答の保存名 rule_answers.json)')
     return 0
