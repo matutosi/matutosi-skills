@@ -36,6 +36,7 @@ import common
 from common import TOKEN, Table, parse_id, read_side, table_dirs, to_csv
 import conflicts
 import freeze
+import internal_rules
 import rules as rules_pkg
 
 SITE_COLS = ['file', 'region', 'table', 'plot', 'item_ja', 'item_de', 'value', 'unit', 'value_raw', 'source', 'status',
@@ -184,6 +185,8 @@ def to_rows(t, t_read, trace, soc_default):
                 r['note_read'] = '; '.join(x for x in (note, ai) if x)
             r['note_judge'] = ';'.join(j for k in keys for j in trace.judge.get(k, []))
             r['note_modify'] = '; '.join(x for k in keys for x in trace.modify.get(k, []))
+    internal_rules.add(sites, False)                      # to_csv.py の中の決まり (T 規則) の番号を足す
+    internal_rules.add(comp, True)
     return sites, comp
 
 
@@ -280,7 +283,9 @@ def main(argv=None):
     rule_list = rules_pkg.load_all()
     if a.list_rules:
         for r in rule_list:
-            print(f'{r.id}  [{r.group}] {r.title}' + (f' (今の規則 {r.old})' if r.old else ''))
+            print(f'{r.id}  [段 {r.stage} {r.group}] {r.title}' + (f' (今の規則 {r.old})' if r.old else ''))
+        for rid, title, old in internal_rules.INTERNAL:
+            print(f'{rid}  [to_csv.py の中] {title}' + (f' (今の規則 {old})' if old else ''))
         return 0
     if not a.dir:
         ap.error('置き場が要る')

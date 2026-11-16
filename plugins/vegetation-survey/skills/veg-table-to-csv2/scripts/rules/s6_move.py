@@ -1,53 +1,8 @@
-"""1 回出現の段落の決まり"""
-import re
-
-from common import to_csv
+"""段 6: 行を移す (1 回出現の段落の地点)"""
 from rules import Change, rule
+from rules._lib import species_sets
 
-import check as old_check          # 今のスキルの check.py (種の数え方・見出しのずれの試し方を使う)
-
-NO_MOSS = re.compile(r'ohne\s+Moos|蘚苔類を除く|コケを除く', re.I)
-
-
-def species_sets(t):
-    """(本体の {地点: 種の集合}, 1 回出現の {地点: 種の集合}, 印字の {地点: 出現種数})．地点は int．
-    種の数え方は今の check.py と同じ (学名を鍵に．出現種数の項目名に「蘚苔類を除く」とある表は蘚苔類・地衣類を外す)"""
-    want, no_moss = {}, False
-    for d in t.dicts('header'):
-        if d.get('item_ja', '').startswith('出現種数') or 'artenzahl' in d.get('item_de', '').lower():
-            no_moss = bool(NO_MOSS.search(d.get('item_ja', '') + ' ' + d.get('item_de', '')))
-            for p in t.plots('header'):
-                v = (d.get(p) or '').strip().rstrip('?')
-                if v.isdigit():
-                    want[int(p)] = want.get(int(p), 0) + int(v)
-    body, once = {}, {}
-    g_ja = g_de = s_prev = j_prev = ''
-    plots = t.plots('body')
-    for d in t.dicts('body'):
-        if d.get('kind') == 'group':
-            g_ja, g_de = d.get('group_ja', ''), d.get('group_de', '')
-            continue
-        s, j = d.get('s_name', '').strip(), d.get('j_name', '').strip()
-        if not s and not j:
-            s, j = s_prev, j_prev
-        s_prev, j_prev = s, j
-        r = dict(s_name=s, j_name=j, layer=d.get('layer', ''), group_ja=g_ja, group_de=g_de, note=d.get('note', ''))
-        if no_moss and old_check.is_moss(r):
-            continue
-        for p in plots:
-            v = (d.get(p) or '').strip().rstrip('?').strip()
-            if v and v not in to_csv.ABSENT:
-                body.setdefault(int(p), set()).add(old_check.spkey(r))
-    for d in t.dicts('once'):
-        p = d.get('plot', '').strip()
-        s, j = d.get('s_name', '').strip(), d.get('j_name', '').strip()
-        if not p.isdigit() or not (s or j):               # 名前の無い値 (規則 X53) は種に数えない
-            continue
-        r = dict(s_name=s, j_name=j, layer=d.get('layer', ''), group_ja=d.get('group', ''), group_de='', note=d.get('note', ''))
-        if no_moss and old_check.is_moss(r):
-            continue
-        once.setdefault(int(p), set()).add(old_check.spkey(r))
-    return body, once, want
+import check as old_check          # 今のスキルの check.py (種の数え方を使う)
 
 
 def shift_candidates(body, once, want, max_len=15):
@@ -83,7 +38,7 @@ def shift_candidates(body, once, want, max_len=15):
     return out
 
 
-@rule('D11', '1 回出現の見出しのずれ: 1 地点ずらすと関わる地点の出現種数がすべて印字と合うときだけ移す', '1 回出現', old='X35')
+@rule('D11', '1 回出現の見出しのずれ: 1 地点ずらすと関わる地点の出現種数がすべて印字と合うときだけ移す', 6, old='X35')
 def heading_shift(t, param):
     """1 つ移しては数え直し，次のずれを探す (今の手順と同じ)．候補はすべて見て，前後どちらへずらしても合う (関わる地点の
     重なる逆向きの候補がある) 候補だけを見送る．離れた別のずれは別々に移す (2026-11-16 ユーザ決定 1a)．同じ行は 2 回動かさない"""
@@ -145,6 +100,8 @@ def heading_shift(t, param):
 
 LAYER_ROWS = {'B': ('高木層',), 'B1': ('高木第1層', '高木第一層', '高木層1'), 'B2': ('高木第2層', '高木第二層', '高木層2'),
               'S': ('低木層',), 'K': ('草本層',)}
+
+
 DASH = {'', '-', '—', '–', '−', '―'}
 
 
@@ -160,7 +117,7 @@ def layer_absent(t):
     return out
 
 
-@rule('D26', '1 回出現の値の階層が表頭に無い地点の段落は，種数が合うときだけ，その階層のある隣の地点へ移す', '1 回出現',
+@rule('D26', '1 回出現の値の階層が表頭に無い地点の段落は，種数が合うときだけ，その階層のある隣の地点へ移す', 6,
       old='(前回のユーザ確認から)', order=10.5)
 def paragraph_to_layer_plot(t, param):
     """段落の中に，表頭でその地点に無いとされた階層 (B など) の値がある → 見出しの番号の印字ミスを疑う．
@@ -191,3 +148,29 @@ def paragraph_to_layer_plot(t, param):
                 yield Change('once', r['_row'], '@plot', str(q),
                              f'印字は in {p}．地点 {p} の表頭に無い階層 ({"・".join(sorted(bad))}) の値がある．'
                              f'地点 {q} へ移すと両方の出現種数が印字と合う')
+
+
+DASH_NOTE = '印字は横棒だけ'
+
+
+@rule('D29', '横棒だけの印字を + と読んだセル (規則 X26) は，出現なしとみるとその地点の出現種数が印字と合い，+ では合わないときだけ出現なしにする',
+      6, old='X30')
+def dash_absent(t, param):
+    """セルの note に「N: 印字は横棒だけ (-)」とあるセルが対象．どちらでも合う・どちらでも合わないときは + のまま"""
+    from common import to_csv
+    body, once, want = species_sets(t)
+    for d in t.dicts('body'):
+        if d.get('kind') == 'group':
+            continue
+        for p in t.plots('body'):
+            if not p.isdigit() or int(p) not in want:
+                continue
+            if DASH_NOTE not in to_csv.cell_note(d.get('note', ''), p):
+                continue
+            v = (d.get(p) or '').strip()
+            if not v or v in to_csv.ABSENT:
+                continue
+            q = int(p)
+            got = len(body.get(q, set()) | once.get(q, set()))
+            if got == want[q] + 1:                          # 出現なしとみると 1 減って合う．+ のままでは合わない
+                yield Change('body', d['_row'], p, '・', f'印字は横棒だけ．出現なしとみると地点 {p} の出現種数 ({want[q]}) が印字と合う')

@@ -205,9 +205,14 @@ class DecideTest(unittest.TestCase):
     def test_rule_registry(self):
         ids = [r.id for r in rules.load_all()]
         self.assertEqual(len(ids), len(set(ids)))
-        orders = [r.order for r in rules.RULES]
-        self.assertEqual(orders, sorted(orders))                # 当てる順に並ぶ
-        self.assertLess(ids.index("D26"), ids.index("D11"))     # D26 は order=10.5 で D11 の前
+        keys = [(r.stage, r.order) for r in rules.RULES]
+        self.assertEqual(keys, sorted(keys))                    # 段の順 → 段の中の順に並ぶ
+        st = {r.id: r.stage for r in rules.RULES}
+        self.assertLess(ids.index("D26"), ids.index("D11"))     # D26 は段 6 の中で D11 の前
+        self.assertLess(ids.index("D13"), ids.index("D03"))     # 字の乱れ (段 1) は書式 (段 2) の前
+        self.assertLess(ids.index("D13"), ids.index("D12"))
+        for later in ("D16", "D11", "D26"):                     # 名前を直す (段 3) の後に，学名で引く・種を数える
+            self.assertGreater(st[later], st["D10"])
         for r in rules.RULES:
             self.assertTrue(r.title and r.group)
 
@@ -286,7 +291,7 @@ class MoreRulesTest(unittest.TestCase):
 
     def test_aspect(self):
         """D06: 方位の字の重なり・逆順・3 字の順・逆向き・F"""
-        from rules import site
+        from rules import s4_header as site
         for raw, want in (("SSS", "S"), ("SWSW", "SW"), ("NN", "N"), ("EN", "NE"), ("ES", "SE"), ("NWN", "NNW"),
                           ("NEE", "ENE"), ("SN", "-"), ("WE", "-"), ("F", "E"), ("SF", "SE")):
             self.assertEqual(site.fix_aspect(raw)[0], want, raw)
@@ -321,7 +326,7 @@ class MoreRulesTest(unittest.TestCase):
 class NameRulesTest(unittest.TestCase):
     def test_prefer_ja_name(self):
         """D10: 属が合わない行だけ，和名を優先してチェックリストの学名にする．似た名・あいまいな名は直さない"""
-        from rules import names
+        from rules import s3_names as names
         table = {"バクチノキ": ("ok", "Laurocerasus zippeliana"), "ヒメジョオン": ("ok", "Erigeron annuus"),
                  "ナゾノキ": ("similar", "Aaa bbb"), "アオキ": ("alias", "Aucuba japonica")}
         keep = names.lookup
@@ -351,7 +356,7 @@ class NameRulesTest(unittest.TestCase):
 
     def test_missing_checklist_is_reported(self):
         """チェックリストが使えないときは D10 を当てず，その旨を知らせる (止めない)"""
-        from rules import names
+        from rules import s3_names as names
         keep_state, keep_missing = dict(names._STATE), list(names.MISSING)
         names._STATE.update(idx=None, tried=True, why="無い")
         names.MISSING[:] = ["D10 (和名優先) は当てていない: チェックリストが無い"]
@@ -398,7 +403,7 @@ class OnceAndFixesTest(unittest.TestCase):
 
     def test_name_fixes(self):
         """D08・D09: 誤植の訂正の表 (name_fixes.tsv) で和名・学名を直す．表が無ければ何もしない"""
-        from rules import names
+        from rules import s3_names as names
         body = [BODY3, ["sp", "", "", "Cyrtominum falcatum", "オニヤブソテツ", "K", "+", "・", "・", ""],
                 ["sp", "", "", "Elaeagnus macrophylla", "オオナワシロクミ", "S", "+", "・", "・", ""]]
         d = make([HEAD3], body)
@@ -463,7 +468,7 @@ class SmallRulesTest(unittest.TestCase):
         """D16: 1 回出現で階層の無い草本は K．階層を書かない表 (半分以上の行に階層が無い) では当てない"""
         herb = sorted(common.to_csv.HERBS)[0]
         once = [["1", herb, "ソウホン", "", "+", ""], ["1", "Bb b", "ビー", "K", "+", ""], ["2", "Cc c", "シー", "S", "+", ""]]
-        from rules import names
+        from rules import s3_names as names
         keep = names.lookup
         names.lookup = lambda j: ("none", "")
         try:
@@ -630,7 +635,7 @@ class AnsweredRulesTest(unittest.TestCase):
     BODY4 = ["kind", "group_ja", "group_de", "s_name", "j_name", "layer", "1", "2", "3", "4", "note"]
 
     def _run(self, d):
-        from rules import header, layer, names
+        from rules import _lib as header, s5_layer as layer, s3_names as names
         header._TABLES.clear()
         layer._WOODY.clear()
         keep = names.lookup
@@ -724,7 +729,7 @@ class LeftSevenTest(unittest.TestCase):
     """九州の残る引き継ぎの判断 7 セルから直した所 (2026-11-16 ユーザ決定 1a・4a)"""
 
     def _comp(self, d):
-        from rules import layer, names
+        from rules import s5_layer as layer, s3_names as names
         layer._WOODY.clear()
         keep = names.lookup
         names.lookup = lambda j: ("none", "")
@@ -780,6 +785,149 @@ class LaterThanSourceTest(unittest.TestCase):
         self.assertEqual((s["4"]["value"], s["4"]["note_conflict"]), ("1970-08", ""))
         kinds = [r["kind"] for r in rows_tsv(os.path.join(d, "conflicts.tsv"))]
         self.assertEqual(kinds.count("Y"), 1)
+
+
+class StageOrderTest(unittest.TestCase):
+    def test_open_paren_then_arabic(self):
+        """段 1 (D13) が段 2 (D12) より先: 算用数字の列の I(+ は I(+) を経て 1(+) になる (2026-11-17 ユーザ決定 1a)"""
+        from rules import s3_names as names
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            d = make([HEAD3, ["調査区数", "Zahl d. Aufn.", "", "3", "-", "-", ""]],
+                     [BODY3, ["sp", "", "", "Aa a", "エー", "S", "I(+", "+", "・", ""],
+                             ["sp", "", "", "Bb b", "ビー", "S", "1(+)", "+", "・", ""],
+                             ["sp", "", "", "Cc c", "シー", "S", "2(+)", "・", "+", ""],
+                             ["sp", "", "", "Dd d", "ディー", "S", "3(1)", "・", "+", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        r = {(x["j_name"], x["plot"]): x for x in rows(os.path.join(d, "composition.csv"))}[("エー", "1")]
+        self.assertEqual((r["value_decided"], r["note_judge"]), ("1(+)", "D13;D12"))
+
+
+class InternalRulesTest(unittest.TestCase):
+    def test_t_numbers(self):
+        """to_csv.py の中の決まり (T 規則) の番号が note_judge に出る (2026-11-17 ユーザ決定 5a)"""
+        from common import to_csv
+        from rules import s3_names as names
+        herb = next(iter(sorted(to_csv.HERBS)))
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            d = make([HEAD3, ["方位", "Exposition", "", "L", "S", "N", ""],
+                      ["調査年月日", "Datum d. Aufn.", "", "'79 8 -", "'79 8 2", "'79 8 3", ""]],
+                     [BODY3, ["sp", "", "", "Aa a", "エー", "S;K", "2", "1", "・", "印字は S,K (S に下線); 1: 下線"],
+                      ["sp", "", "", herb, "ソウホン", "S;K", "+", "・", "・", "印字は S,K"],
+                      ["sp", "", "", "Cc c", "シー", "", "・", "v", "・", "階層の印字なし"],
+                      ["sp", "", "", "Dd d", "ディー", "K", "・", "・", "○", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        comp = {(r["j_name"], r["plot"]): r for r in rows(os.path.join(d, "composition.csv"))}
+        sites = {(r["item_ja"], r["plot"]): r for r in rows(os.path.join(d, "sites.csv"))}
+        self.assertIn("T01", comp[("エー", "1")]["note_judge"].split(";"))      # 下線で S
+        self.assertIn("T05", comp[("エー", "1")]["note_judge"].split(";"))      # 群度の補い
+        self.assertIn("T02", comp[("ソウホン", "1")]["note_judge"].split(";"))  # 草本は K
+        self.assertIn("T06", comp[("シー", "2")]["note_judge"].split(";"))
+        self.assertIn("T07", comp[("ディー", "3")]["note_judge"].split(";"))
+        self.assertEqual(sites[("方位", "1")]["note_judge"], "T08")
+        self.assertEqual(sites[("調査年月日", "1")]["note_judge"], "T09")
+        self.assertEqual(sites[("調査年月日", "2")]["note_judge"], "")       # ふつうの日付は書式の変換だけ
+        self.assertEqual(sites[("列の種類", "1")]["note_judge"], "T11")
+
+    def test_rule_list_is_current(self):
+        """references/rules.md が規則の登録と合っている (古ければ python scripts/rule_list.py で作り直す)"""
+        import rule_list
+        self.assertEqual(run(rule_list.main, ["--check"])[0], 0)
+
+
+class MovedRulesTest(unittest.TestCase):
+    """今のスキルから移した規則 D27-D30 と矛盾の区分 R・H・D・G・P (2026-11-17 ユーザ決定 4a)"""
+
+    def _run(self, d):
+        from rules import s3_names as names, s5_layer as layer
+        layer._WOODY.clear()
+        names._FIXES.clear()
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        return rows(os.path.join(d, "composition.csv")), rows(os.path.join(d, "sites.csv"))
+
+    def test_layer_letters(self):
+        """D27: k → K．s は表頭に低木層があるので S．D28: F → K，BB2 → B2，草本層が 1 つの表の K2 → K"""
+        d = make([HEAD3, ["高木第2層の高さ", "", "m", "8", "8", "8", ""], ["低木層の高さ", "", "m", "3", "3", "3", ""],
+                  ["草本層の高さ", "", "m", "0.5", "0.5", "0.5", ""]],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "k", "+", "・", "・", ""],
+                  ["sp", "", "", "Bb b", "ビー", "s", "+", "・", "・", ""],
+                  ["sp", "", "", "Cc c", "シー", "F", "+", "・", "・", ""],
+                  ["sp", "", "", "Dd d", "ディー", "BB2", "+", "・", "・", ""],
+                  ["sp", "", "", "Ee e", "イー", "K2", "+", "・", "・", ""]])
+        comp, _ = self._run(d)
+        got = {r["j_name"]: (r["layer"], r["note_judge"].split(";")[0]) for r in comp}
+        self.assertEqual(got["エー"], ("K", "D27"))
+        self.assertEqual(got["ビー"], ("S", "D27"))
+        self.assertEqual(got["シー"], ("K", "D28"))
+        self.assertEqual(got["ディー"], ("B2", "D28"))
+        self.assertEqual(got["イー"], ("K", "D28"))
+
+    def test_dash_absent(self):
+        """D29: 横棒だけを + と読んだセルは，出現なしとみると種数が合い + では合わないときだけ出現なし"""
+        d = make([HEAD3, ["出現種数", "Artenzahl", "", "1", "2", "1", ""]],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", ""],
+                  ["sp", "", "", "Bb b", "ビー", "K", "+", "+", "・", "1: 印字は横棒だけ (-)．+ とした (規則 X26); 2: 印字は横棒だけ (-)．+ とした (規則 X26)"]])
+        comp, _ = self._run(d)
+        got = {(r["j_name"], r["plot"]): r for r in comp}
+        self.assertNotIn(("ビー", "1"), got)                       # 地点 1 は出現なしで合う
+        self.assertEqual(got[("ビー", "2")]["note_judge"], "")    # 地点 2 は + のままで合う
+
+    def test_fix_place(self):
+        """D30: 訂正の表の field=place で注記の調査地を直す"""
+        d = make([HEAD3], [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", ""]],
+                 notes=[["1-3", "調査地", "Fundort", "浦江町沖黒島", "", "Kamae-cho 浦江町沖黒島", "ok", ""]])
+        write(os.path.join(d, "name_fixes.tsv"), [["field", "raw", "fixed", "rule", "first_cell"], ["place", "浦江町", "蒲江町", "X2", ""]])
+        _, sites = self._run(d)
+        r = next(x for x in sites if x["item_ja"] == "調査地" and x["plot"] == "1")
+        self.assertEqual((r["value"], r["note_judge"]), ("蒲江町沖黒島", "D30"))
+
+    def test_conflicts_r_h_d_p(self):
+        """R: 植被率 > 100・傾斜 > 90．H: 下の層が上の層より高い．D: 存在しない日付．P: 注記に調査地の無い地点"""
+        d = make([HEAD3, ["低木層の高さ", "", "m", "3", "1", "2", ""], ["草本層の高さ", "", "m", "0.5", "1.5", "0.4", ""],
+                  ["草本層植被率", "", "%", "120", "80", "90", ""], ["傾斜", "Neigung", "°", "95", "10", "20", ""],
+                  ["調査年月日", "Datum d. Aufn.", "", "'79 2 30", "'79 8 2", "'79 8 3", ""]],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", ""]],
+                 notes=[["1,2", "調査地", "Fundort", "木城町", "", "Kijo-cho 木城町", "ok", ""]])
+        _, sites = self._run(d)
+        s = {(r["item_ja"], r["plot"]): r for r in sites}
+        self.assertEqual((s[("草本層植被率", "1")]["status"], s[("草本層植被率", "1")]["note_conflict"]), ("check", "R"))
+        self.assertEqual(s[("傾斜", "1")]["note_conflict"], "R")
+        self.assertEqual((s[("草本層の高さ", "2")]["status"], s[("草本層の高さ", "2")]["note_conflict"]), ("check", "H"))
+        self.assertEqual(s[("草本層の高さ", "1")]["note_conflict"], "")
+        self.assertEqual(s[("調査年月日", "1")]["note_conflict"], "D")
+        conf = {(r["cell_id"], r["kind"]) for r in rows_tsv(os.path.join(d, "conflicts.tsv"))}
+        self.assertIn(("Tab.001/d/調査地/3", "P"), conf)
+        self.assertNotIn(("Tab.001/d/調査地/1", "P"), conf)
+
+    def test_conflict_g(self):
+        """G: 県名の記号の県と注記の調査地の県が違い，D25 でも直せない (その地方の記号に無い県)"""
+        d = make([HEAD3, ["調査地 (県名)", "Präf.", "", "M", "M", "M", ""]],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", ""]],
+                 notes=[["1", "調査地", "Fundort", "熊本県阿蘇", "", "", "ok", ""],
+                        ["2", "調査地", "Fundort", "宮崎県木城町", "", "", "ok", ""]])
+        write(os.path.join(d, "pref_symbols.tsv"), [["symbol", "pref"], ["M", "宮崎県"]])
+        _, sites = self._run(d)
+        s = {(r["item_ja"], r["plot"]): r for r in sites}
+        self.assertEqual((s[("調査地 (県名)", "1")]["status"], s[("調査地 (県名)", "1")]["note_conflict"]), ("check", "G"))
+        self.assertEqual(s[("調査地 (県名)", "2")]["note_conflict"], "")
 
 
 if __name__ == "__main__":

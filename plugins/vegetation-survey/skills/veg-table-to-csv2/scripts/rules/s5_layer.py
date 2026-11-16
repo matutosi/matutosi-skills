@@ -1,7 +1,9 @@
-"""階層の決まり"""
+"""段 5: 階層を直す"""
 import re
 
 from rules import Change, rule
+from rules._lib import header_layers
+
 
 TWO = re.compile(r'第\s*[12１２]|schicht\s*-?\s*[12]|B\s*[12]\b', re.I)
 
@@ -18,7 +20,7 @@ def tree_layers(t):
     return 1 if has_value else 0                          # 全地点が - の表は「高木層が 1 つ」とみない (九州 Tab.141)
 
 
-@rule('D05', '表頭の高木層が 1 つだけの表の階層 B2 を B に直す', '階層', old='X24')
+@rule('D05', '表頭の高木層が 1 つだけの表の階層 B2 を B に直す', 5, old='X24')
 def single_tree_layer(t, param):
     if tree_layers(t) != 1:
         return
@@ -37,6 +39,8 @@ def single_tree_layer(t, param):
 
 
 WOODY_LAYERS = {'B', 'B1', 'B2', 'T', 'T1', 'T2', 'S', 'S1', 'S2'}
+
+
 _WOODY = {}
 
 
@@ -83,7 +87,7 @@ def woody_names(t):
     return _WOODY[root]
 
 
-@rule('D16', '1 回出現で階層の印字が無い種は，木本と分かる種を除いて K 層にする (階層を書く表だけ)', '階層', old='X51')
+@rule('D16', '1 回出現で階層の印字が無い種は，木本と分かる種を除いて K 層にする (階層を書く表だけ)', 5, old='X51')
 def once_herb_layer(t, param):
     """1 回出現の半分以上の行に階層がある表に限る (階層を書かない表では当てない)．
     木本と分かる種 (同じ置き場のどこかで高木層・低木層に出ている種) は直さない．
@@ -109,3 +113,31 @@ def once_herb_layer(t, param):
         if j in woody or ' '.join(s.lower().split()[:2]) in woody:
             continue                                        # 木本と分かる種は階層を補わない
         yield Change('once', d['_row'], '@layer', 'K', '階層の印字なし．木本と分かる種でないので K とした')
+
+
+ODD = {'F': 'K', 'H': 'K', 'BB2': 'B2', 'A': ''}
+
+
+@rule('D28', '表頭に無い階層の記号を直す (F・H → K，草本層が 1 つの表の K1・K2 → K，BB2 → B2，A → 空欄)', 5, old='X37')
+def odd_layer(t, param):
+    """表頭にその記号の層があるときは直さない．草本層が 1 つの表 = 表頭に K1・K2 の行が無い"""
+    have = header_layers(t)
+    for kind in ('body', 'once'):
+        if 'layer' not in t.head[kind]:
+            continue
+        for d in t.dicts(kind):
+            layers = [x.strip() for x in d.get('layer', '').split(';')]
+            new = []
+            for x in layers:
+                if x in have or not x:
+                    new.append(x)
+                elif x in ODD:
+                    new.append(ODD[x])
+                elif x in ('K1', 'K2') and not ({'K1', 'K2'} & have):
+                    new.append('K')
+                else:
+                    new.append(x)
+            new = [x for i, x in enumerate(new) if x or len(new) == 1]
+            if new != layers:
+                yield Change(kind, d['_row'], '@layer', ';'.join(new),
+                             f"階層の印字は {','.join(layers)}．表頭に無い記号なので {','.join(new) or '空欄'} とした")

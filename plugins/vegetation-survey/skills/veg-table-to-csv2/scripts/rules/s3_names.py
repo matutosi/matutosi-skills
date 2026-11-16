@@ -1,12 +1,17 @@
-"""種名の決まり (和名優先・誤植)"""
+"""段 3: 名前を直す (誤植の訂正の表・和名優先)．段 5・6 はこの後 (学名で引く・種を数える)"""
 import os
 import sys
 
 from common import OLD_SCRIPTS
 from rules import Change, rule
 
+
 SHEET_SCRIPTS = os.path.normpath(os.path.join(OLD_SCRIPTS, '..', '..', 'veg-sheet-to-csv', 'scripts'))
+
+
 _STATE = {'idx': None, 'tried': False, 'why': ''}
+
+
 MISSING = []                                              # チェックリストが使えなかった理由 (decide.py が知らせる)
 
 
@@ -61,7 +66,7 @@ def name_fixes(t):
                 h, rows, _, _ = read_tsv_raw(p)
                 for r in rows:
                     d = dict(zip(h, r + [''] * (len(h) - len(r))))
-                    if d.get('field') in ('j_name', 's_name') and d.get('raw') and d.get('fixed'):
+                    if d.get('field') in ('j_name', 's_name', 'place') and d.get('raw') and d.get('fixed'):
                         out[(d['field'], d['raw'])] = d['fixed']
         _FIXES[root] = out
     return _FIXES[root]
@@ -81,17 +86,17 @@ def _fix_names(t, field, label):
                 yield Change(kind, d['_row'], '@' + field, new, f'{label}の印字は「{raw}」．誤植の訂正の表 (name_fixes.tsv) で直した')
 
 
-@rule('D08', '和名の明らかな誤植を，訂正の表 (name_fixes.tsv) で直す', '種名', old='X20')
+@rule('D08', '和名の明らかな誤植を，訂正の表 (name_fixes.tsv) で直す', 3, old='X20')
 def fix_j_name(t, param):
     yield from _fix_names(t, 'j_name', '和名')
 
 
-@rule('D09', '学名の明らかな誤植を，訂正の表 (name_fixes.tsv) で直す', '種名', old='X22')
+@rule('D09', '学名の明らかな誤植を，訂正の表 (name_fixes.tsv) で直す', 3, old='X22')
 def fix_s_name(t, param):
     yield from _fix_names(t, 's_name', '学名')
 
 
-@rule('D10', '学名と和名の属が合わない行は，和名を優先してチェックリストの学名にする', '種名', old='和名優先')
+@rule('D10', '学名と和名の属が合わない行は，和名を優先してチェックリストの学名にする', 3, old='和名優先')
 def prefer_ja_name(t, param):
     """param が species なら，属は同じで種 (先頭の 2 語) が合わない行も直す (既定は属が合わない行だけ)．
     照合の結果が ok・alias の和名だけ (似た名・あいまいな名は直さない)"""
@@ -117,3 +122,26 @@ def prefer_ja_name(t, param):
             other_species = not other_genus and binomial(s) != binomial(latin)
             if other_genus or (also_species and other_species):
                 yield Change(kind, d['_row'], '@s_name', latin, f'学名の印字は「{s}」．和名を優先し，チェックリストの学名にした')
+
+
+
+def _fix_place(t):
+    """訂正の表 name_fixes.tsv の field=place の行で，注記の調査地の値の中の地名を直す (印字 → 正しい名)"""
+    fixes = {raw: new for (field, raw), new in name_fixes(t).items() if field == 'place'}
+    if not fixes:
+        return
+    for d in t.dicts('notes'):
+        if not d.get('item_ja', '').startswith('調査地'):
+            continue
+        v = d.get('value', '')
+        new = v
+        for raw in sorted(fixes, key=len, reverse=True):   # 長い地名を先に
+            if raw in new:
+                new = new.replace(raw, fixes[raw])
+        if new != v:
+            yield Change('notes', d['_row'], '@value', new, f'地名の印字は「{v}」．誤植の訂正の表 (name_fixes.tsv の place) で直した')
+
+
+@rule('D30', '注記の調査地の地名の誤植を，訂正の表 (name_fixes.tsv の field=place) で直す', 3, old='X2・X21・X54')
+def fix_place(t, param):
+    yield from _fix_place(t)
