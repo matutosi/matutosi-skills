@@ -214,5 +214,51 @@ def rows_tsv(path):
         return list(csv.DictReader(f, delimiter="\t"))
 
 
+class RestoreTest(unittest.TestCase):
+    def test_classify_and_apply(self):
+        """note の「印字は X」から，決定の決まりで直したセルだけを印字に戻す．読み方の決まり・対象外は戻さない"""
+        import restore
+        d = make([HEAD3, ["調査年月日", "Datum", "", "'78 8 1", "'79 5 2", "-", "1: 年の印字は '70．出典の年に合わせて 1978 とした (規則 X34)"],
+                  ["調査地 (県名)", "Ort (Signal d. Präf.)", "", "K", "O", "Ka",
+                   "1: 県名の印字は Ka．調査地は熊本県なので K に直した (規則 X1); 2: 県名の印字は 0．O とした (規則 X44)"]],
+                 [BODY3,
+                  ["sp", "", "", "Laurocerasus zippeliana", "バクチノキ", "B", "II", "1(+)", "+",
+                   "学名の印字は「Prunus zippeliana」．和名を優先し，チェックリストの学名に修正した; "
+                   "1: 印字は III．10 階級の常在度を 5 階級に直して II とした (規則 X57); "
+                   "2: 印字は I(+)．算用数字の列に混じるローマ数字なので 1(+) とした (規則 X8 (i)); "
+                   "3: 印字は +． (+ のあとに点)．+ とした (規則 X48)"],
+                  ["sp", "", "", "Quercus glauca", "アラカシ", "B", "+", "・", "・",
+                   "階層の印字は B2 だが表頭の高木層は 1 つ (B) だけなので B に直した (規則 X24)"]],
+                 once=[["5", "A a", "エー", "K", "+", "印字は in 4．見出しのずれとみて地点 4 から 5 へ移した (規則 X35)"],
+                       ["2", "B b", "ビー", "K", "+", "階層の印字なし (+ だけ)．草本なので K とした (規則 X51)"]],
+                 notes=[["1", "調査地", "Lage", "蒲江町", "", "Kamae-cho 浦江町", "ok",
+                         "和文の印字は 浦江町．ローマ字に合わせて蒲江町に直した (規則 X2)"],
+                        ["2", "出現種数の印字", "Artenzahl", "", "", "18", "check", "印字ミスか? 読み直しても読んだ種は 14 (差 -4)"]])
+        found = restore.scan(d)
+        got = {(f.kind, f.row, f.col): (f.status, f.raw) for _, f in found}
+        self.assertEqual(got[("body", 1, "@s_name")], ("戻せる", "Prunus zippeliana"))
+        self.assertEqual(got[("body", 1, "1")], ("戻せる", "III"))
+        self.assertEqual(got[("body", 1, "2")], ("戻せる", "I(+)"))           # 括弧を含む値を途中で切らない
+        self.assertEqual(got[("body", 1, "3")][0], "読み方")                  # X48 は読み方の決まり (戻さない)
+        self.assertEqual(got[("body", 2, "@layer")], ("戻せる", "B2"))
+        self.assertEqual(got[("header", 1, "1")], ("戻せる", "'70 8 1"))      # 年だけを戻す
+        self.assertEqual(got[("header", 2, "1")], ("戻せる", "Ka"))
+        self.assertEqual(got[("header", 2, "2")], ("戻せる", "0"))
+        self.assertEqual(got[("once", 1, "@plot")], ("戻せる", "4"))
+        self.assertEqual(got[("once", 2, "@layer")], ("戻せる", ""))
+        self.assertEqual(got[("notes", 1, "@value")][0], "個別に見る")         # 地名の一部の直しは機械で戻さない
+        self.assertNotIn(("notes", 2, "@value"), got)                         # 出現種数の食い違いは直しではない
+        out = os.path.join(d, "restored")
+        rc, log = run(restore.main, [d, "--out", out])
+        self.assertEqual(rc, 0, log)
+        t = common.Table(os.path.join(out, "transcripts", "Tab.001"))
+        self.assertEqual((t.get("body", 1, "@s_name"), t.get("body", 1, "1"), t.get("body", 1, "2"), t.get("body", 1, "3")),
+                         ("Prunus zippeliana", "III", "I(+)", "+"))
+        self.assertEqual((t.get("header", 2, "1"), t.get("header", 2, "2"), t.get("once", 1, "@plot")), ("Ka", "0", "4"))
+        src = common.Table(os.path.join(d, "transcripts", "Tab.001"))
+        self.assertEqual(src.get("body", 1, "1"), "II")                       # 元の置き場は触らない
+        self.assertEqual(len(rows_tsv(os.path.join(out, "restore_log.tsv"))), 9)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
