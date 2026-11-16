@@ -9,6 +9,7 @@
 - 備考には「学名の印字は「X」．和名を優先し，チェックリストの学名に修正した」と残す (接頭辞なし = その行の全セル)．
 - 直す前の転記を `review_backup_<日時>/` に写す．`--skip` の和名は直さない (階層や本文から和名のほうが誤りと
   判断できる行は，ここから外して手で直し，備考にその理由を書く)．
+- note に「学名はユーザ確認」か「学名を確定」がある行は直さない (ユーザが学名を決めた行．0.5.43．九州 Tab.076 イワガラミ)．
 - 直したあとは `to_csv.py` と `check_species.py` を流す．
 """
 import argparse
@@ -19,6 +20,8 @@ import io
 import os
 import shutil
 import sys
+
+KEEP_NAME = ('学名はユーザ確認', '学名を確定')     # この語が note にある行の学名は直さない
 
 
 def rd(p):
@@ -64,7 +67,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     tg = targets(a.dir, set(a.status.split(',')), {x for x in a.skip.split(',') if x}, a.genus_only)
     bk = os.path.join(a.dir, 'review_backup_' + datetime.datetime.now().strftime('%Y%m%d_%H%M') + '_name')
-    total = 0
+    total = kept = 0
     for p in sorted(glob.glob(os.path.join(a.dir, 'transcripts', 'Tab.*', '*.tsv'))):
         base = os.path.basename(p)
         if base not in ('body.tsv', 'once.tsv'):
@@ -81,6 +84,9 @@ def main(argv=None):
                 continue
             if len(r) <= ni:
                 r += [''] * (ni + 1 - len(r))
+            if any(k in r[ni] for k in KEEP_NAME):
+                kept += 1
+                continue
             msg = f'学名の印字は「{r[si].strip()}」．和名を優先し，チェックリストの学名に修正した'
             r[ni] = (r[ni] + ';' if r[ni] else '') + msg
             r[si] = new
@@ -91,7 +97,7 @@ def main(argv=None):
             shutil.copy2(p, os.path.join(d, base))
             wr(p, rows, crlf)
         total += n
-    print(f'対象の (学名, 和名) {len(tg)} 組，直す行 {total}' + (f'．写し: {bk}' if a.apply and total else '．(書いていない: --apply で書く)'))
+    print(f'対象の (学名, 和名) {len(tg)} 組，直す行 {total}' + (f'・学名を確定した行 {kept} は直さない' if kept else '') + (f'．写し: {bk}' if a.apply and total else '．(書いていない: --apply で書く)'))
     return 0
 
 
