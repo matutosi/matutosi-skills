@@ -50,24 +50,57 @@ def species_sets(t):
     return body, once, want
 
 
+def shift_candidates(body, once, want, max_len=15):
+    """1 回出現の段落 s〜e を d (±1) 地点ずらすと，関わる地点の種数がすべて印字と合い，今より合う地点が 2 つ以上増える組を
+    すべて返す [(s, e, d, 合う地点, 増える数)]．今のスキルの check.py の heading_shifts と同じ条件だが，同じ向きの候補を
+    1 つに絞らない (絞ると，離れた別のずれが捨てられる．九州 Tab.011 の in 17〜19 が in 40 に負けて見送られた)"""
+    plots = sorted(once)
+    if not plots:
+        return []
+
+    def n_ok(q, src):
+        return len(body.get(q, set()) | src.get(q, set())) == want[q]
+    out = []
+    lo, hi = plots[0], plots[-1]
+    for d in (-1, 1):
+        for s in range(lo, hi + 1):
+            for e in range(s, min(hi, s + max_len - 1) + 1):
+                if s not in once or e not in once:
+                    continue
+                moved = {q: v for q, v in once.items() if not s <= q <= e}
+                for q in range(s, e + 1):
+                    if q in once:
+                        moved[q + d] = moved.get(q + d, set()) | once[q]
+                touched = set(range(s, e + 1)) | set(range(s + d, e + d + 1))
+                if any(q not in want and moved.get(q) for q in touched):
+                    continue
+                checked = [q for q in touched if q in want]
+                if not checked or not all(n_ok(q, moved) for q in checked):
+                    continue
+                gain = sum(1 for q in checked if not n_ok(q, once))
+                if gain >= 2:
+                    out.append((s, e, d, tuple(sorted(checked)), gain))
+    return out
+
+
 @rule('D11', '1 回出現の見出しのずれ: 1 地点ずらすと関わる地点の出現種数がすべて印字と合うときだけ移す', '1 回出現', old='X35')
 def heading_shift(t, param):
-    """1 つ移しては数え直し，次のずれを探す (今の手順と同じ)．前後どちらへずらしても合う (範囲の重なる 2 つの候補が出る)
-    ときは，どちらとも決められないので移さない．同じ行は 2 回動かさない"""
+    """1 つ移しては数え直し，次のずれを探す (今の手順と同じ)．候補はすべて見て，前後どちらへずらしても合う (関わる地点の
+    重なる逆向きの候補がある) 候補だけを見送る．離れた別のずれは別々に移す (2026-11-16 ユーザ決定 1a)．同じ行は 2 回動かさない"""
     work = t.copy()
     moved = {}                                             # 行番号 -> (印字の地点, 理由)
     for _ in range(20):
         body, once, want = species_sets(work)
         if not once or len(want) < 2:
             break
-        cands = old_check.heading_shifts(body, once, want)
-        if len(cands) == 2 and not (cands[0][1] < cands[1][0] or cands[1][1] < cands[0][0]):
-            break                                          # 前後どちらでも合う: 決めない (確認に出す対象)
+        cands = shift_candidates(body, once, want)
+        touched = {c: set(range(c[0], c[1] + 1)) | set(range(c[0] + c[2], c[1] + c[2] + 1)) for c in cands}
+        cands = [c for c in cands if not any(c2[2] != c[2] and touched[c] & touched[c2] for c2 in cands)]   # 前後どちらでも合う
         cands = [c for c in cands if not any(row['_row'] in moved and c[0] <= int(row['plot']) <= c[1]
                                              for row in work.dicts('once') if row.get('plot', '').strip().isdigit())]
         if not cands:
             break
-        s, e, d, ok = max(cands, key=lambda c: (len(c[3]), -(c[1] - c[0])))
+        s, e, d, ok, _ = max(cands, key=lambda c: (c[4], len(c[3]), -(c[1] - c[0])))
         for row in work.dicts('once'):
             p = row.get('plot', '').strip()
             if p.isdigit() and s <= int(p) <= e:

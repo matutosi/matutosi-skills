@@ -41,10 +41,13 @@ _WOODY = {}
 
 
 def woody_names(t):
-    """木本と分かる種: 同じ置き場のどこかの表で，高木層・低木層 (B・B1・B2・S など) に出ている種の和名と学名 (先頭 2 語)．
-    置き場ごとに 1 回だけ数える"""
+    """木本と分かる種: 同じ置き場のどこかの表で，高木層・低木層 (B・B1・B2・S など) の値がある種の和名と学名 (先頭 2 語)．
+    `S;K` のような複数の階層の行は，セルごとに下線の規則 (今のスキルの to_csv.cell_layer) で決まる階層を見て，
+    木本の層に決まる値があるときだけ数える．どちらの層か決まらない値は手がかりにしない
+    (2026-11-16 ユーザ決定 4a．九州 Tab.150 のノササゲが S;K の行の決まらない値だけで木本とされていた．
+    行ごと外すと，S;K の行で S に決まるアリドウシまで外れた)．置き場ごとに 1 回だけ数える"""
     import os
-    from common import Table, table_dirs
+    from common import Table, table_dirs, to_csv
     root = os.path.dirname(os.path.dirname(os.path.abspath(t.dir)))
     if root not in _WOODY:
         names = set()
@@ -53,6 +56,9 @@ def woody_names(t):
             for kind in ('body', 'once'):
                 if 'layer' not in x.head[kind]:
                     continue
+                plots = x.plots('body') if kind == 'body' else []
+                to_csv.PLOTS_SEEN.clear()
+                to_csv.PLOTS_SEEN.update(plots)
                 s_prev = j_prev = ''
                 for d in x.dicts(kind):
                     if d.get('kind') == 'group':
@@ -61,8 +67,18 @@ def woody_names(t):
                     if kind == 'body' and not s and not j:    # 階層ごとの続きの行は上の種
                         s, j = s_prev, j_prev
                     s_prev, j_prev = s, j
-                    if set(d.get('layer', '').replace(' ', '').split(';')) & WOODY_LAYERS:
+                    layers = d.get('layer', '').replace(' ', '').split(';')
+                    if len(layers) == 1:
+                        woody = layers[0] in WOODY_LAYERS
+                    elif kind == 'body':                      # 複数の階層の行: 値ごとに決まる階層を見る
+                        row = {k: v for k, v in d.items() if k != '_row'}
+                        woody = any(to_csv.cell_layer(row, p) in WOODY_LAYERS for p in plots
+                                    if (d.get(p) or '').strip() not in to_csv.ABSENT)
+                    else:
+                        woody = False
+                    if woody:
                         names.update(n for n in (j, ' '.join(s.lower().split()[:2])) if n)
+                to_csv.PLOTS_SEEN.clear()
         _WOODY[root] = names
     return _WOODY[root]
 

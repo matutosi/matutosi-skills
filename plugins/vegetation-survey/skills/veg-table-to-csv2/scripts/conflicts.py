@@ -12,6 +12,8 @@
   S  表頭・注記の check (日付として読めない・調査区数の疑い など)
   J  引き継ぎの判断が残るセル (今のスキルの規則で直したが，まだ関数になっていないもの)
   U  前回のユーザ確認があったセル (決定には引き継いでいない．規則を決めるときの例)
+  Y  調査年が出典の年より後 (調査より前に発行されたことになる)．転記は直さず status=check にする
+     (出典の翌年の 1-3 月は年度の報告書とみて出さない．今のスキルの規則 X55 と同じ．2026-11-16 ユーザ決定)
 """
 import argparse
 import collections
@@ -22,13 +24,45 @@ from common import read_side, read_tsv_raw
 
 KINDS = collections.OrderedDict([
     ('N', '出現種数が印字と合わない'), ('V', '値が読めない・自信なし'), ('L', '階層が決まらない'),
-    ('S', '表頭・注記の check'), ('J', '引き継ぎの判断が残る'), ('U', '前回のユーザ確認')])
+    ('S', '表頭・注記の check'), ('J', '引き継ぎの判断が残る'), ('U', '前回のユーザ確認'),
+    ('Y', '調査年が出典の年より後')])
+CHECK_KINDS = {'Y'}                                       # 出力の行の status を check にする区分 (to_csv.py の check と同じ扱い)
+
+
+def later_than_source(t):
+    """調査年が出典の年より後のセル [(行番号, 地点, 調査年, 出典の年)]．出典の年が 1 つに決まる地点だけ．
+    出典の翌年の 1-3 月は年度の報告書とみて出さない (今のスキルの規則 X55)"""
+    from rules.header import YEAR4, YEAR_HEAD, plot_notes
+    src = plot_notes(t, '出典')
+    out = []
+    for d in t.dicts('header'):
+        key = d.get('item_ja', '') + ' ' + d.get('item_de', '').lower()
+        if not ('年月日' in key or 'datum' in key):
+            continue
+        for p in t.plots('header'):
+            v = (d.get(p) or '').strip()
+            m = YEAR_HEAD.match(v)
+            years = {int(y) for text in src.get(p, []) for y in YEAR4.findall(text)}
+            if not m or len(years) != 1:
+                continue
+            y = int(m.group(2))
+            y = y + 1900 if y < 100 else y
+            s = next(iter(years))
+            if y <= s:
+                continue
+            rest = v[m.end():].split()
+            if y - s == 1 and rest and rest[0].isdigit() and 1 <= int(rest[0]) <= 3:
+                continue
+            out.append((d['_row'], p, y, s))
+    return out
 
 
 def collect(t, sites, comp, trace, old_user):
     """1 つの表の矛盾を [cell_id, 区分, 説明] で返す．t は決定の表，sites・comp はその表の出力の行"""
     from rules.once import species_sets
     out = []
+    for row, p, y, s in later_than_source(t):
+        out.append([t.cid('header', row, p), 'Y', f'調査年 {y} が出典の年 {s} より後'])
     body, once, want = species_sets(t)
     n = t.n_plots()
     row = next((d['_row'] for d in t.dicts('header')
@@ -44,8 +78,9 @@ def collect(t, sites, comp, trace, old_user):
             out.append([r['cell_id'], 'V', r.get('note_read', '')[:120]])
         elif r.get('status') == 'multi':
             out.append([r['cell_id'], 'L', f"階層 {r.get('layer', '')}"])
+    later = {c[0] for c in out if c[1] == 'Y'}
     for r in sites:
-        if r.get('status') == 'check':
+        if r.get('status') == 'check' and r['cell_id'] not in later:
             out.append([r['cell_id'], 'S', f"{r.get('item_ja', '')}: {r.get('note_read', '')[:100]}"])
     for key, ids in sorted(trace.judge.items()):
         left = [i for i in ids if i.startswith('L:')]
@@ -67,13 +102,15 @@ def by_cell(conf):
 
 
 def fill(rows_out, conf):
-    """出力の行の note_conflict に区分の記号を入れる"""
+    """出力の行の note_conflict に区分の記号を入れる．要確認の区分 (CHECK_KINDS) の行は status を check にする"""
     cells, rows = by_cell(conf)
     for r in rows_out:
         cid = r.get('cell_id', '')
         kinds = list(cells.get(cid, [])) + list(rows.get(cid.rsplit('/', 1)[0], []))
         if kinds:
             r['note_conflict'] = ';'.join(dict.fromkeys(kinds))
+            if CHECK_KINDS & set(kinds) and r.get('status') == 'ok':
+                r['status'] = 'check'
 
 
 def main(argv=None):

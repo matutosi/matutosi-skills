@@ -720,5 +720,67 @@ class AnsweredRulesTest(unittest.TestCase):
         self.assertEqual(comp[("イー", "2", "once")]["note_judge"], "")
 
 
+class LeftSevenTest(unittest.TestCase):
+    """九州の残る引き継ぎの判断 7 セルから直した所 (2026-11-16 ユーザ決定 1a・4a)"""
+
+    def _comp(self, d):
+        from rules import layer, names
+        layer._WOODY.clear()
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        return {(r["j_name"], r["source"]): r for r in rows(os.path.join(d, "composition.csv"))}
+
+    def test_separate_shifts(self):
+        """離れた 2 つのずれ: 前後どちらでも合うずれ (地点 7) は見送り，別の所のずれ (地点 2・3) は移す (1a)"""
+        head = ["item_ja", "item_de", "unit"] + [str(i) for i in range(1, 10)] + ["note"]
+        body = ["kind", "group_ja", "group_de", "s_name", "j_name", "layer"] + [str(i) for i in range(1, 10)] + ["note"]
+        d = make([head, ["出現種数", "Artenzahl", ""] + ["2", "2", "1", "1", "1", "2", "1", "2", "1"] + [""]],
+                 [body, ["sp", "", "", "Aa a", "エー", "K"] + ["+"] * 9 + [""]],
+                 once=[["2", "Bb b", "ビー", "K", "+", ""], ["3", "Cc c", "シー", "K", "+", ""], ["7", "Dd d", "ディー", "K", "+", ""]])
+        comp = self._comp(d)
+        self.assertEqual((comp[("ビー", "once")]["plot"], comp[("ビー", "once")]["note_judge"]), ("1", "D11"))
+        self.assertEqual((comp[("シー", "once")]["plot"], comp[("シー", "once")]["note_judge"]), ("2", "D11"))
+        self.assertEqual((comp[("ディー", "once")]["plot"], comp[("ディー", "once")]["note_judge"]), ("7", ""))
+
+    def test_woody_from_decided_cells(self):
+        """木本の判定: S;K の行は，下線の規則で S に決まる値があるときだけ木本の手がかりにする (4a)"""
+        body = [BODY3,
+                ["sp", "", "", "Aa a", "シュボク", "S;K", "+", "・", "・", "印字は S,K (S に下線); 1: 下線"],
+                ["sp", "", "", "Bb b", "ツルクサ", "S;K", "+", "+", "・", "印字は S,K"],
+                ["sp", "", "", "Cc c", "ソウホン", "K", "+", "・", "・", ""]]
+        once = [["2", "Aa a", "シュボク", "", "+", ""], ["2", "Bb b", "ツルクサ", "", "+", ""], ["3", "Dd d", "ディー", "K", "+", ""],
+                ["3", "Ee e", "イー", "K", "+", ""]]
+        comp = self._comp(make([HEAD3], body, once=once))
+        self.assertEqual(comp[("シュボク", "once")]["layer"], "")              # S に決まる値がある: 木本
+        self.assertEqual((comp[("ツルクサ", "once")]["layer"], comp[("ツルクサ", "once")]["note_judge"]), ("K", "D16"))
+
+
+class LaterThanSourceTest(unittest.TestCase):
+    def test_conflict_y(self):
+        """調査年が出典の年より後: 転記は直さず，矛盾 Y・status=check にする．翌年の 1-3 月は出さない (2026-11-16 ユーザ決定)"""
+        head = ["item_ja", "item_de", "unit", "1", "2", "3", "4", "note"]
+        body = ["kind", "group_ja", "group_de", "s_name", "j_name", "layer", "1", "2", "3", "4", "note"]
+        d = make([head, ["調査年月日", "Datum d. Aufn.", "", "'79 7 24", "'79 2 10", "'76 5 1", "'70 8 -", ""]],
+                 [body, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", "+", ""]],
+                 notes=[["1-4", "出典", "Nachweis", "熊本県 1978", "", "Präf. Kumamoto 1978", "ok", ""]])
+        write(os.path.join(d, "rule_settings.tsv"), [["rule", "use", "param", "note"], ["D24", "no", "", "不採用"]])
+        run(freeze.main, [d])
+        rc, out = run(decide.main, [d])
+        self.assertEqual(rc, 0, out)
+        s = {r["plot"]: r for r in rows(os.path.join(d, "sites.csv")) if r["item_ja"] == "調査年月日"}
+        self.assertEqual((s["1"]["value"], s["1"]["status"], s["1"]["note_conflict"], s["1"]["note_judge"]), ("1979-07-24", "check", "Y", ""))
+        self.assertEqual((s["2"]["status"], s["2"]["note_conflict"]), ("ok", ""))     # 翌年の 2 月: 年度の報告書
+        self.assertEqual((s["3"]["status"], s["3"]["note_conflict"]), ("ok", ""))     # 出典より前
+        self.assertEqual((s["4"]["value"], s["4"]["note_conflict"]), ("1970-08", ""))
+        kinds = [r["kind"] for r in rows_tsv(os.path.join(d, "conflicts.tsv"))]
+        self.assertEqual(kinds.count("Y"), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
