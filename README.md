@@ -16,6 +16,7 @@ Claude Code のプラグインのマーケットプレイスです．
 | [jstage-xml](#jstage-xml) | `pdf-to-jstage-xml` | 学会誌の論文 PDF から J-STAGE の全文 XML を作る |
 | [vegetation-survey](#vegetation-survey) | `veg-sheet-to-csv` | 植生調査票を読み取って CSV にする (読み取りはブラウザで画像と見比べて直せる) |
 | | `veg-table-to-csv` | 組成表 (ページ内の小さい表・折り込み) を AI が読み，地点情報と組成の CSV にする |
+| | `veg-table-to-csv2` | (作りかけ) 組成表の転記を印字のまま固定し，規則で決定の CSV を作り直す．どの規則でどう直したかを列に残す |
 
 A Claude Code plugin marketplace with skills for Japanese manuscripts (Markdown; proof marks can also be applied to Word files as tracked changes), for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, and for turning vegetation survey sheets into CSV.
 
