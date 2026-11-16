@@ -437,7 +437,7 @@ class ReviewHtmlTest(unittest.TestCase):
 
         def width(sp):
             return Image.open(io.BytesIO(base64.b64decode(review_html.make_image(d, sp)))).width
-        sp = {"page": "p.png", "crop": [500, 200, 700, 300]}
+        sp = {"page": "p.png", "crop": [500, 200, 700, 300], "trim_gap": False}   # 白紙なので空白を詰めない
         self.assertEqual(width(dict(sp, layer_x=[300, 360])), width(sp) + 60 + 8)   # 8 は境の余白
         self.assertEqual(width(dict(sp, layer_x=[520, 560])), width(sp))
         # 種名の列と続けて貼る (重なるぶんは除く)
@@ -453,6 +453,38 @@ class ReviewHtmlTest(unittest.TestCase):
         self.assertEqual(it[0]["images"][0]["layer_x"], [300, 360])
         self.assertIn("階層の列", it[0]["images"][0]["caption"])
         self.assertNotIn("layer_x", it[1]["images"][0])
+
+    def test_trim_blank_cols(self):
+        """種名と階層の列の間など，字の無い縦の帯を詰める．点ほどのごみは空白とみる (2026-11-16．九州 U16)"""
+        import base64
+        import review_html as R
+        from PIL import Image, ImageDraw
+        im = Image.new("RGB", (600, 100), "white")
+        d = ImageDraw.Draw(im)
+        d.rectangle((10, 30, 60, 70), fill="black")     # 種名
+        d.rectangle((500, 30, 540, 70), fill="black")   # 階層の字
+        d.point((300, 50), fill="black")                # ごみ
+        out = R.trim_blank_cols(im)
+        self.assertLess(out.width, 200)
+        g = out.convert("L")
+        dark = [x for x in range(out.width) if g.getpixel((x, 50)) < 128]
+        self.assertEqual(len(dark), 51 + 41)            # 字の幅はそのまま
+        self.assertEqual(R.trim_blank_cols(Image.new("RGB", (30, 10), "white")).width, 30)   # 狭い画像は変えない
+        # 種名と階層の列を貼ると，間の空白が詰まる (既定)
+        tmp = tempfile.mkdtemp()
+        page = Image.new("RGB", (1000, 300), "white")
+        ImageDraw.Draw(page).rectangle((20, 120, 80, 160), fill="black")
+        ImageDraw.Draw(page).rectangle((500, 120, 540, 160), fill="black")
+        page.save(os.path.join(tmp, "p.png"))
+        sp = {"page": "p.png", "crop": [800, 100, 900, 200], "names_x": [0, 300], "layer_x": [300, 600]}
+
+        def width(s):
+            return Image.open(io.BytesIO(base64.b64decode(R.make_image(tmp, s)))).width
+        self.assertLess(width(sp), width(dict(sp, trim_gap=False)) - 300)
+        # 1 枚の切り出しでも trim_gap: true なら詰める (印の無い画像だけ)
+        one = {"page": "p.png", "crop": [0, 100, 600, 200], "trim_gap": True}
+        self.assertLess(width(one), width(dict(one, trim_gap=False)) - 300)
+        self.assertEqual(width(dict(one, marks=[{"box": [20, 120, 80, 160]}])), width(dict(one, trim_gap=False)))
 
     def test_option_marks_and_column_box(self):
         """選択肢の頭の記号 (a: など) は外す．1 地点だけを見るのに赤枠が横に長いときは，その列にも縦の赤枠を付ける (2026-11-09)"""

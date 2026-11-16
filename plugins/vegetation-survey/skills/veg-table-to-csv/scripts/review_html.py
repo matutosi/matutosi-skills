@@ -44,6 +44,8 @@ work/ のページ名か画像のパス．置き場からの相対)．範囲を�
   切り出しが階層の列を含まないときは `"layer_x": [x0, x1]` (階層の列の左右．ページ原寸) を書くと，切り出しと同じ高さの
   階層の列が左に付く (`names_x` もあれば，その右に続けて貼る)．範囲が切り出しの中にあれば貼らない．
   user_review.tsv では任意の列 `layer_x0`・`layer_x1` に書く．
+  貼った種名と階層の帯は，間の空白 (字の無い縦の帯) を詰める (`"trim_gap": false` で止める．2026-11-16)．
+  種名から階層までを 1 枚の切り出しにした画像も，`"trim_gap": true` で間を詰める (印・cols・rows の無い画像だけ)．
 - `marks` の種類 (赤で描く):
   - `{"box": [x0, y0, x1, y1]}` 対象の語やセルを囲む枠
   - `{"underline": [x0, x1, y]}` 値を入れる位置の下線と ▼ (値が無いところを指すとき)
@@ -444,6 +446,43 @@ def layer_strip_needed(spec):
     return lx[0] < spec['crop'][0]
 
 
+GAP_MIN = 40      # これより広い空白の列は詰める (ページ原寸の px)
+GAP_KEEP = 24     # 詰めたあとに残す幅
+
+
+def trim_blank_cols(im, gap_min=GAP_MIN, keep=GAP_KEEP):
+    """画像の中の，字の無い縦の帯 (空白の列が gap_min px 以上続くところ) を keep px に詰める．
+    種名の列と階層の列の間の空きを除き，名前と階層の字を近づける (2026-11-16．九州 U16 のユーザ指示
+    「間が空白のときは，その部分を削除して，切り詰めて」)．点ほどのごみ (列に 2 px 以下) は空白とみる．
+    左右の端の空白も keep まで詰める"""
+    g = im.convert('L').point(lambda v: 255 if v < 128 else 0)       # 字 = 255
+    prof = list(g.resize((g.width, 1), Image.BOX).getdata())         # 列ごとの字の割合 (0〜255)
+    limit = 255 * 2.5 / max(1, g.height)
+    blank = [v <= limit for v in prof]
+    keepcols, i, n = [], 0, len(blank)
+    while i < n:
+        j = i
+        while j < n and blank[j] == blank[i]:
+            j += 1
+        if blank[i] and j - i >= gap_min:
+            if i == 0 or j == n:                        # 端の空白
+                keepcols.append((j - keep, j) if i == 0 else (i, i + keep))
+            else:
+                keepcols.append((i, i + keep // 2))
+                keepcols.append((j - keep // 2, j))
+        else:
+            keepcols.append((i, j))
+        i = j
+    if sum(b - a for a, b in keepcols) >= im.width:
+        return im
+    out = Image.new('RGB', (sum(b - a for a, b in keepcols), im.height), 'white')
+    x = 0
+    for a, b in keepcols:
+        out.paste(im.crop((a, 0, b, im.height)), (x, 0))
+        x += b - a
+    return out
+
+
 def add_strips(base, spec, canvas, dx, dy):
     """同じページから，種名の列 (names_x の範囲．切り出しと同じ高さ) と階層の列 (layer_x) を左に，表頭の通し番号の行
     (head_y の範囲．切り出しと同じ幅) を上に貼る．座標を読まずに，何行目がどの種か・何列目がどの地点か・
@@ -465,6 +504,8 @@ def add_strips(base, spec, canvas, dx, dy):
         for p in pieces:
             left.paste(p, (x, 0))
             x += p.width
+        if spec.get('trim_gap', True):                 # 種名と階層の間の空白を詰める (印は描かないので位置はずれない)
+            left = trim_blank_cols(left)
     if spec.get('head_y'):
         hy0, hy1 = spec['head_y']
         top = page.crop((dx, hy0, dx + canvas.width, hy1)).convert('RGB')
@@ -494,6 +535,9 @@ def make_image(base, spec):
         x0, y0, x1, y1 = spec['crop'] if 'crop' in spec else (0, 0, page.width, page.height)
         im = page.crop((x0, y0, x1, y1)).convert('RGB')      # 切り出してから RGB に (全体を変換しない)
         dx, dy = x0, y0
+        if spec.get('trim_gap') is True and not (marks or spec.get('cols') or spec.get('rows') or spec.get('names_x')
+                                                   or spec.get('head_y') or layer_strip_needed(spec)):
+            im = trim_blank_cols(im)                  # 種名から階層までを 1 枚で切ったとき，間の空白を詰める (印の無い画像だけ)
     else:
         im = Image.open(os.path.join(base, spec['image'])).convert('RGB')
         dx = dy = 0
