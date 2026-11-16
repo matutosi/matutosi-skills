@@ -97,6 +97,8 @@ def classify(kind, row, part, cur):
         return Found('判断:控えから', kind, row, plot, '', 'ユーザ確認', part)
     if m and plot and kind in ('body', 'header'):
         raw = m.group(1).strip()
+        if rule == 'X44':                               # 県名の記号の 0: 書き方がいろいろ (「0 に見える字形」) でも印字は 0
+            return out('戻せる', plot, '0')
         d = DECIDED.search(text[m.end():])
         now = cur(plot)
         if d and now and d.group(1) != now and d.group(1) not in now:
@@ -148,6 +150,8 @@ def scan_list(root, found):
         val = d.get('value', '')
         if '->' not in val:
             continue
+        if re.sub(r'\s*\(.*$', '', d.get('rule', '').strip()) in READ_RULES:
+            continue                                  # 読み方の決まり (X27 の ++ など) は戻さない
         raw, new = [x.strip() for x in val.split('->', 1)]
         name = d.get('table', '').strip()
         part = f"一覧 {rid}: {val} ({d.get('rule', '')}) {d.get('note', '')}"

@@ -34,3 +34,19 @@ def single_tree_layer(t, param):
             note = d.get('note', '')
             if 'B2 に' in note:                              # 下線の対応の書き方 (B2 に下線) も合わせる
                 yield Change(kind, d['_row'], '@note', note.replace('B2 に', 'B に'), '階層の直しに合わせた')
+
+
+@rule('D16', '1 回出現で階層の印字が無い草本は K 層にする (ほかの行に階層がある表だけ)', '階層', old='X51')
+def once_herb_layer(t, param):
+    """学名が草本の一覧 (今のスキルの references/herb_species.tsv) にある種だけ．1 回出現の半分以上の行に階層がある表に限る
+    (階層を書かない表では当てない)．和名優先 (D10) のあとで当てるので，学名はチェックリストの名で引ける"""
+    from common import to_csv
+    if 'layer' not in t.head['once']:
+        return
+    rows = [d for d in t.dicts('once') if d.get('s_name', '').strip() or d.get('j_name', '').strip()]
+    with_layer = sum(1 for d in rows if d.get('layer', '').strip())
+    if not rows or with_layer * 2 < len(rows):
+        return
+    for d in rows:
+        if not d.get('layer', '').strip() and d.get('s_name', '').strip() in to_csv.HERBS:
+            yield Change('once', d['_row'], '@layer', 'K', '階層の印字なし．草本なので K とした')

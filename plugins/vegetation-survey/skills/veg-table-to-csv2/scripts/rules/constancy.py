@@ -71,3 +71,61 @@ def ten_classes(t, param):
             new = ROMAN5[k // 2] + (m.group('rest') or '') + m.group('q')
             if new != t.get('body', row, p).strip():
                 yield Change('body', row, p, new, f"印字は {m.group('r')}．10 階級の列とみて 5 階級に直した")
+
+
+ROMAN_CELL = re.compile(rf'^(?P<r>V|IV|III|II|I)(?P<rest>\(\s*{COV}(?:\s*-\s*{COV})?\s*\))?(?P<q>\??)$')
+ARABIC_ANY = re.compile(rf'^(?P<n>[1-9]\d*)(?P<rest>\(\s*{COV}(?:\s*-\s*{COV})?\s*\))?(?P<q>\??)$')
+OPEN_PAREN = re.compile(rf'^(?P<head>(?:V|IV|III|II|I|[1-9]\d*|[+r]))\((?P<a>{COV})(?:\s*-\s*(?P<b>{COV}))?(?P<q>\??)$')
+NO_DASH = re.compile(rf'^(?P<head>(?:V|IV|III|II|I|[1-9]\d*|[+r]))\((?P<a>{COV})\s+(?P<b>{COV})\)(?P<q>\??)$')
+
+
+def arabic_columns(t):
+    """算用数字 (出現地点数) で書く常在度の列: 調査区数 4 以下の列と，規則 D03 の例外の列 (算用数字が多数)"""
+    n = t.n_plots()
+    keep = to_csv.arabic_major_columns(t.dicts('body'), n)
+    return {p: n[p] for p in n if 0 < n[p] < 5 or p in keep}
+
+
+@rule('D12', '算用数字の常在度の列に混じるローマ数字を算用数字に直す (I(+) → 1(+))', '常在度の書式', old='X8 (i)')
+def roman_to_arabic(t, param):
+    cols = arabic_columns(t)
+    by_col = {}
+    for row, p, v in body_cells(t):
+        if p in cols:
+            by_col.setdefault(p, []).append((row, v.translate(to_csv.FIX)))
+    for p, items in by_col.items():
+        roman = [(row, ROMAN_CELL.match(v)) for row, v in items if ROMAN_CELL.match(v)]
+        arabic = [v for _, v in items if ARABIC_ANY.match(v)]
+        if not roman or len(arabic) < 3 * len(roman):      # ローマ数字が少数のときだけ (列の種類の読み違いでない)
+            continue
+        for row, m in roman:
+            k = ROMAN5.index(m.group('r')) + 1
+            if k <= cols[p]:
+                yield Change('body', row, p, f"{k}{m.group('rest') or ''}{m.group('q')}",
+                             f'調査区数 {cols[p]} の算用数字の列に混じるローマ数字．算用数字に直した')
+
+
+@rule('D13', '常在度の範囲の閉じ括弧の欠け・- の欠けを補う (I(+ → I(+)・III(+ 1) → III(+-1))', '常在度の書式', old='X8 (ii)')
+def range_marks(t, param):
+    for row, p, v in body_cells(t):
+        s = v.translate(to_csv.FIX)
+        m = OPEN_PAREN.match(s)
+        if m:
+            rng = m.group('a') + ('-' + m.group('b') if m.group('b') else '')
+            yield Change('body', row, p, f"{m.group('head')}({rng}){m.group('q')}", '閉じ括弧の欠けを補った')
+            continue
+        m = NO_DASH.match(s)
+        if m and ORDER[m.group('a')] < ORDER[m.group('b')]:
+            yield Change('body', row, p, f"{m.group('head')}({m.group('a')}-{m.group('b')}){m.group('q')}", '範囲の - の欠けを補った')
+
+
+@rule('D14', '出現地点数が調査区数を超える常在度を調査区数に直す (調査区数 2 の列の 3 → 2)', '常在度の書式', old='自動 (出現地点数 > 調査区数)')
+def count_over_plots(t, param):
+    cols = arabic_columns(t)
+    for row, p, v in body_cells(t):
+        if p not in cols:
+            continue
+        m = ARABIC_ANY.match(v.translate(to_csv.FIX))
+        if m and int(m.group('n')) > cols[p]:
+            yield Change('body', row, p, f"{cols[p]}{m.group('rest') or ''}{m.group('q')}",
+                         f"出現地点数 {m.group('n')} が調査区数 {cols[p]} を超える．調査区数に直した")

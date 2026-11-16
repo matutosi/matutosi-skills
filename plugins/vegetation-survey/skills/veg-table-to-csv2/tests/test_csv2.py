@@ -437,5 +437,65 @@ class OnceAndFixesTest(unittest.TestCase):
         self.assertEqual(t.get("header", 1, "1"), "400")                 # 自由な書き方のユーザ確認は機械で戻さない (控えから)
 
 
+class SmallRulesTest(unittest.TestCase):
+    def _comp(self, d):
+        run(freeze.main, [d])
+        rc, out = run(decide.main, [d])
+        self.assertEqual(rc, 0, out)
+        return {(r["j_name"], r["plot"]): r for r in rows(os.path.join(d, "composition.csv"))}
+
+    def test_constancy_formats(self):
+        """D12 (算用数字の列のローマ数字)・D13 (括弧・- の欠け)・D14 (出現地点数 > 調査区数)"""
+        body = [BODY3] + [["sp", "", "", f"Aa a{i}", f"エー{i}", "", v1, v2, "・", ""] for i, (v1, v2) in enumerate(
+            [("1(+)", "II(+)"), ("2(1)", "I(+"), ("3(+)", "III(+ 1)"), ("I(+)", "IV"), ("5(+)", "V(+-2)"), ("2", "I")])]
+        got = self._comp(make([HEAD3, ["調査区数", "Zahl d. Aufn.", "", "3", "8", "-", ""]], body))
+        self.assertEqual((got[("エー3", "1")]["constancy"], got[("エー3", "1")]["note_judge"]), ("1", "D12"))
+        self.assertEqual((got[("エー4", "1")]["constancy"], got[("エー4", "1")]["note_judge"]), ("3", "D14"))
+        self.assertEqual(got[("エー0", "1")]["note_judge"], "")
+        self.assertEqual((got[("エー1", "2")]["value_decided"], got[("エー1", "2")]["note_judge"]), ("I(+)", "D13"))
+        self.assertEqual((got[("エー2", "2")]["value_decided"], got[("エー2", "2")]["note_judge"]), ("III(+-1)", "D13"))
+        self.assertEqual(got[("エー4", "2")]["note_judge"], "")
+
+    def test_once_herb_layer(self):
+        """D16: 1 回出現で階層の無い草本は K．階層を書かない表 (半分以上の行に階層が無い) では当てない"""
+        herb = sorted(common.to_csv.HERBS)[0]
+        once = [["1", herb, "ソウホン", "", "+", ""], ["1", "Bb b", "ビー", "K", "+", ""], ["2", "Cc c", "シー", "S", "+", ""]]
+        from rules import names
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            got = self._comp(make([HEAD3], [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "・", ""]], once=once))
+            self.assertEqual((got[("ソウホン", "1")]["layer"], got[("ソウホン", "1")]["note_judge"]), ("K", "D16"))
+            once2 = [["1", herb, "ソウホン", "", "+", ""], ["1", "Bb b", "ビー", "", "+", ""], ["2", "Cc c", "シー", "S", "+", ""]]
+            got = self._comp(make([HEAD3], [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "・", ""]], once=once2))
+            self.assertEqual(got[("ソウホン", "1")]["note_judge"], "")
+        finally:
+            names.lookup = keep
+
+    def test_header_rules(self):
+        """D17 (同左)・D18 (横棒の重なり．日付と調査番号は除く)・D19 (小数点の落ち)"""
+        d = make([HEAD3,
+                  ["調査地", "Ort", "", "阿蘇", "同左", "左同", ""],
+                  ["調査番号", "Feld-Nr.", "", "- -", "A 1", "- -", ""],
+                  ["調査年月日", "Datum", "", "- - -", "'80 5 1", "- -", ""],
+                  ["海抜高度", "Höhe ü. Meer", "m", "- -", "300", "-", ""],
+                  ["高木層の高さ", "Höhe d. Baumschicht", "m", "8", "6", "-", ""],
+                  ["低木層の高さ", "Höhe d. Strauchschicht", "m", "15", "3", "25", ""],
+                  ["草本層の高さ", "Höhe d. Krautschicht", "m", "0.5", "30", "0.3", ""]],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", ""]])
+        run(freeze.main, [d])
+        run(decide.main, [d])
+        s = {(r["item_ja"], r["plot"]): (r["value_raw"], r["note_judge"]) for r in rows(os.path.join(d, "sites.csv"))}
+        v = {(r["item_ja"], r["plot"]): r["value"] for r in rows(os.path.join(d, "sites.csv"))}
+        self.assertEqual((v[("調査地", "2")], v[("調査地", "3")]), ("阿蘇", "阿蘇"))
+        self.assertEqual(s[("調査地", "3")], ("左同", "D17"))
+        self.assertEqual((v[("海抜高度", "1")], s[("海抜高度", "1")][1]), ("-", "D18"))
+        self.assertEqual(s[("調査番号", "1")][1], "")                       # 調査番号・日付の - - は直さない
+        self.assertEqual(s[("調査年月日", "1")][1], "")
+        self.assertEqual((v[("低木層の高さ", "1")], s[("低木層の高さ", "1")][1]), ("1.5", "D19"))
+        self.assertEqual(s[("低木層の高さ", "3")][1], "")                    # 上の層の値が無い地点は直さない
+        self.assertEqual((v[("草本層の高さ", "2")], s[("草本層の高さ", "2")][1]), ("3.0", "D19"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
