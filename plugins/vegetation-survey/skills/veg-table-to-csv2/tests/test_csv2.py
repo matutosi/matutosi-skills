@@ -260,5 +260,60 @@ class RestoreTest(unittest.TestCase):
         self.assertEqual(len(rows_tsv(os.path.join(out, "restore_log.tsv"))), 9)
 
 
+class MoreRulesTest(unittest.TestCase):
+    def test_single_tree_layer(self):
+        """D05: 表頭の高木層が 1 つの表の B2 → B．高木層が 2 つの表・高木層の行が無い表では当てない"""
+        body = [BODY3, ["sp", "", "", "A a", "エー", "B2", "+", "・", "・", ""],
+                ["sp", "", "", "B b", "ビー", "B2;S", "1・1", "+", "・", "印字は B2,S (B2 に下線); 1: 下線"]]
+        one = make([HEAD3, ["高木層の高さ", "Höhe d. Baumschicht", "m", "8", "6", "-", ""]], body)
+        two = make([HEAD3, ["高木第1層の高さ", "Höhe d. Baumschicht-1", "m", "18", "16", "-", ""],
+                    ["高木第2層の高さ", "Höhe d. Baumschicht-2", "m", "8", "6", "-", ""]], body)
+        none = make([HEAD3, ["海抜高度", "Höhe ü. Meer", "m", "8", "6", "-", ""]], body)
+        got = {}
+        for name, d in (("one", one), ("two", two), ("none", none)):
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+            self.assertEqual(rc, 0, out)
+            got[name] = {(r["j_name"], r["plot"]): (r["layer"], r["note_judge"]) for r in rows(os.path.join(d, "composition.csv"))}
+        self.assertEqual(got["one"][("エー", "1")], ("B", "D05"))
+        self.assertEqual(got["one"][("ビー", "1")][0], "B")              # 下線の値は B
+        self.assertEqual(got["one"][("ビー", "2")][0], "S")              # 下線の無い値は S
+        self.assertEqual(got["two"][("エー", "1")], ("B2", ""))
+        self.assertEqual(got["none"][("エー", "1")], ("B2", ""))
+
+    def test_aspect(self):
+        """D06: 方位の字の重なり・逆順・3 字の順・逆向き・F"""
+        from rules import site
+        for raw, want in (("SSS", "S"), ("SWSW", "SW"), ("NN", "N"), ("EN", "NE"), ("ES", "SE"), ("NWN", "NNW"),
+                          ("NEE", "ENE"), ("SN", "-"), ("WE", "-"), ("F", "E"), ("SF", "SE")):
+            self.assertEqual(site.fix_aspect(raw)[0], want, raw)
+        for raw in ("N", "SSW", "-", "L", "", "NSE", "5", "EEN"):
+            self.assertIsNone(site.fix_aspect(raw), raw)
+        d = make([HEAD3, ["方位", "Exposition", "", "ES", "NW", "L", ""]],
+                 [BODY3, ["sp", "", "", "A a", "エー", "", "+", "・", "・", ""]])
+        run(freeze.main, [d])
+        run(decide.main, [d])
+        asp = {r["plot"]: (r["value"], r["value_raw"], r["note_judge"]) for r in rows(os.path.join(d, "sites.csv")) if r["item_ja"] == "方位"}
+        self.assertEqual(asp["1"], ("SE", "ES", "D06"))
+        self.assertEqual(asp["2"], ("NW", "NW", ""))
+
+    def test_redundant_judgments_and_prune(self):
+        """規則と同じ結果の引き継ぎの判断 (L:) は数えて外せる．ユーザの判断 (U:) は外さない"""
+        d = make([HEAD3, ["方位", "Exposition", "", "ES", "NW", "WS", ""]],
+                 [BODY3, ["sp", "", "", "A a", "エー", "", "+", "・", "・", ""]])
+        run(freeze.main, [d])
+        write(os.path.join(d, "judgments.tsv"), [["cell_id", "value", "id", "date", "note"],
+                                                ["Tab.001/h1/1", "SE", "L:X31", "", ""],
+                                                ["Tab.001/h1/3", "SW", "U:ユーザ確認", "", ""],
+                                                ["Tab.001/h1/2", "N", "L:X1", "", "規則に無い直し"]])
+        rc, out = run(decide.main, [d, "--prune-judgments"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("判断のうち規則と同じ結果 (消せる): 2", out)
+        left = [r["cell_id"] for r in rows_tsv(os.path.join(d, "judgments.tsv"))]
+        self.assertEqual(left, ["Tab.001/h1/3", "Tab.001/h1/2"])           # L:X31 だけが外れる
+        asp = {r["plot"]: (r["value"], r["note_judge"]) for r in rows(os.path.join(d, "sites.csv")) if r["item_ja"] == "方位"}
+        self.assertEqual(asp, {"1": ("SE", "D06"), "2": ("N", "L:X1"), "3": ("SW", "D06")})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

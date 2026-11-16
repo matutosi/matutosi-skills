@@ -76,8 +76,9 @@ class Trace:
                 if k[0] == kind and k[1] == row and (k[2] == col or k[2].startswith('@'))]
 
 
-def apply_side(t, side, trace, kind_of):
-    """readings / judgments をこの表に当てる．kind_of は 'read' か 'judge'．当てた数と誤りの一覧を返す"""
+def apply_side(t, side, trace, kind_of, redundant=None):
+    """readings / judgments をこの表に当てる．kind_of は 'read' か 'judge'．当てた数と誤りの一覧を返す．
+    判断の値が，規則を当てたあとの値とすでに同じなら「規則と同じ結果の判断」として redundant に入れ，記録には足さない"""
     n, errors = 0, []
     for cid, d in side.items():
         try:
@@ -96,6 +97,10 @@ def apply_side(t, side, trace, kind_of):
         key = (kind, row, col)
         if kind_of == 'read':
             trace.read[key] = old
+        elif old == new:                                  # 規則がもう同じ値にしている (この判断は要らない)
+            if redundant is not None:
+                redundant.append([cid, new, d.get('id', ''), ';'.join(trace.judge.get(key, []))])
+            continue
         else:
             trace.judge[key].append(d.get('id', '').strip() or 'J?')
             why = d.get('note', '').strip()
@@ -207,7 +212,7 @@ def decide(root, out=None, settings_path='', soc_default='one', allow_unfrozen=F
             except ValueError as e:
                 errors.append(f'{name}: {e}')
     counts = collections.Counter()
-    sites, comp, log = [], [], []
+    sites, comp, log, redundant = [], [], [], []
     if errors:
         return sites, comp, counts, errors
     to_csv.NAMELESS.clear()
@@ -221,7 +226,7 @@ def decide(root, out=None, settings_path='', soc_default='one', allow_unfrozen=F
         errors += err
         t_read = t.copy()
         apply_rules(t, rule_list, settings, trace, counts)
-        n, err = apply_side(t, judgments, trace, 'judge')
+        n, err = apply_side(t, judgments, trace, 'judge', redundant)
         counts['個別の判断 (judgments)'] += n
         errors += err
         s, c = to_rows(t, t_read, trace, soc_default)
@@ -239,6 +244,13 @@ def decide(root, out=None, settings_path='', soc_default='one', allow_unfrozen=F
     write_csv(os.path.join(out, 'sites.csv'), SITE_COLS, sites)
     write_csv(os.path.join(out, 'composition.csv'), COMP_COLS, comp)
     common.write_tsv_raw(os.path.join(out, 'decisions.tsv'), ['cell_id', 'raw', 'decided', 'judge', 'modify'], log)
+    # 規則がもう同じ値にしている判断 (消せる)．規則を関数に移した進み具合の目安
+    common.write_tsv_raw(os.path.join(out, 'judgments_redundant.tsv'), ['cell_id', 'value', 'id', 'rule'], redundant)
+    counts['判断のうち規則と同じ結果 (消せる)'] = len(redundant)
+    left =collections.Counter(d.get('id', '') for cid, d in judgments.items()) - collections.Counter(r[2] for r in redundant)
+    for jid, n in sorted(left.items()):
+        if n:
+            counts[f'  残る判断 {jid}'] = n
     return sites, comp, counts, errors
 
 
@@ -252,6 +264,8 @@ def main(argv=None):
     ap.add_argument('--soc-default', choices=('one', 'cover'), default='one', help='群度の印字が無いときの補い方 (to_csv.py と同じ)')
     ap.add_argument('--allow-unfrozen', action='store_true', help='固定していない表があっても作る (試すとき)')
     ap.add_argument('--table', action='append', default=[], help='この表だけ (何度でも)')
+    ap.add_argument('--prune-judgments', action='store_true',
+                    help='規則と同じ結果になった引き継ぎの判断 (id が L: で始まる行) を judgments.tsv から外す')
     ap.add_argument('--list-rules', action='store_true', help='決定の決まりの一覧を出して終わる')
     ap.add_argument('--init-settings', action='store_true', help='置き場に rule_settings.tsv のひな形を書く')
     a = ap.parse_args(argv)
@@ -279,6 +293,15 @@ def main(argv=None):
     for k in sorted(counts):
         title = next((r.title for r in rule_list if r.id == k), '')
         print(f'  {k}: {counts[k]} セル' + (f'  {title}' if title else ''))
+    if a.prune_judgments:
+        out_dir = a.out or a.dir
+        gone = {r['cell_id'] for r in read_side(os.path.join(out_dir, 'judgments_redundant.tsv')).values()
+                if r.get('id', '').startswith('L:')}
+        p = os.path.join(a.dir, 'judgments.tsv')
+        h, rows, nl, trail = common.read_tsv_raw(p)
+        keep = [r for r in rows if r and r[0] not in gone]
+        common.write_tsv_raw(p, h, keep, nl, trail)
+        print(f'judgments.tsv から，規則と同じ結果の引き継ぎの判断 (L:) {len(rows) - len(keep)} 行を外した (残り {len(keep)} 行)')
     if counts.get('!重なり'):
         print(f'[注意] 1 つのセルに 2 つ以上の規則が当たった: {counts["!重なり"]} 件 (decisions.tsv の judge に番号が並ぶ)')
     return 0

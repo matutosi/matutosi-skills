@@ -76,7 +76,11 @@ def classify(kind, row, part, cur):
         return out('戻せる', '@layer', '')            # 階層の印字が無いのを規則で補ったもの: 元は空欄
     m = LAYER.search(text)
     if m and kind in ('body', 'once') and not plot:
-        return out('戻せる', '@layer', m.group(1).replace(',', ';').replace('・', ';'))
+        raw = m.group(1).replace(',', ';').replace('・', ';')
+        now = cur('@layer').split(';')
+        if rule == 'X24' and len(now) > 1 and ';' not in raw and 'B' in now:
+            raw = ';'.join(raw if x == 'B' else x for x in now)    # 複数の階層の行は，直した字 (B) だけを戻す
+        return out('戻せる', '@layer', raw)
     if PLACE.search(text) or kind == 'notes':
         return out('個別に見る', '@value' if kind == 'notes' else plot, '')
     m = YEAR.search(text)
@@ -167,10 +171,10 @@ def apply(root, out, found):
     shutil.copytree(os.path.join(root, 'transcripts'), os.path.join(out, 'transcripts'))
     by_table = collections.defaultdict(list)
     for name, f in found:
-        if f.status.endswith('戻せる') and not f.status.startswith('判断'):
+        if f.status.endswith('戻せる'):                  # ユーザ確認で直したセル (判断:戻せる) も印字に戻す
             by_table[name].append(f)
     done = skipped = 0
-    log = []
+    log, judg = [], []
     for name, items in by_table.items():
         tdir = os.path.join(out, 'transcripts', name)
         t = Table(tdir)
@@ -185,11 +189,22 @@ def apply(root, out, found):
             t.set(f.kind, f.row, f.col, f.raw)
             log.append([t.cid(f.kind, f.row, f.col), old, f.raw, f.rule, f.part])
             done += 1
+            if old != f.raw:                              # 今の決定の値を「引き継ぎの判断」として残す
+                if f.status.startswith('判断'):
+                    jid = 'U:ユーザ確認'
+                elif f.rule:
+                    jid = 'L:' + f.rule
+                else:
+                    jid = 'L:和名優先' if '和名を優先' in f.part else 'L:-'
+                judg.append([t.cid(f.kind, f.row, f.col), old, jid, '', f.part])
         for kind in KINDS:
             if t.head[kind]:
                 nl, trail = t.fmt[kind]
                 write_tsv_raw(os.path.join(tdir, kind + '.tsv'), t.head[kind], t.rows[kind], nl, trail)
     write_tsv_raw(os.path.join(out, 'restore_log.tsv'), ['cell_id', 'decided', 'raw', 'rule', 'note'], log)
+    # 引き継ぎの判断: 戻したセルの「今の決定の値」．decide.py に通すと，今の CSV と同じ決定になる．
+    # id は L:<今の規則の番号> (規則で直したもの)・U:ユーザ確認．決定の決まりを関数に移すたびに，規則と同じ結果の行を消していく
+    write_tsv_raw(os.path.join(out, 'judgments.tsv'), ['cell_id', 'value', 'id', 'date', 'note'], judg)
     return done, skipped
 
 
