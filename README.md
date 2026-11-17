@@ -16,7 +16,7 @@ Claude Code のプラグインのマーケットプレイスです．
 | [jstage-xml](#jstage-xml) | `pdf-to-jstage-xml` | 学会誌の論文 PDF から J-STAGE の全文 XML を作る |
 | [vegetation-survey](#vegetation-survey) | `veg-sheet-to-csv` | 植生調査票を読み取って CSV にする (読み取りはブラウザで画像と見比べて直せる) |
 | | `veg-table-to-csv` | 組成表 (ページ内の小さい表・折り込み) を AI が読み，地点情報と組成の CSV にする |
-| | `veg-table-to-csv2` | (作りかけ) 組成表の転記を印字のまま固定し，規則で決定の CSV を作り直す．どの規則でどう直したかを列に残す |
+| | `veg-table-to-csv2` | 組成表を印字のまま読んで転記を固定し，規則で決定の CSV を作り直す．どの規則でどう直したかを列に残す |
 | [graphical-abstract](#graphical-abstract) | `graphical-abstract` | 論文・書籍のグラフィカルアブストラクトを作る (絵は外部の画像生成ツールに回す) |
 
 A Claude Code plugin marketplace with skills for Japanese manuscripts (Markdown; proof marks can also be applied to Word files as tracked changes), for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, for turning vegetation survey sheets into CSV, and for composing graphical abstracts of papers and books.
@@ -30,7 +30,7 @@ A Claude Code plugin marketplace with skills for Japanese manuscripts (Markdown;
 | ja-manuscript | 3.9 以降 | `apply-proof-marks` と `build-index` だけが要ります (下の表) |
 | jpg-user-comment | 3.8 以降 (目安) | なし (標準ライブラリだけ．`comment_server.py` は `Pillow` があれば画像を縮小する) |
 | jstage-xml | 3.11 以降 | `pymupdf` `lxml` `pyyaml`．論文一覧の取得 (`list_articles.py toc`) には `beautifulsoup4` も |
-| vegetation-survey | `veg-sheet-to-csv` は 3.8 以降，`veg-table-to-csv` は 3.9 以降 | `veg-table-to-csv` は `Pillow`，PDF を読むときは `pymupdf`．種名の照合だけ `openpyxl`，格子の点検 (`check_grid.py`・`marks_grid.py`・`shift_check.py`) だけ `numpy` と `scipy`．`veg-sheet-to-csv` は種名の照合 (`openpyxl`) のほかは標準ライブラリだけ (`build_csv.py`・`review.py`) |
+| vegetation-survey | `veg-sheet-to-csv` は 3.8 以降，`veg-table-to-csv`・`veg-table-to-csv2` は 3.9 以降 | `veg-table-to-csv` は `Pillow`，PDF を読むときは `pymupdf`．種名の照合だけ `openpyxl`，格子の点検と下線の確認 (`check_grid.py`・`marks_grid.py`・`shift_check.py`・`ul_sheet.py`) と傾きの直し (`crop.py --deskew`) だけ `numpy` と `scipy`．`veg-table-to-csv2` の固定と決定 (`freeze.py`・`decide.py`) は標準ライブラリだけ (種名の照合に `openpyxl`)．`veg-sheet-to-csv` は種名の照合 (`openpyxl`) のほかは標準ライブラリだけ (`build_csv.py`・`review.py`) |
 | graphical-abstract | 3.8 以降 | `matplotlib` (`numpy` も入る)．PDF を読むときは `pymupdf`，JPEG の絵を使うときは `Pillow`．`make_prompts.py` は標準ライブラリだけ |
 
 <a id="install"></a>
@@ -45,6 +45,7 @@ Claude Code で次を実行してください．
 /plugin install jpg-user-comment@matutosi-skills
 /plugin install jstage-xml@matutosi-skills
 /plugin install vegetation-survey@matutosi-skills
+/plugin install graphical-abstract@matutosi-skills
 ```
 
 PowerShell などのターミナルから入れるときは，次のようにします (`/plugin` の代わりに `claude plugin` と書きます)．
@@ -55,6 +56,7 @@ claude plugin install ja-manuscript@matutosi-skills
 claude plugin install jpg-user-comment@matutosi-skills
 claude plugin install jstage-xml@matutosi-skills
 claude plugin install vegetation-survey@matutosi-skills
+claude plugin install graphical-abstract@matutosi-skills
 ```
 
 必要なプラグインだけを入れても構いません．
@@ -66,7 +68,7 @@ claude plugin install vegetation-survey@matutosi-skills
 GitHub の matutosi/matutosi-skills から ja-manuscript のスキルをインストールして
 ```
 
-プラグイン名 (`ja-manuscript`) を `jpg-user-comment`・`jstage-xml`・`vegetation-survey` に替えれば，ほかのプラグインも同じように入れられます．
+プラグイン名 (`ja-manuscript`) を `jpg-user-comment`・`jstage-xml`・`vegetation-survey`・`graphical-abstract` に替えれば，ほかのプラグインも同じように入れられます．
 
 <a id="update"></a>
 
@@ -81,6 +83,7 @@ Claude Code で次を実行し，マーケットプレイスの情報を取り�
 /plugin update jpg-user-comment@matutosi-skills
 /plugin update jstage-xml@matutosi-skills
 /plugin update vegetation-survey@matutosi-skills
+/plugin update graphical-abstract@matutosi-skills
 ```
 
 PowerShell などのターミナルから更新するときは，次のようにします．
@@ -91,6 +94,7 @@ claude plugin update ja-manuscript@matutosi-skills
 claude plugin update jpg-user-comment@matutosi-skills
 claude plugin update jstage-xml@matutosi-skills
 claude plugin update vegetation-survey@matutosi-skills
+claude plugin update graphical-abstract@matutosi-skills
 ```
 
 入れていないプラグインの行は飛ばしてください．
@@ -183,6 +187,16 @@ Only the Python standard library is required.
   推定で決めた割り当てや読めない値は，読みながら `user_review.tsv` に積み，指示が無くても確認用の HTML を用意します．
 - 表ごとに進み具合を `tables.tsv` に記録するので，途中から再開できます．
 - 実行中の気づきを `improvements.tsv` に貯め，スキルの直し方の案として示します．選んだものだけ反映します．
+
+組成表を印字のまま読み直し，規則で決定を作るスキル `veg-table-to-csv2` もあります．
+「組成表を印字のまま読み直して」「規則を変えて CSV を作り直して」のように頼むと使われます．手順は [SKILL.md](plugins/vegetation-survey/skills/veg-table-to-csv2/SKILL.md) にあります．
+
+- **転記・矛盾・決定の 3 層**に分けます．転記は印字のままの値で，固定したあとは書き換えません．決定は，転記に規則を当てた結果です．
+- 読み方の決まりは [reading.md](plugins/vegetation-survey/skills/veg-table-to-csv2/references/reading.md) にあります．読むときは値を直さず，印字のとおりに書きます．
+- 決定の規則 (D01〜D40) は，字の乱れ・書式・名前・表頭・階層・1 回出現の見出しのずれの 6 段に分かれます．一覧は [rules.md](plugins/vegetation-survey/skills/veg-table-to-csv2/references/rules.md) にあります．
+- 決定の CSV には，どの規則でどう直したかを列に残します．そのため，規則を変えても画像を読み直さずに決定だけを作り直せます．
+- 規則で決まらない箇所は，個別の判断 (`judgments.tsv`) と画像の確認 (`user_review.tsv`) に回します．
+- 画像の切り出し・照合・検算の道具は `veg-table-to-csv` のものを使います．
 
 <a id="jstage-xml"></a>
 
