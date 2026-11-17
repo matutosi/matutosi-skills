@@ -1017,5 +1017,63 @@ class FernLayerTest(unittest.TestCase):
         self.assertEqual(got["オオタニワタリ"][0], "")
 
 
+class PlotConstancyTest(unittest.TestCase):
+    """2026-11-17 ユーザ決定 4a・6a: D20 の +-2，D36 (X13) 地点の列の常在度の書き方"""
+
+    def _run(self, d):
+        from rules import s3_names as names, s5_layer as layer
+        layer._WOODY.clear()
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        return {(r["j_name"], r["plot"]): r for r in rows(os.path.join(d, "composition.csv"))}
+
+    def test_plot_column(self):
+        """地点の列の I(+)・r(1) は括弧の中の被度．+-2 は +・2"""
+        d = make([HEAD3],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "K", "I(+)", "+-2", "+", ""],
+                  ["sp", "", "", "Bb b", "ビー", "K", "+", "+", "・", ""],
+                  ["sp", "", "", "Cc c", "シー", "K", "1", "+", "・", ""]],
+                 once=[["3", "Dd d", "ディー", "K", "r(1)", ""]])
+        got = self._run(d)
+        self.assertEqual((got[("エー", "1")]["cover"], got[("エー", "1")]["constancy"], got[("エー", "1")]["note_judge"].split(";")[0]), ("+", "", "D36"))
+        self.assertEqual((got[("エー", "2")]["cover"], got[("エー", "2")]["sociability"], got[("エー", "2")]["note_judge"].split(";")[0]), ("+", "2", "D20"))
+        self.assertEqual((got[("ディー", "3")]["cover"], got[("ディー", "3")]["note_judge"].split(";")[0]), ("1", "D36"))
+
+    def test_constancy_table_kept(self):
+        """調査区数の行が無い総合常在度表 (ローマ数字が多数の列) には当てない"""
+        d = make([HEAD3],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "K", "I(+)", "II(+)", "V(1-2)", ""],
+                  ["sp", "", "", "Bb b", "ビー", "K", "III(+)", "I(+)", "II(+)", ""],
+                  ["sp", "", "", "Cc c", "シー", "K", "II(1)", "IV(+)", "I(+)", ""]])
+        got = self._run(d)
+        self.assertEqual((got[("エー", "1")]["constancy"], got[("エー", "1")]["note_judge"]), ("I", ""))
+
+
+class DayOnlyDateTest(unittest.TestCase):
+    def test_item_year_month(self):
+        """D37: 値が日だけで，年月が項目名の括弧にある調査日に年月を補う (2026-11-17 ユーザ決定 1a)"""
+        from rules import s3_names as names
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            d = make([HEAD3, ["調査日", "Datum d. Aufnahme(1988. 3)", "", "19", "24?", "-", ""]],
+                     [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        s = {r["plot"]: r for r in rows(os.path.join(d, "sites.csv")) if r["item_ja"] == "調査日"}
+        self.assertEqual((s["1"]["value"], s["1"]["note_judge"]), ("1988-03-19", "D37"))
+        self.assertEqual((s["2"]["value"], s["2"]["status"]), ("1988-03-24", "check"))
+        self.assertEqual(s["3"]["value"], "-")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

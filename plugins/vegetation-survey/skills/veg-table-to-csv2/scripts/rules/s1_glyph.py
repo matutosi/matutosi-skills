@@ -6,7 +6,8 @@ from rules import Change, rule
 from rules._lib import COV, DASHES, ORDER, body_cells, header_layers, is_height_row
 
 
-NO_DOT = re.compile(r'^(?P<c>[1-5+r])\s*(?P<s>[1-5])(?P<q>\??)$')     # 1 2 と，空白の無い 12・+2 (2026-11-17 ユーザ決定 3a)
+NO_DOT = re.compile(r'^(?P<c>[1-5+r])\s*[-−]?\s*(?P<s>[1-5])(?P<q>\??)$')
+# 1 2 と，空白の無い 12・+2 (2026-11-17 ユーザ決定 3a)，被度 - 群度の +-2 (同 4a)
 
 
 COLON = re.compile(r'^(\d+)\s*[:：]\s*(\d+)$')
@@ -47,7 +48,7 @@ def dashes(t, param):
                 yield Change('header', d['_row'], p, '-', f'印字は {" ".join(parts)} (横棒が {len(parts)} つ)．- とした')
 
 
-@rule('D20', '地点の列の「被度 空白 群度」「被度群度」は中黒の落ちとみて「被度・群度」に直す (1 2・12・+2 → 1・2．常在度の列は除く)', 1,
+@rule('D20', '地点の列の「被度 空白 群度」「被度群度」「被度-群度」は中黒の落ちとみて「被度・群度」に直す (1 2・12・+2・+-2 → 1・2．常在度の列は除く)', 1,
       old='(規則の番号なし．中黒の落ち．2026-11-04 の聞かずに直す印字の誤り)')
 def missing_dot(t, param):
     n = t.n_plots()

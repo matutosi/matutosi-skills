@@ -105,3 +105,34 @@ def count_over_plots(t, param):
         if m and int(m.group('n')) > cols[p]:
             yield Change('body', row, p, f"{cols[p]}{m.group('rest') or ''}{m.group('q')}",
                          f"出現地点数 {m.group('n')} が調査区数 {cols[p]} を超える．調査区数に直した")
+
+
+PLOT_CONST = re.compile(rf'^(?P<head>V|IV|III|II|I|[1-5]|[+r])\(\s*(?P<cov>{COV}(?:\s*-\s*{COV})?)\s*\)(?P<q>\??)$')
+
+
+@rule('D36', '地点の列にある常在度の書き方の値 (I(+)・1(+)・r(1)) は，括弧の中の被度の値とする (常在度の列は除く)', 2, old='X13')
+def plot_column_constancy(t, param):
+    """地点の列 = 調査区数が 0 (印字なし) で，値の半分以上がローマ数字で始まる列 (今の to_csv.py が常在度の列と見分ける列) ではない列．
+    調査区数の行の無い総合常在度表を壊さないため，to_csv.constancy_columns で常在度の列とされる列は当てない (2026-11-17 ユーザ決定 6a)．
+    1 回出現の値も，その地点の列が同じ条件のときだけ当てる"""
+    n = t.n_plots()
+    const, _ = to_csv.constancy_columns(t.dicts('body'), n)
+
+    def plot_col(p):
+        return n.get(p, 0) == 0 and p not in const
+    for row, p, v in body_cells(t):
+        if not plot_col(p):
+            continue
+        m = PLOT_CONST.match(v.translate(to_csv.FIX))
+        if m:
+            yield Change('body', row, p, m.group('cov').replace(' ', '') + m.group('q'),
+                         f"印字は {v}．地点の列なので括弧の中の被度の値とした")
+    for d in t.dicts('once'):
+        p = d.get('plot', '').strip()
+        if not p or not plot_col(p):
+            continue
+        v = (d.get('value') or '').strip()
+        m = PLOT_CONST.match(v.translate(to_csv.FIX))
+        if m:
+            yield Change('once', d['_row'], '@value', m.group('cov').replace(' ', '') + m.group('q'),
+                         f"印字は {v}．地点の列なので括弧の中の被度の値とした")

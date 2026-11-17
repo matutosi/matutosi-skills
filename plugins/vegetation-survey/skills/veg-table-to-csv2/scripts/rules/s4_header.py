@@ -197,3 +197,32 @@ def pref_by_place(t, param):
             new = next((s for s in cands if s in used), cands[0])    # その表で使っている記号を選ぶ (K と Ku など)
             if new != cur:
                 yield Change('header', d['_row'], p, new, f'県名の印字は {cur}．注記の調査地は{pref}なので {new} とした')
+
+
+ITEM_YM = re.compile(r'((?:19|20)\d\d)\s*[.．/年]\s*(\d{1,2})(?!\d)')
+DAY_ONLY = re.compile(r'^(\d{1,2})(\??)$')
+
+
+@rule('D37', '調査年月日の値が日だけで，年月が項目名 (の括弧) にあるときは，項目名の年月を補う (Datum (1988.3) の 19 → 1988 3 19)', 4,
+      old='(規則の番号なし．2026-11-17 ユーザ決定)')
+def day_with_item_ym(t, param):
+    """項目名 (和文と独文) から「年 . 月」を探す．値が 1-31 の日の数だけ (? つきも) のセルに当てる．
+    年だけの項目名 (Datum d. Aufn. (1982)) は今の to_csv.py が月日の値に年を補うので，ここでは当てない (沖縄 Tab.096・100)"""
+    plots = t.plots('header')
+    for d in t.dicts('header'):
+        name = d.get('item_ja', '') + ' ' + d.get('item_de', '')
+        key = name.lower()
+        if not ('年月日' in key or '月日' in key or '調査日' in key or 'datum' in key):
+            continue
+        m = ITEM_YM.search(name)
+        if not m:
+            continue
+        y, mo = m.group(1), int(m.group(2))
+        if not 1 <= mo <= 12:
+            continue
+        for p in plots:
+            v = (d.get(p) or '').strip()
+            dm = DAY_ONLY.match(v)
+            if dm and 1 <= int(dm.group(1)) <= 31:
+                yield Change('header', d['_row'], p, f'{y} {mo} {int(dm.group(1))}{dm.group(2)}',
+                             f'値の印字は日だけ ({v})．年月は項目名の {y}.{mo} を補った')
