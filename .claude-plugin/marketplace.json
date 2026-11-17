@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "matutosi-skills",
-  "description": "Claude Code skills for Japanese manuscripts, photo metadata and J-STAGE full-text XML / 日本語原稿の整形・推敲，写真のコメント，J-STAGE の全文 XML のためのスキル集",
+  "description": "Claude Code skills for Japanese manuscripts, photo metadata, J-STAGE full-text XML and graphical abstracts / 日本語原稿の整形・推敲，写真のコメント，J-STAGE の全文 XML，グラフィカルアブストラクトのためのスキル集",
   "owner": {
     "name": "Toshikazu Matsumura"
   },
@@ -25,6 +25,11 @@
       "name": "vegetation-survey",
       "source": "./plugins/vegetation-survey",
       "description": "植生調査票と組成表 (PDF・画像) を AI が読み取り，CSV にする．調査票は植生調査資料DB形式，組成表は地点情報と組成の縦持ち．"
+    },
+    {
+      "name": "graphical-abstract",
+      "source": "./plugins/graphical-abstract",
+      "description": "論文・書籍のグラフィカルアブストラクトを作る．筋を誇張せずに縮め，mm 単位の配置で組んで文字のはみ出し・重なりを点検する．絵は外部の画像生成ツールに回す．"
     }
   ]
 }

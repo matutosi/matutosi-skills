@@ -1,0 +1,48 @@
+{
+  "title": "書籍の企画書の書き方 (架空の本)",
+  "canvas": {"width_mm": 330, "height_mm": 132, "dpi": 300, "min_font_pt": 8},
+  "palette": {"accent": "#2b5d8a", "panel": "#f3f5f8", "soft": "#dce6f0"},
+  "style": {
+    "description": "friendly flat vector illustration, simple shapes, the same middle-aged researcher character in every image, short black hair, glasses, navy cardigan",
+    "palette": ["#2b5d8a", "#dce6f0", "#f3b562"],
+    "background": "plain white background, isolated subject"
+  },
+  "elements": [
+    {"type": "text", "id": "title", "x": 165, "y": 4, "ha": "center", "size": 15, "weight": "bold",
+     "text": "通る企画書は，読み手の問いに順に答えている"},
+
+    {"type": "panel", "id": "p1", "x": 4, "y": 16, "w": 84, "h": 104, "fill": "panel", "title": "読む前"},
+    {"type": "image", "id": "img_before", "parent": "p1", "x": 14, "y": 28, "w": 64, "h": 52,
+     "src": "illust/before.png",
+     "prompt": "a researcher sitting at a desk, looking puzzled at a blank sheet of paper, holding a pen"},
+    {"type": "text", "id": "t_before", "parent": "p1", "x": 46, "y": 88, "ha": "center", "size": 10,
+     "text": "本を書きたいが，\n企画書に何を書けば\nよいか分からない"},
+
+    {"type": "arrow", "id": "a1", "from": [90, 68], "to": [97, 68]},
+
+    {"type": "panel", "id": "p2", "x": 99, "y": 16, "w": 132, "h": 104, "fill": "panel", "title": "本書で得られること"},
+    {"type": "box", "id": "k1", "parent": "p2", "x": 106, "y": 32, "w": 118, "h": 22, "fill": "soft", "color": "#333333",
+     "size": 11, "text": "1  編集者が企画書で確かめる 5 つの問い"},
+    {"type": "box", "id": "k2", "parent": "p2", "x": 106, "y": 60, "w": 118, "h": 22, "fill": "soft", "color": "#333333",
+     "size": 11, "text": "2  類書と比べて，本の独自性を示す"},
+    {"type": "box", "id": "k3", "parent": "p2", "x": 106, "y": 88, "w": 118, "h": 22, "fill": "soft", "color": "#333333",
+     "size": 11, "text": "3  目次案と見本の原稿で，書けることを示す"},
+
+    {"type": "arrow", "id": "a2", "from": [233, 68], "to": [240, 68]},
+
+    {"type": "panel", "id": "p3", "x": 242, "y": 16, "w": 84, "h": 104, "fill": "panel", "title": "読んだ後"},
+    {"type": "image", "id": "img_after", "parent": "p3", "x": 252, "y": 28, "w": 64, "h": 52,
+     "src": "illust/after.png", "ref": "illust/before.png",
+     "prompt": "on the left, the same researcher as the reference image hands a neat document across a table; on the right, a book editor at a publishing house: a woman holding a red pen, wearing a lanyard, with a tall stack of books and manuscript proofs covered in red correction marks on her side of the table, smiling and nodding",
+     "note": "右の人が編集者と分かるように (赤ペン・校正刷り・本の山)"},
+    {"type": "text", "id": "l_author", "parent": "p3", "x": 271, "y": 75, "ha": "center", "size": 8,
+     "color": "#555555", "text": "著者"},
+    {"type": "text", "id": "l_editor", "parent": "p3", "x": 296, "y": 75, "ha": "center", "size": 8,
+     "color": "#555555", "text": "編集者"},
+    {"type": "text", "id": "t_after", "parent": "p3", "x": 284, "y": 88, "ha": "center", "size": 10,
+     "text": "編集者に渡せる\n企画書が書ける"},
+
+    {"type": "text", "id": "source", "x": 165, "y": 124, "ha": "center", "size": 8, "color": "#666666",
+     "text": "『書名』(架空) の内容を 1 枚にまとめた例"}
+  ]
+}

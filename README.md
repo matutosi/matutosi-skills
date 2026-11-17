@@ -1,7 +1,7 @@
 # matutosi-skills
 
 Claude Code のプラグインのマーケットプレイスです．
-次の4つのプラグイン (計11個のスキル) を収めています．
+次の5つのプラグイン (計13個のスキル) を収めています．
 
 | プラグイン | スキル | 何をするか |
 |---|---|---|
@@ -17,8 +17,9 @@ Claude Code のプラグインのマーケットプレイスです．
 | [vegetation-survey](#vegetation-survey) | `veg-sheet-to-csv` | 植生調査票を読み取って CSV にする (読み取りはブラウザで画像と見比べて直せる) |
 | | `veg-table-to-csv` | 組成表 (ページ内の小さい表・折り込み) を AI が読み，地点情報と組成の CSV にする |
 | | `veg-table-to-csv2` | (作りかけ) 組成表の転記を印字のまま固定し，規則で決定の CSV を作り直す．どの規則でどう直したかを列に残す |
+| [graphical-abstract](#graphical-abstract) | `graphical-abstract` | 論文・書籍のグラフィカルアブストラクトを作る (絵は外部の画像生成ツールに回す) |
 
-A Claude Code plugin marketplace with skills for Japanese manuscripts (Markdown; proof marks can also be applied to Word files as tracked changes), for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, and for turning vegetation survey sheets into CSV.
+A Claude Code plugin marketplace with skills for Japanese manuscripts (Markdown; proof marks can also be applied to Word files as tracked changes), for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, for turning vegetation survey sheets into CSV, and for composing graphical abstracts of papers and books.
 
 <a id="requirements"></a>
 
@@ -30,6 +31,7 @@ A Claude Code plugin marketplace with skills for Japanese manuscripts (Markdown;
 | jpg-user-comment | 3.8 以降 (目安) | なし (標準ライブラリだけ．`comment_server.py` は `Pillow` があれば画像を縮小する) |
 | jstage-xml | 3.11 以降 | `pymupdf` `lxml` `pyyaml`．論文一覧の取得 (`list_articles.py toc`) には `beautifulsoup4` も |
 | vegetation-survey | `veg-sheet-to-csv` は 3.8 以降，`veg-table-to-csv` は 3.9 以降 | `veg-table-to-csv` は `Pillow`，PDF を読むときは `pymupdf`．種名の照合だけ `openpyxl`，格子の点検 (`check_grid.py`・`marks_grid.py`・`shift_check.py`) だけ `numpy` と `scipy`．`veg-sheet-to-csv` は種名の照合 (`openpyxl`) のほかは標準ライブラリだけ (`build_csv.py`・`review.py`) |
+| graphical-abstract | 3.8 以降 | `matplotlib` (`numpy` も入る)．PDF を読むときは `pymupdf`，JPEG の絵を使うときは `Pillow`．`make_prompts.py` は標準ライブラリだけ |
 
 <a id="install"></a>
 
@@ -196,6 +198,22 @@ Only the Python standard library is required.
 - 論文一覧の取得 (`scripts/list_articles.py`) と，登載前に見た目を確かめる手元のプレビュー (`scripts/preview_tool/`) も入っています．
 - 控えの取り方と調査のまとめは，[support-ac](https://github.com/matutosi/support-ac) の `jstage/` を見てください．
 
+<a id="graphical-abstract"></a>
+
+### graphical-abstract (グラフィカルアブストラクト)
+
+論文や書籍の内容を1枚の図にするスキル `graphical-abstract` です．
+「この論文のグラフィカルアブストラクトを作って」「本の内容を1枚の絵にまとめて」のように頼むと使われます．手順は [SKILL.md](plugins/graphical-abstract/skills/graphical-abstract/SKILL.md) にあります．
+
+- **筋は AI，絵は外部ツール，組むのと点検はスクリプト**に分けます．Claude Code は絵を描けないので，絵は画像生成ツール (ChatGPT・Gemini・Midjourney など) か手描きで作ります．
+- 論文から問い・方法・結果・結論を取り出し，**誇張しない決まり** (関連を因果の矢印にしない・調べた範囲を超えて一般化しない・数値は転記元のページを控える) で 3-5 コマに縮めます．
+- 配置は mm 単位の JSON (`layout.json`) で書き，`compose.py` が matplotlib で組みます．**文字のはみ出し・重なり・絵の上の文字・小さすぎる字・画像待ち・概略の値の注記漏れ**を機械的に点検し，PNG・PDF・SVG で書き出します．
+- `make_prompts.py` が，絵の枠ごとに縦横比と大きさを合わせ，**同じ画風の指示文**をツールごとの形 (汎用・Midjourney・Stable Diffusion 系・YAML) で作ります．
+- `pdf_pages.py` が，PDF を開けるか・文字の層があるか (スキャンか) を調べ，ページを画像にします．
+- 型は「流れ」「対比」「中心と周り」「書籍 (読者の旅)」から選びます．
+
+Compose a graphical abstract for a paper or a book: condense the story without overclaiming, lay it out in millimetres with matplotlib, check for overflowing or overlapping text, and hand the illustrations off to an external image generator with consistent prompts.
+
 <a id="examples"></a>
 
 ## サンプル / Examples
@@ -208,6 +226,7 @@ Only the Python standard library is required.
 | ja-manuscript | [examples/](plugins/ja-manuscript/examples/) | 誤りをわざと入れた2章の練習原稿と，リライトの草稿．朱書きの校正 PDF の例は [proof/](plugins/ja-manuscript/examples/proof/)，索引づくりの例 (架空の入門書 3 章と組んだ PDF) は [index/](plugins/ja-manuscript/examples/index/) |
 | jpg-user-comment | [examples/](plugins/jpg-user-comment/examples/) | JPEG 2枚と，コメントを書いた CSV |
 | vegetation-survey | [examples/](plugins/vegetation-survey/examples/) | 架空の植生調査票1枚の画像と，それを読み取った JSON，正解の CSV．架空の組成表の画像と転記表，正解の CSV は [table/](plugins/vegetation-survey/examples/table/) |
+| graphical-abstract | [examples/](plugins/graphical-abstract/examples/) | 架空の論文 (流れ) と架空の書籍 (読者の旅) の配置の JSON と，Gemini で作った絵 |
 
 `jstage-xml` には `examples/` がありません．雑誌の設定の作例として，植生学会誌の設定と記録 (`journals/vegsci.*`) が入っています．
 
@@ -233,6 +252,7 @@ python run_tests.py
 | 〃 (`--ref` の試験) | `opencv-python` | 飛ばす |
 | vegetation-survey (`check_names.py` の xlsx を読む試験) | `openpyxl` | その試験だけ飛ばす |
 | vegetation-survey (`veg-table-to-csv` の画像の試験) | `Pillow` `pymupdf` | 飛ばす |
+| graphical-abstract | `matplotlib`．PDF の試験は `pymupdf` | 飛ばす |
 
 GitHub では，push のたびに Ubuntu と Windows でテストを回します (`.github/workflows/test.yml`)．
 

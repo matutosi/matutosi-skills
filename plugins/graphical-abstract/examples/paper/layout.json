@@ -1,0 +1,77 @@
+{
+  "title": "草刈りをやめた草地の種数 (架空の研究)",
+  "canvas": {"width_mm": 330, "height_mm": 132, "dpi": 300, "min_font_pt": 7},
+  "palette": {"keep": "#1b7a3a", "stop": "#b35900", "panel": "#f5f5f2", "ink": "#333333"},
+  "style": {
+    "description": "clean flat vector illustration, simple shapes, soft muted colors, scientific style",
+    "palette": ["#1b7a3a", "#b35900", "#f5f5f2"],
+    "background": "plain white background, isolated subject"
+  },
+  "elements": [
+    {"type": "text", "id": "title", "x": 165, "y": 4, "ha": "center", "size": 15, "weight": "bold",
+     "text": "草刈りをやめると，草地の種数は数年で減る"},
+
+    {"type": "panel", "id": "p1", "x": 4, "y": 16, "w": 74, "h": 100, "fill": "panel", "title": "1. 調べたこと"},
+    {"type": "image", "id": "img_keep", "parent": "p1", "x": 9, "y": 45, "w": 28, "h": 12, "valign": "bottom",
+     "src": "illust/keep.png", "ref": "illust/stop.png",
+     "prompt": "full color, in the same drawing style and colors as the reference image, a short mowed grassland about 30 cm tall, dominated by cogongrass (Imperata cylindrica) with slender upright leaves and a few small wildflowers, seen from the side as a small patch of ground",
+     "note": "草刈りを続けた地点．草丈 約 30 cm，チガヤが優占"},
+    {"type": "image", "id": "img_stop", "parent": "p1", "x": 45, "y": 27, "w": 28, "h": 30, "valign": "bottom",
+     "src": "illust/stop.png",
+     "prompt": "full color, a tall abandoned grassland about 150 cm tall, dominated by Japanese silver grass (Miscanthus sinensis) with green leaves and silvery feathery plumes, and tall goldenrod (Solidago altissima) with bright yellow flower spikes, small green plants alive at the bottom, seen from the side as a small patch of ground",
+     "note": "草刈りをやめた地点 (草刈り中止の画像)．草丈 約 150 cm，ススキ・セイタカアワダチソウが優占"},
+    {"type": "text", "id": "h_keep", "parent": "p1", "x": 23, "y": 58.5, "ha": "center", "size": 8,
+     "text": "草丈 約 30 cm"},
+    {"type": "text", "id": "h_stop", "parent": "p1", "x": 59, "y": 58.5, "ha": "center", "size": 8,
+     "text": "草丈 約 150 cm"},
+    {"type": "box", "id": "b_keep", "parent": "p1", "x": 9, "y": 65, "w": 28, "h": 20, "fill": "keep",
+     "size": 9, "text": "草刈りを続けた\n10 地点"},
+    {"type": "box", "id": "b_stop", "parent": "p1", "x": 45, "y": 65, "w": 28, "h": 20, "fill": "stop",
+     "size": 9, "text": "やめた\n30 地点\n(1-6 年)"},
+    {"type": "text", "id": "t_method", "parent": "p1", "x": 41, "y": 91, "ha": "center", "size": 9,
+     "wrap_mm": 62, "text": "1 m × 1 m の区画で，出てくる植物の種類を数えた"},
+
+    {"type": "arrow", "id": "a1", "from": [80, 66], "to": [86, 66]},
+
+    {"type": "panel", "id": "p2", "x": 88, "y": 16, "w": 76, "h": 100, "fill": "panel", "title": "2. 種数"},
+    {"type": "chart", "id": "c_rich", "parent": "p2", "kind": "scatter", "x": 92, "y": 32, "w": 68, "h": 74,
+     "data": {"x": [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 6],
+              "y": [30, 27, 25, 24, 22, 18, 16, 12, 11, 9, 8, 7, 5, 4],
+              "group": ["keep", "keep", "keep", "keep", "stop", "stop", "stop", "stop", "stop", "stop", "stop", "stop", "stop", "stop"]},
+     "colors": {"keep": "keep", "stop": "stop"},
+     "xlabel": "やめてからの年数", "ylabel": "1 m² あたりの種数", "xticks": [0, 1, 2, 3, 4, 5, 6],
+     "approx": true, "approx_note": "(架空の値)"},
+
+    {"type": "arrow", "id": "a2", "from": [166, 66], "to": [172, 66]},
+
+    {"type": "panel", "id": "p3", "x": 174, "y": 16, "w": 74, "h": 100, "fill": "panel", "title": "3. 何が起きたか"},
+    {"type": "image", "id": "img_stop2", "parent": "p3", "x": 178, "y": 30, "w": 30, "h": 30,
+     "src": "illust/stop.png", "note": "1 の草刈り中止の画像を使い回す"},
+    {"type": "arrow", "id": "a_p3", "from": [209, 45], "to": [214, 45]},
+    {"type": "image", "id": "img_dead", "parent": "p3", "x": 215, "y": 30, "w": 30, "h": 30,
+     "src": "illust/dead.png", "ref": "illust/stop.png",
+     "prompt": "full color, the same tall grassland as the reference image, with the same Japanese silver grass and yellow-flowered goldenrod, but the small short plants growing at the bottom under the tall grasses are withered, brown and dead",
+     "note": "草刈り中止の画像の下層の植物が枯れた様子"},
+    {"type": "text", "id": "l_stop2", "parent": "p3", "x": 193, "y": 61.5, "ha": "center", "size": 8,
+     "text": "背の高い草が茂る"},
+    {"type": "text", "id": "l_dead", "parent": "p3", "x": 230, "y": 61.5, "ha": "center", "size": 8,
+     "text": "下の草が枯れる"},
+    {"type": "text", "id": "t_cause", "parent": "p3", "x": 211, "y": 74, "ha": "center", "size": 10,
+     "wrap_mm": 62, "text": "背の高い草が茂り，\n背の低い草が光を受けられなくなる"},
+
+    {"type": "arrow", "id": "a3", "from": [250, 66], "to": [256, 66]},
+
+    {"type": "panel", "id": "p4", "x": 258, "y": 16, "w": 68, "h": 100, "fill": "panel", "title": "4. 言えること"},
+    {"type": "image", "id": "img_mow", "parent": "p4", "x": 272, "y": 25, "w": 40, "h": 33, "valign": "bottom",
+     "src": "illust/mowing.png", "ref": "illust/keep.png",
+     "prompt": "full color, in the same drawing style and colors as the reference image, a farmer wearing a hat, work clothes and boots mowing the same short grassland with a shoulder-held brush cutter (string trimmer), freshly cut grass flying, the short cogongrass grassland of the reference on the ground, seen from the side",
+     "note": "草刈りを続けている様子 (刈払機で刈る人)"},
+    {"type": "text", "id": "t_concl", "parent": "p4", "x": 292, "y": 62, "ha": "center", "size": 11,
+     "wrap_mm": 58, "text": "草地の種類の多さを保つには，\n草刈りを続けることが要る"},
+    {"type": "text", "id": "t_limit", "parent": "p4", "x": 292, "y": 86, "ha": "center", "size": 8,
+     "color": "#777777", "wrap_mm": 58, "text": "1 地域・1 年の調査．年数は聞き取りによる"},
+
+    {"type": "text", "id": "source", "x": 165, "y": 122, "ha": "center", "size": 8, "color": "#666666",
+     "text": "出典: 著者 (年) 誌名 巻: ページ (架空)"}
+  ]
+}

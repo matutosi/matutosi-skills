@@ -1,0 +1,8 @@
+{
+  "name": "graphical-abstract",
+  "version": "0.1.0",
+  "description": "論文・書籍のグラフィカルアブストラクトを作る．筋を誇張せずに 3-5 コマへ縮め，配置を mm 単位の JSON で組み，文字のはみ出し・重なり・小さすぎる字を点検する．絵は外部の画像生成ツールに回し，同じ画風の指示文を作る．",
+  "author": { "name": "Toshikazu Matsumura" },
+  "license": "MIT",
+  "keywords": ["graphical-abstract", "figure", "illustration", "paper", "book", "matplotlib"]
+}
