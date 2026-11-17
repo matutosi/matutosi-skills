@@ -25,6 +25,11 @@
   等間隔なら `--first-x` と `--pitch` を渡す．最後の列が切り出しの右端からはみ出せば警告する．
   列の位置をどう決めたか (`列の位置: 測った`・`等分`・`引数`) を必ず表示する．
   `--label` の左端が字に掛かる (名前の頭がはみ出す) ときは警告し，広げる先の x を出す．
+- `--deskew` (密な表): 紙面が右上がり・右下がり，波打つ，列が下ほど左右へ寄る表は，自動の傾きの補正が帯ごとに揺れて
+  右端の列が 1 行ずれて見え，列の測定が 1 列ずれる．`--deskew` は値の列を 8 つの帯に分けて行の傾きを測り，y ごとに
+  なめらかにつなぎ，列の寄り (上端と下端で測った列の中心の差．`--lean PX` で渡してもよい) と一緒に直した写しを
+  `<名前>_deskew.png` に保存し，その写しで切り出す (列の x・行の y は表の上端・左端の位置のまま)．
+  `--shear` を付けると行の傾きは測らずその値で直す．
 - `--tiles` は「行数x列数」(`3x2` は縦 3 枚・横 2 枚)．`--raw` は `--tiles` を使わず 1 枚で切る．
 
     python scripts/crop.py <表.png> --box 5180 1730 7260 7200 --dense 10 --plots 20 --label 3950 5170 --tiles 6x1 --out <置き場>
@@ -121,6 +126,58 @@ def shear_bands(im, dy, bands=8, near=16):
         band = im.crop((0, top, im.width, bottom))
         out.paste(shear(band, estimate_shear(band, near, 4, dy)), (0, top))
     return out
+
+
+def band_slopes(im, dy0, bands=8, near=16):
+    """値の列だけの画像を横の帯に分け，帯ごとの行の傾き (右端の下がり px．dy0 の近くで測る) を [(帯の中心の y, dy)] で返す"""
+    h = im.height / bands
+    out = []
+    for i in range(bands):
+        top, bottom = int(i * h), int((i + 1) * h)
+        out.append(((top + bottom) / 2, estimate_shear(im.crop((0, top, im.width, bottom)), near, 4, dy0)))
+    return out
+
+
+def estimate_lean(im, plots, part=.25):
+    """値の列の画像の上端と下端で列の中心を測り，表の上から下で列が右へ寄る量 (px．左へ寄るなら負) を返す．
+    測れなければ (None, 理由)"""
+    h = im.height
+    k = max(40, int(h * part))
+    top, _ = measure_columns(im.crop((0, 0, im.width, k)), plots)
+    bottom, why = measure_columns(im.crop((0, h - k, im.width, h)), plots)
+    if not top or not bottom:
+        return None, '上端か下端で列を測れない'
+    delta = sum(b - t for t, b in zip(top, bottom)) / plots
+    sep = (h - k)                                     # 2 つの帯の中心の y の差
+    return delta * h / sep, ''
+
+
+def deskew_region(region, centers, dys, span, lean, step=8):
+    """傾きを直した写しを返す．行の傾き (centers の y での dy．x が span px 進むと y が dy 下がる) と
+    列の寄り (上端から下端で右へ lean px) を y ごとに直す．上端・左端の位置は変えない"""
+    g = region.convert('L')
+    w, h = g.size
+
+    def slope(y):                                     # 行の傾きを帯の中心の間で直線に補う (px あたり)
+        if not centers:
+            return 0.0
+        if y <= centers[0]:
+            return dys[0] / span
+        for (ya, da), (yb, db) in zip(zip(centers, dys), zip(centers[1:], dys[1:])):
+            if y <= yb:
+                return (da + (db - da) * (y - ya) / (yb - ya)) / span
+        return dys[-1] / span
+
+    def sx(y):
+        return lean * y / h if h else 0.0
+
+    mesh = []
+    for ya in range(0, h, step):
+        yb = min(h, ya + step)
+        quad = (sx(ya), ya, sx(yb), yb,
+                w + sx(yb), yb + slope(yb) * w, w + sx(ya), ya + slope(ya) * w)
+        mesh.append(((0, ya, w, yb), quad))
+    return g.transform(g.size, Image.MESH, mesh, Image.BICUBIC, fillcolor=255)
 
 
 def _profile(im):
@@ -276,6 +333,36 @@ def tiles(box, rows, cols, overlap):
                     min(y1, int(y0 + (r + 1) * th + overlap))))
 
 
+def deskew_copy(im, a, box, stem):
+    """--deskew: 傾きを直した写しを作って返す (元の画像と同じ大きさ・同じ座標．写した範囲の外は白)"""
+    x0, y0, x1, y1 = box
+    left = a.label[0]
+    vals = im.crop((x0, y0, x1, y1))
+    if a.shear is not None:
+        centers, dys = [(y1 - y0) / 2], [a.shear]
+    else:
+        dy0 = estimate_shear(vals)
+        pairs = band_slopes(vals, dy0)
+        centers, dys = [p[0] for p in pairs], [p[1] for p in pairs]
+    lean = a.lean
+    if lean is None:
+        lean, why = estimate_lean(im.crop((max(x0, a.label[1]), y0, x1, y1)), a.plots)
+        if lean is None:
+            print(f'列の寄りは測れなかった ({why})．0 とする (寄っているなら --lean で渡す)')
+            lean = 0.0
+    print(f'傾きを直した写し: 行の傾き {min(dys):+.0f}〜{max(dys):+.0f} px (右端の下がり)・'
+          f'列の寄り 上端から下端で {lean:+.0f} px (右へ)．列の x は表の上端の位置のまま')
+    region = deskew_region(im.crop((left, y0, x1, y1)), centers, dys, x1 - x0, lean)
+    out = im.convert('L')                             # 範囲の外 (名前の左の余白など) は元のまま
+    out.paste(region, (left, y0))
+    path = os.path.join(a.out, stem + '_deskew.png')
+    region.save(path)
+    with open(os.path.join(a.out, stem + '_deskew.box.txt'), 'w', encoding='utf-8') as f:
+        f.write(f'region=({left}, {y0}, {x1}, {y1}) lean={lean:.1f} dy={dys} source={a.image}\n')
+    print(f'{path}: 傾きを直した写し (元の画像の x={left}-{x1}・y={y0}-{y1} と同じ座標)')
+    return out
+
+
 def main(argv=None):
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -294,6 +381,12 @@ def main(argv=None):
     ap.add_argument('--plots', type=int, help='密な表: 表の地点の数')
     ap.add_argument('--label', type=int, nargs=2, metavar=('X0', 'X1'), help='密な表: 種名と階層の列の範囲')
     ap.add_argument('--shear', type=int, help='密な表: 行の傾き (右端の下がり px．省くと自動で測る)')
+    ap.add_argument('--deskew', action='store_true',
+                    help='密な表: 行の傾き (y ごと) と列の寄り (下ほど左右へ寄る) を測って直した写しを作り，その写しで切り出す'
+                         ' (<名前>_deskew.png に保存．列の x は表の上端の位置のまま．紙面が傾く・波打つ表で列の測定が 1 列ずれる・'
+                         '右端の列が 1 行ずれて見えるときに使う)')
+    ap.add_argument('--lean', type=float,
+                    help='--deskew: 列の寄り (上端から下端で右へ寄る px．左へ寄るなら負．省くと測る)')
     ap.add_argument('--centers', type=float, nargs='+',
                     help='密な表: 全列の中心の x (原寸．群の境で間隔が広がる表など，列を測れない・等分では合わない表)')
     ap.add_argument('--first-x', type=float, help='密な表: 第 1 列の中心の x (原寸．--pitch と組で等間隔の列を渡す)')
@@ -318,6 +411,9 @@ def main(argv=None):
         if not (a.plots and a.label and a.box):
             sys.exit('--dense には --box・--plots・--label が要る')
         x0, y0, x1, y1 = box
+        if a.deskew:
+            im = deskew_copy(im, a, box, stem)
+            a.shear = 0                               # 写しは傾きを直してある．以後は傾きを直さない
         dy = a.shear if a.shear is not None else estimate_shear(im.crop(box))
         whole = shear(im.crop((a.label[0], y0, x1, y1)), dy * (x1 - a.label[0]) / (x1 - x0))
         origin = a.label[1]                           # 値の側の探す範囲の左端 (--pad で広げた範囲より左へは行かない)

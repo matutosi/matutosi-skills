@@ -15,6 +15,12 @@
 - `--ref` は行の y を測る x の範囲．**種の行のどれにも字がある列** (階層の列，階層の列が無ければ和名の列)．
   ここで数えた行の数が転記の種の行の数と合わなければ止まる (群の見出しも数えた数と合えば，見出しを除いて続ける)．
   測れない表は `--rows-in` に行の y を 1 行ずつ書いて渡す．
+- `--grid <grid.tsv>` は行の y を `--ref` で測らず，marks_grid.py `--tsv` の表の `y_first` (`--grid-y last` なら `y_last`) から取る．
+  階層の印字の無い行・群の見出し・字間の広い和名・短い和名で `--ref` が行を測り違える表向き (`--ref` は不要)．
+  行の数は転記の種の行の数か，まとめた物理の行の数と合う (まとめた行は marks_grid.py と同じ `--merge-rows`・`--merge-split` を渡す)．
+- `--ref` で行の数が合わないとき `--fix-rows` を付けると，止まらずに足りない行を間隔の広い所に補い，余分な行を印の少ない行から
+  除いて続ける (`[行の補正]` と補った y を出す．補った所の前後の列は信用しない)．群の見出しは，まとめた行があっても転記の並びで自動で除く．
+- `--track` の既定は `chain` (列ごとに隣の列の行の y へ DP でつなぐ)．傾きが一様な表で前の動き (列ごとの中央値の補正) に戻すなら `--track none`．
 - `--ref2` は右側でもう 1 か所行の y を測る範囲 (行が傾く表．2 か所の y を列の x で直線に補間する)．
 - 列の中心は点 (`・`) の x の山で測り，列ごとに点の x を y の直線で当て直す (紙面が下ほど左へ寄る表)．
   測れない表は `--centers` (全列)・`--first-x` と `--pitch`・`--colx` (marks_grid.py が書く col_x.tsv) で渡す．
@@ -132,6 +138,69 @@ def parse_merge(specs):
     for s in specs:
         lo, _, hi = s.partition('-')
         out.append(list(range(int(lo) - 1, int(hi or lo))))
+    return out
+
+
+def read_grid(path, which='first'):
+    """marks_grid.py の `--tsv` が書く表 (行・種名・地点ごとの印・y_first・y_last) から，行ごとの y を読む．
+    which: 'first' は第 1 列での y (y_first)・'last' は最後の列での y (y_last)"""
+    with open(path, encoding='utf-8-sig', newline='') as f:
+        rows = list(csv.reader(f, delimiter='\t'))
+    if not rows or 'y_first' not in rows[0] or 'y_last' not in rows[0]:
+        sys.exit(f'{path} は marks_grid.py --tsv の表ではない (見出しに y_first・y_last が無い)')
+    k = rows[0].index('y_first' if which == 'first' else 'y_last')
+    ys = []
+    for r in rows[1:]:
+        if len(r) > k and r[k].strip():
+            ys.append(float(r[k]))
+    return ys
+
+
+def fix_row_count(ys, want, cnt=None):
+    """測った行の y (昇順) を want 行にそろえる．足りなければ間隔の広い所に等間隔で補い (それでも足りなければ
+    下端の外へ延ばし)，多ければ印の少ない行 (cnt．無ければ間隔の狭い行) を除く．(y の配列, 説明の行のリスト) を返す"""
+    ys = [float(y) for y in ys]
+    notes = []
+    if len(ys) >= 2 and len(ys) > want:
+        for _ in range(len(ys) - want):
+            if cnt is not None and len(cnt) == len(ys):
+                i = int(np.argmin(cnt))
+            else:
+                d = np.diff(ys)
+                i = int(np.argmin(d)) + 1
+            notes.append(f'余分な行を除いた: y={ys[i]:.0f}')
+            ys.pop(i)
+            if cnt is not None:
+                cnt = list(cnt)
+                cnt.pop(i)
+    while len(ys) < want and len(ys) >= 2:
+        d = np.diff(ys)
+        med = float(np.median(d))
+        i = int(np.argmax(d))
+        parts = int(round(d[i] / med)) if med > 0 else 1
+        if parts < 2:
+            ys.append(ys[-1] + med)                     # 間隔の広い所が無い: 下の外へ延ばす
+            notes.append(f'足りない行を下へ延ばした: y={ys[-1]:.0f}')
+            continue
+        add = min(parts - 1, want - len(ys))
+        step = d[i] / parts
+        new = [ys[i] + step * (j + 1) for j in range(add)]
+        notes.append('足りない行を補った: ' + ' '.join(f'y={v:.0f}' for v in new))
+        ys[i + 1:i + 1] = new
+    return np.array(ys, float), notes
+
+
+def phys_kinds(kinds, phys):
+    """転記の並び (sp・group) を，まとめた物理の行の並びにする．まとめた行の 2 つ目以降の sp は除く"""
+    skip = {k for g in phys for k in g[1:]}
+    out, i = [], 0
+    for kd in kinds:
+        if kd == 'group':
+            out.append('group')
+        else:
+            if i not in skip:
+                out.append('sp')
+            i += 1
     return out
 
 
@@ -523,6 +592,11 @@ def main(argv=None):
     ap.add_argument('--ref', type=int, nargs=2, metavar=('X0', 'X1'), help='行の y を測る x の範囲 (階層か和名の列)')
     ap.add_argument('--ref2', type=int, nargs=2, metavar=('X0', 'X1'), help='右側でもう 1 か所行の y を測る範囲 (傾きの補間)')
     ap.add_argument('--rows-in', help='行の y を 1 行ずつ書いたファイル (転記の種の行の数か，まとめた物理の行の数)')
+    ap.add_argument('--grid', help='marks_grid.py --tsv が書く表．その y_first (--grid-y last なら y_last) を行の y に使う'
+                                   ' (--ref で測らない．階層の印字の無い行・見出し・字間の広い和名の表向き)')
+    ap.add_argument('--grid-y', choices=('first', 'last'), default='first', help='--grid で使う y (第 1 列か最後の列)')
+    ap.add_argument('--fix-rows', action='store_true',
+                    help='--ref で測った行の数が合わないとき，止まらずに足す・除くを補ってつづける (補った所を示す．既定は止まる)')
     ap.add_argument('--rows-out', help='測った行の y を書く')
     ap.add_argument('--edge', type=int, default=30, help='行を測る範囲を --box の上下に広げる幅 (px)')
     ap.add_argument('--row-gap', type=float, default=.45,
@@ -538,8 +612,9 @@ def main(argv=None):
     ap.add_argument('--dot-max', type=int, help='点の幅・高さの上限 (省くと点の大きさを測って決める)')
     ap.add_argument('--dot-fill', type=float, default=.5, help='点の充填率の下限')
     ap.add_argument('--fold', type=float, nargs='+', help='縦の折り目の線の x (原寸)．その列はずれ・多いの判定から外し，縦帯で見る')
-    ap.add_argument('--track', choices=('none', 'up', 'down', 'chain'), default='none',
-                    help='列の中で行と印の差を印ごとに追う (up: 表の下から上へ．折り目で右上ほど行が下がる表)')
+    ap.add_argument('--track', choices=('none', 'up', 'down', 'chain'), default='chain',
+                    help='列の中で行と印の差を追う方法 (既定 chain: 列ごとに隣の列の行の y へ DP でつなぐ．'
+                         'none: 列ごとの中央値だけで補正する前の既定．up: 表の下から上へ．折り目で右上ほど行が下がる表)')
     ap.add_argument('--merge-split', action='store_true', help='階層ごとに分けた転記の行を 1 行にまとめて比べる')
     ap.add_argument('--merge-rows', nargs='+', default=[], metavar='K0-K1',
                     help='1 行にまとめて比べる転記の種の行 (1 始まり．括弧書きの種を分けた行など．例: 8-9)')
@@ -589,9 +664,14 @@ def main(argv=None):
         return None
 
     # 1. 行の y
-    if a.rows_in:
-        with open(a.rows_in, encoding='utf-8') as f:
-            ys = [float(v) for v in f.read().split()]
+    if a.rows_in or a.grid:
+        if a.grid:
+            ys = read_grid(a.grid, a.grid_y)
+            src_name = f'--grid ({a.grid_y})'
+        else:
+            with open(a.rows_in, encoding='utf-8') as f:
+                ys = [float(v) for v in f.read().split()]
+            src_name = '--rows-in'
         if len(ys) == len(sp) and not groups:          # 転記の行ごとの y．同じ y は同じ物理の行
             phys, rowy = [], []
             for r, y in enumerate(ys):
@@ -604,9 +684,10 @@ def main(argv=None):
         elif len(ys) == len(phys):
             rowy = np.array(ys)
         else:
-            sys.exit(f'--rows-in の y は {len(ys)} 個．転記の種の行 {len(sp)}・まとめた行 {len(phys)}')
+            sys.exit(f'{src_name} の y は {len(ys)} 個．転記の種の行 {len(sp)}・まとめた行 {len(phys)}'
+                     + ('．marks_grid.py に渡したのと同じ --merge-rows・--merge-split をここにも渡す' if a.grid else ''))
         rowy2, xr, xr2 = None, X0, None
-        print(f'行の y: --rows-in ({len(rowy)} 行)')
+        print(f'行の y: {src_name} ({len(rowy)} 行)')
     else:
         if not a.ref:
             sys.exit('--ref (行の y を測る x の範囲) か --rows-in が要る')
@@ -616,9 +697,9 @@ def main(argv=None):
             if len(ys) == len(phys):
                 return ys
             n_group = kinds.count('group')
-            if n_group and len(ys) == len(phys) + n_group and not groups:     # 見出しも 1 行と数えた
+            if n_group and len(ys) == len(phys) + n_group:                     # 見出しも 1 行と数えた
                 print(f'{label}: 群の見出し {n_group} 行も数えたので，転記の並びで除いた')
-                return np.array([y for y, k in zip(ys, kinds) if k == 'sp'])
+                return np.array([y for y, k in zip(ys, phys_kinds(kinds, phys)) if k == 'sp'])
             got = drop_headings(ys, len(phys))
             if got:
                 print(f'{label}: 値の範囲に印の無い行 (群の見出し) を除いた y={got[1]}')
@@ -647,8 +728,16 @@ def main(argv=None):
                 with open(a.rows_out, 'w', encoding='utf-8') as f:
                     f.write(''.join(f'{y:.0f}\n' for y in ys))
                 print(f'  測った行の y を {a.rows_out} に書いた (直して --rows-in で渡せる)')
+            if a.fix_rows and len(ys) >= 2:             # 止まらずに，足す・除くを補ってつづける
+                cnt = [int(np.sum(np.abs(comps[:, 1] - y) <= .3 * med)) for y in ys] if med > 0 else None
+                fixed, notes = fix_row_count(ys, len(phys), cnt)
+                print(f'[行の補正] {label}: 測った {len(ys)} 行を転記の {len(phys)} 行にそろえてつづける (--fix-rows)．'
+                      '補った所の前後の列の判定は信用しない．--grid か --rows-in で直す')
+                for s in notes:
+                    print('  ' + s)
+                return fixed
             print('  --box の y・--ref の x を見直す．1 印字行を 2 行に分けた転記は --merge-rows・--merge-split，'
-                  '測れない表は --rows-in')
+                  '測れない表は --rows-in か --grid (marks_grid.py --tsv の y)，止めずにつづけるなら --fix-rows')
             return None
         rowy = measure(a.ref, '--ref')
         if rowy is None:

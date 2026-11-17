@@ -57,6 +57,37 @@ class SparseCommentTest(unittest.TestCase):
         self.assertEqual(rows[1][3:9], ["A b", "ア", "K", "+", "・", "1・2"])
         self.assertEqual(rows[2][5:9], ["S", "・", "+", "・"])
 
+    def body(self, text, n=5):
+        d = tempfile.mkdtemp()
+        src = os.path.join(d, "a.sp")
+        with open(src, "w", encoding="utf-8") as f:
+            f.write(f"#table Tab.8 {n}\n{text}\n")
+        sparse.main([src, d])
+        with open(os.path.join(d, "transcripts", "Tab.008", "body.tsv"), encoding="utf-8") as f:
+            return [l.rstrip("\n").split("\t") for l in f][1]
+
+    def test_quoted_value_with_space(self):
+        """値に空白を含められる (引用符)．`+ 2` を次の地点の値と読んで消さない (中国 Tab.010)"""
+        r = self.body('A b|ア|K|2:"+ 2" 4:1・2 5:\'1 2\'')
+        self.assertEqual(r[6:11], ["・", "+ 2", "・", "1・2", "1 2"])
+        r = self.body('A b|ア|K|*+ "+ 2" ・ 1・2 ・')
+        self.assertEqual(r[6:11], ["+", "+ 2", "・", "1・2", "・"])
+        self.assertEqual(self.body("A b|ア|K|1:+ 3:1・2 5:")[6:11], ["+", "・", "1・2", "・", ""])
+
+    def test_unquoted_space_stops_instead_of_dropping(self):
+        """引用符なしの `2:+ 2` は番号の無い値 `2` になり，黙って消さずに止まる"""
+        with self.assertRaises(SystemExit) as cm:
+            self.body("A b|ア|K|2:+ 2 4:1")
+        self.assertIn("番号の無い値", str(cm.exception.code))
+        with self.assertRaises(SystemExit) as cm:
+            self.body("A b|ア|K|1:+ 1:2")
+        self.assertIn("2 回", str(cm.exception.code))
+        with self.assertRaises(SystemExit) as cm:
+            self.body("A b|ア|K|6:+")
+        self.assertIn("範囲", str(cm.exception.code))
+        with self.assertRaises(SystemExit):
+            self.body('A b|ア|K|*+ "+ 2" ・')              # 値の数が地点の数と合わない
+
 
 class OverPlotsTest(unittest.TestCase):
     def test_parse_value_over(self):
@@ -192,6 +223,114 @@ class CropLabelTest(unittest.TestCase):
                                  "--label", "40", "480", "--first-x", "520", "--pitch", "60", "--out", os.path.join(d, "o")])
         self.assertNotIn("--label の左端", out)
         self.assertIn("列の位置: 引数 (--first-x・--pitch)", out)
+
+
+@unittest.skipIf(Image is None, "Pillow が無い")
+class CropDeskewTest(unittest.TestCase):
+    W, H, C, R = 460, 560, 6, 11
+
+    def slanted(self, slope, lean):
+        """行が右へ slope (px あたり) 下がり，列が下ほど右へ lean px 寄る点の表"""
+        im = Image.new("L", (self.W, self.H), "white")
+        dr = ImageDraw.Draw(im)
+        self.truth = []
+        for r in range(self.R):
+            for c in range(self.C):
+                x, y = 60 + c * 60, 40 + r * 46
+                X, Y = x + lean * y / self.H, y + slope * x
+                dr.ellipse((X - 5, Y - 5, X + 5, Y + 5), fill=0)
+                self.truth.append((x, y))
+        return im
+
+    def test_deskew_region_straightens_rows_and_columns(self):
+        import crop
+        slope, lean = 0.06, 24
+        im = self.slanted(slope, lean)
+        out = crop.deskew_region(im, [self.H / 2], [slope * self.W], self.W, lean)
+        px = out.load()
+        for x, y in self.truth:
+            self.assertLess(px[x, y], 128, (x, y))             # 点が元の位置 (上端・左端の位置) に戻る
+        flat = crop.deskew_region(self.slanted(0, 0), [self.H / 2], [0], self.W, 0)
+        self.assertEqual(flat.tobytes(), self.slanted(0, 0).convert("L").tobytes())   # 傾きなしは変えない
+
+    def test_estimate_lean(self):
+        import crop
+        im = self.slanted(0, 24).crop((30, 0, self.W, self.H))
+        lean, why = crop.estimate_lean(im, self.C)
+        self.assertIsNotNone(lean, why)
+        self.assertAlmostEqual(lean, 24, delta=6)
+        self.assertIsNone(crop.estimate_lean(Image.new("L", (300, 300), "white"), self.C)[0])
+
+    def test_deskew_option_makes_copy(self):
+        import crop
+        d = tempfile.mkdtemp()
+        src = os.path.join(d, "p.png")
+        self.slanted(0, 0).save(src)
+        o = os.path.join(d, "o")
+        _, out = run(crop.main, [src, "--box", "30", "20", "440", "540", "--dense", "6", "--plots", "6", "--label", "5", "20",
+                                 "--shear", "0", "--lean", "0", "--deskew", "--name", "t", "--out", o])
+        self.assertIn("傾きを直した写し", out)
+        self.assertTrue(os.path.exists(os.path.join(o, "t_deskew.png")))
+        self.assertIn("行の傾き 0 px を直した", out)
+        self.assertTrue([f for f in os.listdir(o) if f.startswith("t_r1_p01-06")])
+
+
+@unittest.skipIf(Image is None, "Pillow が無い")
+class UlSheetTest(unittest.TestCase):
+    def setUp(self):
+        try:
+            import ul_sheet
+        except (ImportError, SystemExit):
+            self.skipTest("numpy と scipy が無い")
+        self.ul = ul_sheet
+
+    def make(self):
+        d = tempfile.mkdtemp()
+        im = Image.new("L", (400, 300), "white")
+        im.save(os.path.join(d, "p.png"))
+        head = ["kind", "group_ja", "group_de", "s_name", "j_name", "layer", "1", "2", "3", "note"]
+        rows = [head,
+                ["sp", "", "", "A a", "ア", "S;K", "+", "・", "1", "3: 下線; 印字は S,K (K に下線)"],
+                ["sp", "", "", "B b", "イ", "K", "・", "2", "・", ""],
+                ["sp", "", "", "C c", "ウ", "S;K", "・", "+", "+", "2: 二重下線; 3: 下線なし"]]
+        write_tsv(os.path.join(d, "transcripts", "Tab.003", "body.tsv"), rows)
+        grid = os.path.join(d, "grid.tsv")
+        with open(grid, "w", encoding="utf-8", newline="") as f:
+            f.write("row\tspecies\t1\t2\t3\ty_first\ty_last\n")
+            for k, (a, b) in enumerate([(60, 66), (120, 126), (180, 186)]):
+                f.write(f"{k + 1}\tx\t_\t_\t_\t{a}\t{b}\n")
+        return d, os.path.join(d, "p.png"), grid
+
+    def test_underlined_plots(self):
+        self.assertEqual(self.ul.underlined_plots("3: 下線; 印字は S,K (K に下線)"), {3})
+        self.assertEqual(self.ul.underlined_plots("2: 二重下線; 3: 下線なし; 1: 波線"), {1, 2})
+        self.assertEqual(self.ul.underlined_plots(""), set())
+
+    def test_sheet_modes(self):
+        d, src, grid = self.make()
+        base = [src, d, "Tab.3", "--grid", grid, "--first-x", "100", "--pitch", "100"]
+        rc, out = run(self.ul.main, base)                              # 下線の付いたセル: 1 行の地点 3・3 行の地点 2
+        self.assertEqual(rc, 0, out)
+        self.assertIn("2 セル", out)
+        path = os.path.join(d, "ul_Tab.003_01.png")
+        self.assertTrue(os.path.exists(path))
+        w, h = Image.open(path).size
+        self.assertGreater(w, 2 * 100 * 3 * .9)                        # 原寸の 3 倍 (幅 100 px) のセルが 2 枚横に並ぶ
+        rc, out = run(self.ul.main, base + ["--mode", "multi"])        # 階層が 2 つ以上の行の値: 1 行 (+・1) と 3 行 (+・+)
+        self.assertIn("4 セル", out)
+        rc, out = run(self.ul.main, base + ["--rows", "2"])            # 行 2 の値のあるセルだけ
+        self.assertIn("1 セル", out)
+        rc, out = run(self.ul.main, base + ["--rows", "1-3", "--max-tiles", "3"])
+        self.assertIn("5 セル", out)
+        self.assertTrue(os.path.exists(os.path.join(d, "ul_Tab.003_02.png")))
+
+    def test_row_count_mismatch_stops(self):
+        d, src, grid = self.make()
+        with open(grid, "a", encoding="utf-8") as f:
+            f.write("4\tx\t_\t_\t_\t240\t240\n")
+        with self.assertRaises(SystemExit) as cm:
+            run(self.ul.main, [src, d, "Tab.3", "--grid", grid, "--first-x", "100", "--pitch", "100"])
+        self.assertIn("grid.tsv", str(cm.exception.code))
 
 
 def body_rows(n_cols, rows, groups_at=()):
@@ -372,6 +511,91 @@ class ShiftCheckTest(unittest.TestCase):
         words = self.sc.make_words(comps, 30, 10)
         kinds = sorted((round(float(comps[g[0], 0])), self.sc.word_kind(g, comps, isdot, 16, 40)) for g in words)
         self.assertEqual(kinds, [(16, "r"), (56, "v"), (102, "v")])
+
+    def write_grid(self, path, rowy):
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write("\t".join(["row", "species"] + [str(c + 1) for c in range(self.C)] + ["y_first", "y_last"]) + "\n")
+            for k, y in enumerate(rowy):
+                f.write("\t".join([str(k + 1), "x"] + ["_"] * self.C + [str(round(y)), str(round(y))]) + "\n")
+
+    def test_track_default_is_chain(self):
+        """--track の既定は chain．none で前の動きに戻せる"""
+        d = tempfile.mkdtemp()
+        rowy = [60 + 30 * r for r in range(self.R)]
+        src = os.path.join(d, "p.png")
+        self.draw(src, rowy)
+        self.transcript(d)
+        args = [src, d, "Tab.11", "--box", "120", "60", "450", str(rowy[-1]), "--ref", "35", "80"]
+        rc, out = run(self.sc.main, args)
+        self.assertEqual(rc, 0, out)
+        rc, out_none = run(self.sc.main, args + ["--track", "none"])
+        self.assertEqual(rc, 0, out_none)
+        # 既定の結果は --track chain と同じ
+        _, out_chain = run(self.sc.main, args + ["--track", "chain"])
+        self.assertEqual(out, out_chain)
+
+    def test_grid_rows_without_ref(self):
+        """階層・和名の印字の無い行があって --ref が行を測り違える表は，--grid (marks_grid の y) で通る (Tab.115 型)"""
+        d = tempfile.mkdtemp()
+        rowy = [60 + 30 * r for r in range(self.R)]
+        src = os.path.join(d, "p.png")
+        self.draw(src, rowy, merged={4, 5, 17})            # 名前を書かない行 (階層の印字の無い行)
+        self.transcript(d, shift_col={2})
+        grid = os.path.join(d, "grid.tsv")
+        self.write_grid(grid, rowy)
+        base = [src, d, "Tab.11", "--box", "120", "60", "450", str(rowy[-1])]
+        rc, out = run(self.sc.main, base + ["--ref", "35", "80"])
+        self.assertEqual(rc, 1)                            # --ref だけでは行の数が合わない
+        self.assertIn("--grid", out)
+        rc, out = run(self.sc.main, base + ["--grid", grid])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("行の y: --grid (first) (30 行)", out)
+        self.assertIn("列 3: 列全体で d=+1", out)
+        flagged = [l for l in out.split("---")[1].splitlines() if l.startswith("  列 ")]
+        self.assertEqual({l.split(":")[0].strip() for l in flagged}, {"列 3"})
+
+    def test_grid_count_mismatch_stops(self):
+        d = tempfile.mkdtemp()
+        rowy = [60 + 30 * r for r in range(self.R)]
+        src = os.path.join(d, "p.png")
+        self.draw(src, rowy)
+        self.transcript(d)
+        grid = os.path.join(d, "grid.tsv")
+        self.write_grid(grid, rowy[:-2])
+        with self.assertRaises(SystemExit) as cm:
+            run(self.sc.main, [src, d, "Tab.11", "--box", "120", "60", "450", str(rowy[-1]), "--grid", grid])
+        self.assertIn("--grid", str(cm.exception.code))
+
+    def test_fix_rows_continues_and_reports(self):
+        """--fix-rows: 行の数が合わなくても止まらず，補った所を示して続ける．付けなければ前のとおり止まる"""
+        d = tempfile.mkdtemp()
+        rowy = [60 + 30 * r for r in range(self.R)]
+        src = os.path.join(d, "p.png")
+        self.draw(src, rowy, merged={10})                  # 行 11 の名前が無く，--ref は 29 行しか測れない
+        self.transcript(d)
+        args = [src, d, "Tab.11", "--box", "120", "60", "450", str(rowy[-1]), "--ref", "35", "80"]
+        rc, out = run(self.sc.main, args)
+        self.assertEqual(rc, 1)
+        rc, out = run(self.sc.main, args + ["--fix-rows"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("[行の補正]", out)
+        self.assertIn("足りない行を補った: y=360", out)
+        self.assertIn("行: 30 行", out)
+        self.assertIn("1 行ずれの疑いのある列は無い", out)
+
+    def test_fix_row_count_and_phys_kinds(self):
+        import numpy as np
+        ys, notes = self.sc.fix_row_count([10, 40, 100, 130], 5)           # 間隔 60 の所に 1 行足りない
+        self.assertEqual(list(ys), [10, 40, 70, 100, 130])
+        self.assertTrue(notes[0].startswith("足りない行を補った"))
+        ys, notes = self.sc.fix_row_count([10, 40, 70, 100], 5)           # 広い所が無ければ下へ延ばす
+        self.assertEqual(list(ys), [10, 40, 70, 100, 130])
+        ys, notes = self.sc.fix_row_count([10, 40, 55, 70, 100], 4, cnt=[5, 5, 0, 5, 5])   # 印の無い行を除く
+        self.assertEqual(list(ys), [10, 40, 70, 100])
+        # まとめた行 (1-2 を 1 行) があっても，見出しの位置を合わせる
+        kinds = ["sp", "sp", "group", "sp", "sp"]
+        self.assertEqual(self.sc.phys_kinds(kinds, [[0, 1], [2], [3]]), ["sp", "group", "sp", "sp"])
+        self.assertEqual(self.sc.phys_kinds(kinds, [[0], [1], [2], [3]]), ["sp", "sp", "group", "sp", "sp"])
 
     def test_best_segment(self):
         import numpy as np
