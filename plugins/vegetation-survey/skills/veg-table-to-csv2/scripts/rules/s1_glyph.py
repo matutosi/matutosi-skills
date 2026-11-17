@@ -6,8 +6,9 @@ from rules import Change, rule
 from rules._lib import COV, DASHES, ORDER, body_cells, header_layers, is_height_row
 
 
-NO_DOT = re.compile(r'^(?P<c>[1-5+r])\s*[-−]?\s*(?P<s>[1-5])(?P<q>\??)$')
-# 1 2 と，空白の無い 12・+2 (2026-11-17 ユーザ決定 3a)，被度 - 群度の +-2 (同 4a)
+NO_DOT = re.compile(r'^・?(?P<c>[1-5+r])\s*[-−,，]?\s*(?P<s>[1-5])・?(?P<q>\??)$')     # カンマの区切り 4,3 (東北 Tab.030) も
+# 1 2 と，空白の無い 12・+2 (2026-11-17 ユーザ決定 3a)，被度 - 群度の +-2 (同 4a)，
+# 中黒が後ろにずれた 12・ (四国 Tab.108．2026-11-17 ユーザ決定 6)，前にずれた ・12 (中国 Tab.137．同じ意図)
 
 
 COLON = re.compile(r'^(\d+)\s*[:：]\s*(\d+)$')
@@ -16,7 +17,8 @@ COLON = re.compile(r'^(\d+)\s*[:：]\s*(\d+)$')
 OPEN_PAREN = re.compile(rf'^(?P<head>(?:V|IV|III|II|I|[1-9]\d*|[+r]))\((?P<a>{COV})(?:\s*-\s*(?P<b>{COV}))?(?P<q>\??)$')
 
 
-NO_DASH = re.compile(rf'^(?P<head>(?:V|IV|III|II|I|[1-9]\d*|[+r]))\((?P<a>{COV})\s+(?P<b>{COV})\)(?P<q>\??)$')
+NO_DASH = re.compile(rf'^(?P<head>(?:V|IV|III|II|I|[1-9]\d*|[+r]))\((?P<a>{COV})\s*(?P<b>{COV})\)(?P<q>\??)$')
+# 空白のある III(+ 1) と，空白の無い +(+1) (東北 Tab.053．同じ意図．2026-11-17)．a < b のときだけ (11 は直さない)
 
 
 @rule('D13', '常在度の範囲の閉じ括弧の欠け・- の欠けを補う (I(+ → I(+)・III(+ 1) → III(+-1))', 1, old='X8 (ii)')
@@ -48,7 +50,7 @@ def dashes(t, param):
                 yield Change('header', d['_row'], p, '-', f'印字は {" ".join(parts)} (横棒が {len(parts)} つ)．- とした')
 
 
-@rule('D20', '地点の列の「被度 空白 群度」「被度群度」「被度-群度」は中黒の落ちとみて「被度・群度」に直す (1 2・12・+2・+-2 → 1・2．常在度の列は除く)', 1,
+@rule('D20', '地点の列の「被度 空白 群度」「被度群度」「被度-群度」「被度群度・」「・被度群度」は中黒の落ち・ずれとみて「被度・群度」に直す (1 2・12・+2・+-2・12・・・12 → 1・2．常在度の列は除く)', 1,
       old='(規則の番号なし．中黒の落ち．2026-11-04 の聞かずに直す印字の誤り)')
 def missing_dot(t, param):
     n = t.n_plots()
@@ -177,6 +179,61 @@ def dash_layer(t, param):
             v = d.get('layer', '').strip()
             if v and v in DASHES:
                 yield Change(kind, d['_row'], '@layer', '', f'階層の印字は {v}．階層なしとした')
+
+
+DOUBLE_LAYER = re.compile(r'^([A-Z])\1(\d?)$')
+DOUBLE_VALUE = re.compile(r'^([a-z+])\1(\??)$')     # 大文字は常在度のローマ数字 (II) があるので除く
+
+
+@rule('D38', '字の重なりを 1 字にする (階層の KK → K・SS → S・BB2 → B2，値の vv → v)', 1,
+      old='(規則の番号なし．四国 Tab.003・007・008．2026-11-17 ユーザ決定 5)')
+def double_glyph(t, param):
+    for kind in ('body', 'once'):
+        if 'layer' not in t.head[kind]:
+            continue
+        for d in t.dicts(kind):
+            layers = [x.strip() for x in d.get('layer', '').split(';')]
+            new = [DOUBLE_LAYER.sub(r'\1\2', x) for x in layers]
+            if new != layers:
+                yield Change(kind, d['_row'], '@layer', ';'.join(new), f"階層の印字は {','.join(layers)}．字の重なりとみて 1 字にした")
+    for row, p, v in body_cells(t):
+        m = DOUBLE_VALUE.match(v.strip())
+        if m:
+            yield Change('body', row, p, m.group(1) + m.group(2), f'値の印字は {v.strip()}．字の重なりとみて 1 字にした')
+    for d in t.dicts('once'):
+        m = DOUBLE_VALUE.match((d.get('value') or '').strip())
+        if m:
+            yield Change('once', d['_row'], '@value', m.group(1) + m.group(2), f"値の印字は {d['value'].strip()}．字の重なりとみて 1 字にした")
+
+
+@rule('D39', '地点の列の「・?」(点か空欄か決まらない．行の空欄の続きなど) は出現なしの「・」とする', 1,
+      old='(規則の番号なし．四国 Tab.106 のシロモジ．2026-11-17 ユーザ決定 8)')
+def doubt_dot(t, param):
+    for row, p, v in body_cells(t):
+        if v.strip() in ('・?', '・？'):
+            yield Change('body', row, p, '・', '印字は点か空欄か決まらない (・?)．出現なしとした')
+
+
+CONST_LIKE = re.compile(r'^(?:(?:IV|III|II|I)(?:\(.*\))?|(?:V|[1-5])\(.*\))\??$')   # I・II(+)・V(+-1)・2(+)
+
+
+@rule('D40','地点の列の大文字の「V」は「v」(出現のみ・量なし) とする (常在度の列は除く)', 1,
+      old='(規則の番号なし．四国 Tab.022・151 の凡例 v: Vorkommend ohne Menge．2026-11-17 ユーザ決定 2a)')
+def upper_v(t, param):
+    """常在度の列は除く．調査区数の行が無い表 (総合常在度表など．中国 Tab.072) もあるので，
+    同じ列に I〜IV か，括弧の付いた常在度の形 (V(+-1)・2(+)) の値があれば常在度の列とみる"""
+    n = t.n_plots()
+    cells = list(body_cells(t))
+    const = {p for p, k in n.items() if k > 0}
+    for _, p, v in cells:
+        if CONST_LIKE.match(v.strip()):
+            const.add(p)
+    for row, p, v in cells:
+        if p in const:                                      # 常在度の列の V はローマ数字の 5
+            continue
+        m = re.match(r'^V(\??)$', v.strip())
+        if m:
+            yield Change('body', row, p, 'v' + m.group(1), '地点の列の V は常在度ではないので v (出現のみ・量なし) とした')
 
 
 HYPHEN_LAYER = re.compile(r'^([A-Z])\s*[-−–]\s*(\d)$')

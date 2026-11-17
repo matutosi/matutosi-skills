@@ -390,6 +390,13 @@ class OnceAndFixesTest(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         got = {r["j_name"]: (r["plot"], r["note_judge"]) for r in rows(os.path.join(d, "composition.csv")) if r["source"] == "once"}
         self.assertEqual(got, {"ビー1": ("2", "D11"), "ビー2": ("2", "D11")})
+        # 1 つ飛んだ先 (2026-11-17 ユーザ決定 3a): in 1 の後ろの 1 行を地点 3 へ．地点 2 はもう合っていて，地点 3 に見出しが無い
+        d = self._table(["4", "3", "4", "3"], [["1", "Cc c1", "シー1", "K", "+", ""], ["1", "Cc c2", "シー2", "K", "+", ""]])
+        run(freeze.main, [d])
+        rc, out = run(decide.main, [d])
+        self.assertEqual(rc, 0, out)
+        got = {r["j_name"]: (r["plot"], r["note_judge"]) for r in rows(os.path.join(d, "composition.csv")) if r["source"] == "once"}
+        self.assertEqual(got, {"シー1": ("1", ""), "シー2": ("3", "D11")})
         d = self._table(["3", "5", "5", "3"], once)            # 地点 3 の種数は印字と合っている: 移さない
         run(freeze.main, [d])
         run(decide.main, [d])
@@ -877,7 +884,7 @@ class MovedRulesTest(unittest.TestCase):
         self.assertEqual(got["エー"], ("K", "D27"))
         self.assertEqual(got["ビー"], ("S", "D27"))
         self.assertEqual(got["シー"], ("K", "D28"))
-        self.assertEqual(got["ディー"], ("B2", "D28"))
+        self.assertEqual(got["ディー"], ("B2", "D38"))         # BB2 は字の重なり (D38) が先に当たる
         self.assertEqual(got["イー"], ("K", "D28"))
 
     def test_dash_absent(self):
@@ -1073,6 +1080,56 @@ class DayOnlyDateTest(unittest.TestCase):
         self.assertEqual((s["1"]["value"], s["1"]["note_judge"]), ("1988-03-19", "D37"))
         self.assertEqual((s["2"]["value"], s["2"]["status"]), ("1988-03-24", "check"))
         self.assertEqual(s["3"]["value"], "-")
+
+
+class UpperVConstancyTest(unittest.TestCase):
+    def test_no_plot_count_row(self):
+        """D40 は，調査区数の行が無い常在度の列 (総合常在度表．中国 Tab.072) の V を直さない"""
+        from rules import s3_names as names
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            d = make([HEAD3, ["出現種数", "Artenzahl", "", "1", "2", "-", ""]],
+                     [BODY3, ["sp", "", "", "Aa a", "エー", "K", "V", "II", "II", ""],
+                      ["sp", "", "", "Bb b", "ビー", "K", "III", "V", "V(+-1)", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        comp = {(r["j_name"], r["plot"]): r for r in rows(os.path.join(d, "composition.csv"))}
+        for key in (("エー", "1"), ("ビー", "2")):
+            self.assertNotIn("D40", comp[key]["note_judge"])
+
+
+class ShikokuDecisionsTest(unittest.TestCase):
+    def test_double_glyph_doubt_dot_and_late_dot(self):
+        """D38 (字の重なり KK・vv)・D39 (・? は出現なし)・D20 の 12・ (2026-11-17 四国のあとのユーザ決定 5・6・8)"""
+        from rules import s3_names as names
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            d = make([HEAD3, ["調査区数", "Zahl d. Aufn.", "", "-", "-", "4", ""]],
+                     [BODY3, ["sp", "", "", "Aa a", "エー", "KK", "12・", "・?", "II", ""],
+                      ["sp", "", "", "Bb b", "ビー", "K", "vv", "+", "・", ""],
+                      ["sp", "", "", "Cc c", "シー", "K", "+", "V", "V", ""],
+                      ["sp", "", "", "Dd d", "ディー", "K", "・12", "4,3", "+(+1)", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        comp = {(r["j_name"], r["plot"]): r for r in rows(os.path.join(d, "composition.csv"))}
+        self.assertEqual((comp[("エー", "1")]["layer"], comp[("エー", "1")]["value_decided"]), ("K", "1・2"))
+        self.assertNotIn(("エー", "2"), comp)                       # ・? は出現なし
+        self.assertEqual(comp[("エー", "3")]["constancy"], "II")      # 常在度のローマ数字は重なりとみない
+        self.assertEqual(comp[("ビー", "1")]["value_decided"], "v")
+        self.assertEqual((comp[("シー", "2")]["value_decided"], comp[("シー", "2")]["note_judge"].split(";")[0]), ("v", "D40"))   # 地点の列の V
+        self.assertEqual(comp[("シー", "3")]["constancy"], "V")       # 常在度の列の V はそのまま
+        self.assertEqual(comp[("ディー", "1")]["value_decided"], "1・2")   # 中黒が前にずれた ・12
+        self.assertEqual(comp[("ディー", "2")]["value_decided"], "4・3")   # カンマの区切り
+        self.assertEqual((comp[("ディー", "3")]["value_decided"], comp[("ディー", "3")]["note_judge"].split(";")[0]),
+                         ("+(+-1)", "D13"))                            # 範囲の - の欠け (空白なし)
 
 
 if __name__ == "__main__":

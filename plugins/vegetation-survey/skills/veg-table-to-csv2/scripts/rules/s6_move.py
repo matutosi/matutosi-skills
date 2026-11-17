@@ -38,7 +38,7 @@ def shift_candidates(body, once, want, max_len=15):
     return out
 
 
-@rule('D11', '1 回出現の見出しのずれ: 1 地点ずらすと関わる地点の出現種数がすべて印字と合うときだけ移す', 6, old='X35')
+@rule('D11', '1 回出現の見出しのずれ: 1 地点ずらすと関わる地点の出現種数がすべて印字と合うときだけ移す (段落の先頭・後ろの k 行だけのずれと，間の地点が合っていて見出しの無い先への後ろの k 行も)', 6, old='X35')
 def heading_shift(t, param):
     """1 つ移しては数え直し，次のずれを探す (今の手順と同じ)．候補はすべて見て，前後どちらへずらしても合う (関わる地点の
     重なる逆向きの候補がある) 候補だけを見送る．離れた別のずれは別々に移す (2026-11-16 ユーザ決定 1a)．同じ行は 2 回動かさない"""
@@ -76,7 +76,15 @@ def heading_shift(t, param):
         for p in sorted(once):
             rows = [r for r in work.dicts('once') if r.get('plot', '').strip() == str(p) and r['_row'] not in moved
                     and (r.get('s_name', '').strip() or r.get('j_name', '').strip())]
-            for q, where in ((p - 1, '先頭'), (p + 1, '後ろ')):
+            targets = [(p - 1, '先頭'), (p + 1, '後ろ')]
+            # 1 つ以上飛んだ先 (2026-11-17 ユーザ決定 3a．沖縄 Tab.110 の in 25 → 27): 間の地点がすべてもう合っていて，
+            # 移す先の地点に見出し (in q:) が無いときだけ．隣の地点は上の 2 つで見る
+            q = p + 1
+            while q in want and n(q, once) == want[q]:
+                q += 1
+            if q > p + 1 and q in want and q not in once:
+                targets.append((q, '後ろ'))
+            for q, where in targets:
                 if q not in want or p not in want or n(p, once) == want[p] or n(q, once) == want[q]:
                     continue                                # どちらかがもう合っている地点は触らない
                 hits = []
