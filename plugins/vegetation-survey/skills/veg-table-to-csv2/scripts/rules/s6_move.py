@@ -62,36 +62,42 @@ def heading_shift(t, param):
                 moved[row['_row']] = (p, f'地点 {" ".join(map(str, ok))} の出現種数がすべて印字と合う')
                 work.set('once', row['_row'], '@plot', str(int(p) + d))
     # 段落の途中からのずれ (2026-11-16 ユーザ決定): 段落の先頭から k 行だけを前の地点へ移すと，両方の地点の出現種数が
-    # 印字と合うときも移す．合う k が 1 つだけのときに限る (偶然の一致を減らす)．まるごとのずれを当てたあとで見る
+    # 印字と合うときも移す．段落の後ろから k 行だけを次の地点へ移す形も同じに見る (2026-11-17 ユーザ決定 3a．
+    # 見出し in N: が欠けて，次の地点の種が前の段落の後ろに続く型．九州 Tab.074・138・135・141)．
+    # 合う k が 1 つだけのときに限る (偶然の一致を減らす)．まるごとのずれを当てたあとで見る
+    def key_of(r):
+        return old_check.spkey(dict(s_name=r.get('s_name', '').strip(), j_name=r.get('j_name', '').strip()))
     for _ in range(20):
         body, once, want = species_sets(work)
         found = None
-        for p in sorted(once):
-            q = p - 1
-            if q not in want or p not in want:
-                continue
 
-            def n(plot, sets):
-                return len(body.get(plot, set()) | sets.get(plot, set()))
-            if n(p, once) == want[p] or n(q, once) == want[q]:
-                continue                                    # どちらかがもう合っている地点は触らない
+        def n(plot, sets):
+            return len(body.get(plot, set()) | sets.get(plot, set()))
+        for p in sorted(once):
             rows = [r for r in work.dicts('once') if r.get('plot', '').strip() == str(p) and r['_row'] not in moved
                     and (r.get('s_name', '').strip() or r.get('j_name', '').strip())]
-            hits = []
-            for k in range(1, len(rows)):
-                head = {old_check.spkey(dict(s_name=r.get('s_name', '').strip(), j_name=r.get('j_name', '').strip())) for r in rows[:k]}
-                rest = {old_check.spkey(dict(s_name=r.get('s_name', '').strip(), j_name=r.get('j_name', '').strip())) for r in rows[k:]}
-                keep_p = (once.get(p, set()) - head) | rest
-                if len(body.get(p, set()) | keep_p) == want[p] and len(body.get(q, set()) | once.get(q, set()) | head) == want[q]:
-                    hits.append(k)
-            if len(hits) == 1:
-                found = (p, q, rows[:hits[0]])
+            for q, where in ((p - 1, '先頭'), (p + 1, '後ろ')):
+                if q not in want or p not in want or n(p, once) == want[p] or n(q, once) == want[q]:
+                    continue                                # どちらかがもう合っている地点は触らない
+                hits = []
+                for k in range(1, len(rows)):
+                    part = rows[:k] if where == '先頭' else rows[-k:]
+                    others = rows[k:] if where == '先頭' else rows[:-k]
+                    moving = {key_of(r) for r in part}
+                    keep_p = (once.get(p, set()) - moving) | {key_of(r) for r in others}
+                    if len(body.get(p, set()) | keep_p) == want[p] and len(body.get(q, set()) | once.get(q, set()) | moving) == want[q]:
+                        hits.append(k)
+                if len(hits) == 1:
+                    k = hits[0]
+                    found = (p, q, rows[:k] if where == '先頭' else rows[-k:], where)
+                    break
+            if found:
                 break
         if not found:
             break
-        p, q, rows = found
+        p, q, rows, where = found
         for r in rows:
-            moved[r['_row']] = (str(p), f'段落の先頭の {len(rows)} 行を移すと地点 {q} {p} の出現種数が印字と合う')
+            moved[r['_row']] = (str(p), f'段落の{where}の {len(rows)} 行を移すと地点 {min(p, q)} {max(p, q)} の出現種数が印字と合う')
             work.set('once', r['_row'], '@plot', str(q))
     for row, (p, why) in sorted(moved.items()):
         new = work.get('once', row, '@plot')

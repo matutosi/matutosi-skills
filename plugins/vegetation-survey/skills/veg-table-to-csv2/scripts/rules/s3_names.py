@@ -1,5 +1,6 @@
 """段 3: 名前を直す (誤植の訂正の表・和名優先)．段 5・6 はこの後 (学名で引く・種を数える)"""
 import os
+import re
 import sys
 
 from common import OLD_SCRIPTS
@@ -145,3 +146,22 @@ def _fix_place(t):
 @rule('D30', '注記の調査地の地名の誤植を，訂正の表 (name_fixes.tsv の field=place) で直す', 3, old='X2・X21・X54')
 def fix_place(t, param):
     yield from _fix_place(t)
+
+
+JA_PAREN = re.compile(r'^(?P<name>[^()（）]+?)\s*\+?\s*[(（](?P<inner>[^()（）]+)[)）]\s*$')
+
+
+@rule('D31', '和名の末尾の括弧書き (イブキシモツケ (イワガサ)・ウツギ(含コウツギ)) を外す．中身は直しの記録に残す', 3,
+      old='(規則の番号なし．2026-11-17 ユーザ決定 1a)', order=9.5)
+def ja_paren(t, param):
+    """和名優先 (D10) がチェックリストで引けるよう，D10 の前に当てる (order=9.5)．
+    括弧書きの種に下線があり，値と対応するときは，読む段で別の行に分けてある (読み方の手引き)．ここで外すのは，分けなかった括弧書き"""
+    for kind in ('body', 'once'):
+        if 'j_name' not in t.head[kind]:
+            continue
+        for d in t.dicts(kind):
+            raw = d.get('j_name', '').strip()
+            m = JA_PAREN.match(raw)
+            if m and m.group('name').strip():
+                yield Change(kind, d['_row'], '@j_name', m.group('name').strip(),
+                             f"和名の印字は「{raw}」．括弧書き ({m.group('inner').strip()}) を外した")

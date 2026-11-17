@@ -1,0 +1,136 @@
+genus	use	note
+Acystopteris	yes	
+Adiantum	yes
+Aleuritopteris	yes	
+Allantodia	yes	
+Angiopteris	yes	リュウビンタイ (地上生．大形だが木生シダではない)
+Anisocampium	yes
+Arachniodes	yes
+Arthromeris	yes	
+Asplenium	yes	着生の種 (シマオオタニワタリ・オオタニワタリ・オオアオガネシダ・コウザキシダ) は species で除く
+Athyrium	yes
+Azolla	yes	水草
+Blechnopsis	yes
+Bolbitis	yes
+Botrychium	yes
+Ceratopteris	yes
+Cheilanthes	yes
+Christella	yes	
+Colysis	yes	イワヒトデ (旧学名．今は Leptochilus)
+Coniogramme	yes
+Cornopteris	yes	
+Crypsinus	yes	ミツデウラボシ (旧学名．今は Selliguea)
+Cryptogramma	yes
+Ctenitis	yes
+Ctenitopsis	yes	
+Cyclosorus	yes	
+Cyrtogonellum	yes	
+Cyrtomium	yes
+Cystopteris	yes
+Dennstaedtia	yes
+Deparia	yes
+Dicranopteris	yes
+Diphasiastrum	yes	ヒカゲノカズラ類 (X42)
+Diplaziopsis	yes	
+Diplazium	yes
+Diplopterygium	yes
+Dipteris	yes
+Doryopteris	yes	
+Dryopsis	yes
+Dryopteris	yes
+Equisetum	yes	トクサ類 (X42)
+Gleichenia	yes	ウラジロ (旧学名．今は Diplopterygium)
+Gymnocarpium	yes
+Hicriopteris	yes	コシダ類の旧学名
+Hippochaete	yes	トクサ類の旧学名 (X42)
+Histiopteris	yes
+Huperzia	yes	ヒカゲノカズラ類 (X42)．着生のヨウラクヒバ類 (Phlegmariurus) は除く
+Hymenasplenium	yes
+Hypodematium	yes
+Hypolepis	yes
+Isoetes	yes
+Lastrea	yes	
+Leptochilus	yes
+Leptogramma	yes	
+Leptorumohra	yes	
+Lindsaea	yes
+Lunathyrium	yes	
+Lycopodiella	yes	ヒカゲノカズラ類 (X42)
+Lycopodium	yes	ヒカゲノカズラ類 (X42)
+Lygodium	yes	カニクサ (つる性だが草本)
+Macrothelypteris	yes	
+Mankyua	yes	
+Marattia	yes	
+Marsilea	yes	水草
+Matteuccia	yes
+Metathelypteris	yes	
+Microlepia	yes
+Monachosorum	yes	
+Nephrolepis	yes
+Odontosoria	yes
+Onoclea	yes
+Onychium	yes
+Ophioglossum	yes
+Osmolindsaea	yes
+Osmunda	yes
+Osmundastrum	yes
+Paesia	yes	
+Palhinhaea	yes	ヒカゲノカズラ類 (X42)
+Parathelypteris	yes	
+Pentarhizidium	yes
+Phegopteris	yes	
+Pityrogramma	yes	
+Plagiogyria	yes
+Plenasium	yes	シロヤマゼンマイ
+Polystichopsis	yes	
+Polystichum	yes
+Pseudocystopteris	yes	
+Pseudophegopteris	yes	
+Pteridium	yes
+Pteris	yes
+Rhachidosorus	yes
+Salvinia	yes	水草
+Selaginella	yes	イワヒバ類 (X42 に準じる)
+Selliguea	yes	ミツデウラボシ (地上・岩上生)
+Sphenomeris	yes	ホラシノブ (旧学名．今は Odontosoria)
+Stegnogramma	yes	
+Struthiopteris	yes
+Tapeinidium	yes
+Tectaria	yes
+Thelypteris	yes
+Woodsia	yes
+Woodwardia	yes
+Lepisorus	no	ノキシノブ類 (着生．X14 で除く)
+Neolepisorus	no	ノキシノブ類 (着生)
+Pyrrosia	no	ヒトツバ類 (着生)
+Lemmaphyllum	no	マメヅタ類 (着生)
+Davallia	no	シノブ類 (着生)
+Hymenophyllum	no	コケシノブ類 (着生)
+Crepidomanes	no	コケシノブ類 (着生)
+Vandenboschia	no	コケシノブ類 (着生)
+Haplopteris	no	シシラン類 (着生)
+Vittaria	no	シシラン類 (着生)
+Psilotum	no	マツバラン (着生)
+Cyathea	no	ヘゴ類 (木生シダ)
+Alsophila	no	ヘゴ類 (木生シダ)
+Sphaeropteris	no	ヘゴ類 (木生シダ)
+Phlegmariurus	no	ヨウラクヒバ類 (着生)
+Goniophlebium	no	アオネカズラ (着生)
+Micropolypodium	no	ヒメウラボシ (着生)
+Loxogramme	no	サジラン類 (着生)
+Lepidomicrosorum	no	(着生)
+Microsorum	no	オキナワウラボシ (着生．X14 で除く)
+Asplenium nidus	no	シマオオタニワタリ (着生．X14 で除く)
+Asplenium setoi	no	シマオオタニワタリ (着生)
+Asplenium antiquum	no	オオタニワタリ (着生．X14 で除く)
+Asplenium wilfordii	no	オオアオガネシダ (着生．X14 で除く)
+Asplenium ritoense	no	コウザキシダ (着生．X14 で除く)
+Antrophyum	no	タキミシダ類 (着生)
+Araiostegia	no	(着生)
+Elaphoglossum	no	ヒロハノコギリシダ類 (着生)
+Gonocormus	no	コケシノブ類 (着生)
+Humata	no	キクシノブ (着生)
+Mecodium	no	コケシノブ類 (着生)
+Pleurosoriopsis	no	カラクサシダ (着生)
+Polypodium	no	オシャグジデンダ (着生・岩上)
+Trichomanes	no	コケシノブ類 (着生)

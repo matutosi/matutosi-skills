@@ -141,3 +141,49 @@ def odd_layer(t, param):
             if new != layers:
                 yield Change(kind, d['_row'], '@layer', ';'.join(new),
                              f"階層の印字は {','.join(layers)}．表頭に無い記号なので {','.join(new) or '空欄'} とした")
+
+
+_FERNS = {}
+
+
+def fern_lists():
+    """references/fern_genera.tsv を (当てる属, 除く属, 除く種) で．種は「属 種小名」の 2 語"""
+    if not _FERNS:
+        import os
+        p = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'references', 'fern_genera.tsv')
+        yes, no_g, no_s = set(), set(), set()
+        with open(p, encoding='utf-8') as f:
+            for line in f.read().splitlines()[1:]:
+                parts = line.split(chr(9))
+                if len(parts) < 2 or not parts[0].strip():
+                    continue
+                name, use = parts[0].strip().lower(), parts[1].strip()
+                if ' ' in name:
+                    no_s.add(name)
+                elif use == 'yes':
+                    yes.add(name)
+                else:
+                    no_g.add(name)
+        _FERNS.update(yes=yes, no_g=no_g, no_s=no_s)
+    return _FERNS['yes'], _FERNS['no_g'], _FERNS['no_s']
+
+
+@rule('D35', '階層の印字の無いシダ (トクサ類・ヒカゲノカズラ類を含む) は K 層にする．着生シダ・木生シダは除く (階層の欄のある表だけ)', 5,
+      old='X14・X42')
+def fern_herb_layer(t, param):
+    """シダの属と除く属・種は references/fern_genera.tsv (今のスキルの X14 の文面から)．
+    今のスキルの X14 は階層の欄の無い表 (総合常在度表など) にも当てるが，ここでは欄のある表だけ (欄を足せないため)．
+    1 回出現は D16 (木本と分かる種を除いて K) も当たる．続きの行 (名の無い行) は上の種の階層ごとの行なので当てない"""
+    yes, no_g, no_s = fern_lists()
+    for kind in ('body', 'once'):
+        if 'layer' not in t.head[kind] or 's_name' not in t.head[kind]:
+            continue
+        for d in t.dicts(kind):
+            if d.get('kind') == 'group' or d.get('layer', '').strip():
+                continue
+            words = d.get('s_name', '').lower().split()
+            if not words:
+                continue
+            g, sp = words[0], ' '.join(words[:2])
+            if g in yes and g not in no_g and sp not in no_s:
+                yield Change(kind, d['_row'], '@layer', 'K', '階層の印字なし．シダ植物なので K とした')

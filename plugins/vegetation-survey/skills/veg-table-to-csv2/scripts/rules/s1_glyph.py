@@ -6,7 +6,7 @@ from rules import Change, rule
 from rules._lib import COV, DASHES, ORDER, body_cells, header_layers, is_height_row
 
 
-NO_DOT = re.compile(r'^(?P<c>[1-5+r])\s+(?P<s>[1-5])(?P<q>\??)$')
+NO_DOT = re.compile(r'^(?P<c>[1-5+r])\s*(?P<s>[1-5])(?P<q>\??)$')     # 1 2 と，空白の無い 12・+2 (2026-11-17 ユーザ決定 3a)
 
 
 COLON = re.compile(r'^(\d+)\s*[:：]\s*(\d+)$')
@@ -47,8 +47,8 @@ def dashes(t, param):
                 yield Change('header', d['_row'], p, '-', f'印字は {" ".join(parts)} (横棒が {len(parts)} つ)．- とした')
 
 
-@rule('D20', '地点の列の「被度 空白 群度」は中黒の落ちとみて「被度・群度」に直す (1 2 → 1・2．常在度の列は除く)', 1,
-      old='(規則の番号なし．中黒の落ち)')
+@rule('D20', '地点の列の「被度 空白 群度」「被度群度」は中黒の落ちとみて「被度・群度」に直す (1 2・12・+2 → 1・2．常在度の列は除く)', 1,
+      old='(規則の番号なし．中黒の落ち．2026-11-04 の聞かずに直す印字の誤り)')
 def missing_dot(t, param):
     n = t.n_plots()
     plots = t.plots('body')
@@ -127,3 +127,67 @@ def lower_layer(t, param):
             if new != layers:
                 yield Change(kind, d['_row'], '@layer', ';'.join(new),
                              f"階層の印字は {','.join(layers)}．小文字は大文字の字形の誤植とみた")
+
+
+# 項目名の書き方の揺れ (意味は同じ．2026-11-17 ユーザ決定 2a)
+ITEM_FORM = [(re.compile(r'拔'), lambda m: '抜'),                    # 字の置き換えを先に (後の「の」の決まりが当たるように)
+             (re.compile(r'蘇苔|コケ層'), lambda m: '蘚苔' if m.group(0) == '蘇苔' else '蘚苔層'),
+             (re.compile(r'第\s*([0-9０-９一二])\s*層'), lambda m: '第' + {'一': '1', '二': '2', '１': '1', '２': '2'}.get(m.group(1), m.group(1)) + '層'),
+             (re.compile(r'([木本]層|第[12]層|苔層)植被率'), lambda m: m.group(1) + 'の植被率'),
+             (re.compile(r'(\S)\('), lambda m: m.group(1) + ' (')]
+
+
+def item_form(name):
+    """項目名の書き方をそろえる (高木第 1 層 → 高木第1層・低木層植被率 → 低木層の植被率・調査地(県名) → 調査地 (県名))"""
+    s = name.strip()
+    for pat, fn in ITEM_FORM:
+        s = pat.sub(fn, s)
+    return s
+
+
+@rule('D32', '表頭・注記の項目名をそろえる (書き方の揺れと，対応表 item_names.tsv の別名 → 決まった名)', 1,
+      old='(規則の番号なし．2026-11-17 ユーザ決定)')
+def item_names(t, param):
+    """対応表 item_names.tsv (列: alias name) は置き場と 1 つ上のフォルダのものを重ねる．
+    同じ表にもう決まった名の行があるときは，別名の行を直さない (別の行の取り違えを避ける．群落記号と群落区分が別の行の表がある)"""
+    from rules._lib import _load
+    alias = {item_form(r['alias']): item_form(r['name']) for r in _load(t, 'item_names.tsv') if r.get('alias') and r.get('name')}
+    for kind in ('header', 'notes'):
+        if 'item_ja' not in t.head[kind]:
+            continue
+        rows = t.dicts(kind)
+        have = {item_form(d.get('item_ja', '')) for d in rows}
+        for d in rows:
+            raw = d.get('item_ja', '')
+            new = item_form(raw)
+            why = '書き方をそろえた'
+            if new in alias and alias[new] not in have:
+                new, why = alias[new], '別名を決まった名にした (item_names.tsv)'
+            if new and new != raw.strip():
+                yield Change(kind, d['_row'], '@item_ja', new, f'項目名の印字は「{raw.strip()}」．{why}')
+
+
+@rule('D33', '階層の欄の横棒 (-) は階層なし (空欄) とする', 1, old='(規則の番号なし．2026-11-17 ユーザ決定)')
+def dash_layer(t, param):
+    for kind in ('body', 'once'):
+        if 'layer' not in t.head[kind]:
+            continue
+        for d in t.dicts(kind):
+            v = d.get('layer', '').strip()
+            if v and v in DASHES:
+                yield Change(kind, d['_row'], '@layer', '', f'階層の印字は {v}．階層なしとした')
+
+
+HYPHEN_LAYER = re.compile(r'^([A-Z])\s*[-−–]\s*(\d)$')
+
+
+@rule('D34', '階層の記号の数字の前の横棒を外す (B-1 → B1)', 1, old='(規則の番号なし．2026-11-17 ユーザ決定)')
+def hyphen_layer(t, param):
+    for kind in ('body', 'once'):
+        if 'layer' not in t.head[kind]:
+            continue
+        for d in t.dicts(kind):
+            layers = [x.strip() for x in d.get('layer', '').split(';')]
+            new = [HYPHEN_LAYER.sub(r'\1\2', x) for x in layers]
+            if new != layers:
+                yield Change(kind, d['_row'], '@layer', ';'.join(new), f"階層の印字は {','.join(layers)}．横棒を外した")

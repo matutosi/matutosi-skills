@@ -908,7 +908,7 @@ class MovedRulesTest(unittest.TestCase):
                  notes=[["1,2", "調査地", "Fundort", "木城町", "", "Kijo-cho 木城町", "ok", ""]])
         _, sites = self._run(d)
         s = {(r["item_ja"], r["plot"]): r for r in sites}
-        self.assertEqual((s[("草本層植被率", "1")]["status"], s[("草本層植被率", "1")]["note_conflict"]), ("check", "R"))
+        self.assertEqual((s[("草本層の植被率", "1")]["status"], s[("草本層の植被率", "1")]["note_conflict"]), ("check", "R"))
         self.assertEqual(s[("傾斜", "1")]["note_conflict"], "R")
         self.assertEqual((s[("草本層の高さ", "2")]["status"], s[("草本層の高さ", "2")]["note_conflict"]), ("check", "H"))
         self.assertEqual(s[("草本層の高さ", "1")]["note_conflict"], "")
@@ -928,6 +928,93 @@ class MovedRulesTest(unittest.TestCase):
         s = {(r["item_ja"], r["plot"]): r for r in sites}
         self.assertEqual((s[("調査地 (県名)", "1")]["status"], s[("調査地 (県名)", "1")]["note_conflict"]), ("check", "G"))
         self.assertEqual(s[("調査地 (県名)", "2")]["note_conflict"], "")
+
+
+class KyushuAnswersTest(unittest.TestCase):
+    """九州の読み直しへのユーザ決定 (2026-11-17「1a 2a 3a」) から足した規則"""
+
+    def _run(self, d):
+        from rules import s3_names as names, s5_layer as layer
+        layer._WOODY.clear()
+        names._FIXES.clear()
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        return rows(os.path.join(d, "composition.csv")), rows(os.path.join(d, "sites.csv"))
+
+    def test_dot_paren_layers(self):
+        """D20: 空白の無い 12・+2．D31: 和名の括弧書き．D33: 階層の -．D34: B-1"""
+        d = make([HEAD3],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "K", "12", "+2", "・", ""],
+                  ["sp", "", "", "Bb b", "ビー (シー)", "K", "+", "・", "・", ""],
+                  ["sp", "", "", "Cc c", "ディー", "-", "+", "・", "・", ""],
+                  ["sp", "", "", "Ee e", "イー", "B-1", "+", "・", "・", ""]])
+        comp, _ = self._run(d)
+        got = {(r["j_name"], r["plot"]): r for r in comp}
+        self.assertEqual((got[("エー", "1")]["cover"], got[("エー", "1")]["sociability"], got[("エー", "1")]["note_judge"]), ("1", "2", "D20"))
+        self.assertEqual((got[("エー", "2")]["cover"], got[("エー", "2")]["sociability"]), ("+", "2"))
+        self.assertIn("D31", got[("ビー", "1")]["note_judge"].split(";"))
+        self.assertEqual((got[("ディー", "1")]["layer"], got[("ディー", "1")]["note_judge"].split(";")[0]), ("", "D33"))
+        self.assertEqual((got[("イー", "1")]["layer"], got[("イー", "1")]["note_judge"].split(";")[0]), ("B1", "D34"))
+
+    def test_item_names(self):
+        """D32: 書き方の揺れ (高木第 1 層植被率) と対応表の別名 (既発表資料名 → 出典)．決まった名の行がすでにある表では別名を直さない"""
+        d = make([HEAD3, ["高木第 1 層植被率", "Deckung d. Baumschicht-1", "%", "40", "50", "60", ""],
+                  ["群落記号", "Spalte", "", "a", "a", "b", ""], ["群落区分", "Spalte", "", "A", "A", "A", ""]],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", ""]],
+                 notes=[["1-3", "既発表資料名", "Nachweis", "Miyawaki 1981", "", "", "ok", ""]])
+        write(os.path.join(os.path.dirname(d.rstrip(os.sep)), "item_names.tsv") if False else os.path.join(d, "item_names.tsv"),
+              [["alias", "name", "note"], ["既発表資料名", "出典", ""], ["群落記号", "群落区分", ""]])
+        _, sites = self._run(d)
+        items = {r["item_ja"] for r in sites}
+        self.assertIn("高木第1層の植被率", items)
+        self.assertIn("出典", items)
+        self.assertIn("群落記号", items)                      # 群落区分の行がもうあるので直さない
+        self.assertNotIn("既発表資料名", items)
+
+    def test_tail_shift(self):
+        """D11 の広げた形: 段落の後ろの k 行を次の地点へ移すと両方の地点が合う (見出し in 3: の欠け)"""
+        head = ["item_ja", "item_de", "unit", "1", "2", "3", "note"]
+        d = make([head, ["出現種数", "Artenzahl", "", "1", "2", "3", ""]],
+                 [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", ""]],
+                 once=[["2", "Bb b", "ビー", "K", "+", ""], ["2", "Cc c", "シー", "K", "+", ""], ["2", "Dd d", "ディー", "K", "+", ""]])
+        comp, _ = self._run(d)
+        got = {r["j_name"]: (r["plot"], r["note_judge"]) for r in comp if r["source"] == "once"}
+        self.assertEqual(got["ビー"], ("2", ""))
+        self.assertEqual(got["シー"], ("3", "D11"))
+        self.assertEqual(got["ディー"], ("3", "D11"))
+
+
+class FernLayerTest(unittest.TestCase):
+    def test_fern_k(self):
+        """D35: 階層の印字の無いシダは K．着生シダ (Lepisorus) と種で除くもの (Asplenium antiquum) は空欄のまま (X14・X42)"""
+        from rules import s3_names as names, s5_layer as layer
+        layer._WOODY.clear()
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            d = make([HEAD3],
+                     [BODY3, ["sp", "", "", "Gleichenia japonica", "ウラジロ", "", "+", "・", "・", ""],
+                      ["sp", "", "", "Dicranopteris pedata", "コシダ", "", "+", "・", "・", ""],
+                      ["sp", "", "", "Lepisorus thunbergianus", "ノキシノブ", "", "+", "・", "・", ""],
+                      ["sp", "", "", "Asplenium antiquum", "オオタニワタリ", "", "+", "・", "・", ""],
+                      ["sp", "", "", "Equisetum arvense", "スギナ", "", "+", "・", "・", ""],
+                      ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        got = {r["j_name"]: (r["layer"], r["note_judge"]) for r in rows(os.path.join(d, "composition.csv")) if r["plot"] == "1"}
+        self.assertEqual(got["コシダ"], ("K", "D35"))
+        self.assertEqual(got["スギナ"], ("K", "D35"))
+        self.assertEqual(got["ノキシノブ"][0], "")
+        self.assertEqual(got["オオタニワタリ"][0], "")
 
 
 if __name__ == "__main__":
