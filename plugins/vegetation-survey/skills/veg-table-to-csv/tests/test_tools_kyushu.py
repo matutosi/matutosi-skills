@@ -26,6 +26,12 @@ try:
     from PIL import Image, ImageDraw
 except ImportError:                                   # pragma: no cover
     Image = None
+try:
+    import numpy  # noqa: F401
+    import scipy  # noqa: F401
+    HAVE_SCIPY = True
+except ImportError:                                   # pragma: no cover
+    HAVE_SCIPY = False
 
 
 def run(fn, argv):
@@ -275,7 +281,7 @@ class CropDeskewTest(unittest.TestCase):
         self.assertTrue([f for f in os.listdir(o) if f.startswith("t_r1_p01-06")])
 
 
-@unittest.skipIf(Image is None, "Pillow が無い")
+@unittest.skipIf(Image is None or not HAVE_SCIPY, "Pillow・numpy・scipy が無い")
 class UlSheetTest(unittest.TestCase):
     def setUp(self):
         try:
