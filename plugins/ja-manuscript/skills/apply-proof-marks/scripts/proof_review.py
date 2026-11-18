@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""朱書きの修正案を，帯の画像と差分を見ながらブラウザで採否を決める簡易サーバ。
+"""修正案を，差分 (と朱書きの帯の画像) を見ながらブラウザで採否を決める 1 枚の静的な HTML を作る。
 
-    python proof_review.py serve _review/marks/items_*.json            # ブラウザが開く (終了は Ctrl+C)
-    python proof_review.py serve items.json --decisions d.json --base . --port 8766 --no-browser
-    python proof_review.py status items_*.json                          # 未決・採用・不採用・保留・反映済みの件数
-    python proof_review.py apply items_*.json                           # 採用した分の置換を確かめる (書かない)
-    python proof_review.py apply items_*.json --apply                   # 原稿へ当て，反映済みにする
+    python proof_review.py html _review/marks/items_*.json --out review.html   # HTML を書く (サーバは要らない)
+    python proof_review.py status items_*.json --decisions 回答.json           # 未決・採用・不採用・保留・反映済みの件数
+    python proof_review.py apply items_*.json --decisions 回答.json            # 採用した分の置換を確かめる (書かない)
+    python proof_review.py apply items_*.json --decisions 回答.json --apply    # 原稿へ当て，反映済みにする
 
-左に帯の画像 (朱書き入り．拡大・朱書きを消した版も切り替えられる)，右に修正前と修正後の差分と
-案 a/b/c が並ぶ。押した時点で decisions.json (decisions.py と同じ形) に書き戻す。
-**原稿そのものは serve では書き換えない**。当てるのは apply --apply だけ。
+できた HTML をブラウザで開く。右に修正前と修正後の差分と案 a/b/c が並び，画像のある項目だけ左に帯の画像
+(朱書き入り．拡大・朱書きを消した版も切り替えられる) が出る。画像が無い項目 (原稿だけから作った修正案) は 1 段組。
+押した決定はブラウザの localStorage に残り (閉じても消えない)，「回答を JSON で保存」で
+decisions.json (decisions.py と同じ形) を落とす。ファイル名は `<HTML の名前>_decisions.json`。
+「回答を読み込む」で，保存した回答から続けられる。HTML を作るときに --decisions の記録があれば，それを初めの状態にする。
+**原稿そのものは HTML では書き換えない**。当てるのは apply --apply だけ。
 
 項目 JSON (読み取りのエージェントが書く) の形:
 
@@ -26,14 +28,16 @@
 - images は項目 JSON のあるディレクトリから見た相対パス (絶対パスも可)。見せるのはここに載った画像だけ。
 - 項目の file は --base (既定: 今のディレクトリ) から見る。修正前と修正後が原稿に何回あるかで
   「未反映・反映済み・見当たらない」を出す (check_applied.py と同じ考え方)。
-- どの項目にも「自分で書く」欄がある (判読不能の朱書きや，案と違う直し方のとき)。
+- どの項目にも「自分で書く」欄がある (判読不能の朱書きや，案と違う直し方のとき)。ファイルの欄の既定は，その項目の案の原稿。
 - 決定は decisions.json の 1 件になる: status は approved (採用)・rejected (不採用)・pending (保留)。
   選んだ案と，欄で直した修正後の文が items に入り，choice・memo・page・band も残る。
-- サーバは 127.0.0.1 だけで待ち受け，ほかのページからの書き込みは断る。標準ライブラリだけで動く。
+- 画像は HTML に埋め込む (項目に載った画像だけ)。標準ライブラリだけで動く。
 """
 import argparse
+import base64
 import difflib
 import glob
+import hashlib
 import html
 import json
 import mimetypes
@@ -41,9 +45,6 @@ import os
 import subprocess
 import sys
 import threading
-import webbrowser
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -258,7 +259,7 @@ class Store:
 PAGE = r"""<!doctype html>
 <html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>朱書きの採否</title>
+<title>__TITLE__</title>
 <style>
 :root{--bg:#fafaf7;--fg:#222;--mut:#666;--line:#ddd;--card:#fff;--del:#ffd6d6;--ins:#cdf3d0;--acc:#0b5cad;
  --ok:#1a7f37;--ng:#b42318;--hold:#9a6700}
@@ -271,9 +272,10 @@ header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px so
 header h1{font-size:17px;margin:0}
 header .cnt span{margin-right:10px}
 header select,header button{font:inherit;padding:2px 8px}
-main{padding:12px 16px 80px}
+main{padding:12px 16px 80px;max-width:1500px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:6px;margin:0 0 14px;display:grid;
  grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;padding:10px}
+.card.noimg{grid-template-columns:minmax(0,1fr);max-width:980px}
 .card.focus{outline:3px solid var(--acc)}
 @media (max-width:900px){.card{grid-template-columns:1fr}}
 .imgs img{max-width:100%;display:block;border:1px solid var(--line);background:#fff}
@@ -306,9 +308,10 @@ textarea,input[type=text]{width:100%;font:13px/1.5 Consolas,"BIZ UDGothic",monos
 .toast{position:fixed;right:16px;bottom:16px;background:var(--fg);color:var(--bg);padding:6px 12px;border-radius:4px;opacity:0;transition:opacity .2s}
 .toast.on{opacity:.9}
 .help{font-size:12px;color:var(--mut)}
+#save{font-weight:bold}
 </style></head><body>
 <header>
- <h1 id="title">朱書きの採否</h1>
+ <h1 id="title"></h1>
  <div class="cnt" id="cnt"></div>
  <label>表示 <select id="filter">
   <option value="undecided">未決だけ</option><option value="all">すべて</option>
@@ -316,20 +319,34 @@ textarea,input[type=text]{width:100%;font:13px/1.5 Consolas,"BIZ UDGothic",monos
   <option value="unreadable">判読不能</option><option value="pending">保留</option>
   <option value="approved">採用 (未反映)</option><option value="rejected">不採用</option></select></label>
  <button id="bulk" title="表示中の単純な修正のうち，未決のものをすべて案 a で採用する">表示中の単純な修正を一括採用</button>
- <span class="help">キー: j/k 移動・1〜3 案・a 採用・r 不採用・h 保留・u 取り消し</span>
+ <button id="save" title="decisions.json と同じ形で落とす">回答を JSON で保存</button>
+ <label><button id="loadbtn" type="button">回答を読み込む</button><input type="file" id="loadfile" accept=".json,application/json" hidden></label>
+ <span class="help">キー: j/k 移動・1〜3 案・a 採用・r 不採用・h 保留・u 取り消し．決定はこのブラウザに自動で残ります</span>
 </header>
 <main id="list"></main>
 <div class="toast" id="toast"></div>
 <script>
+const DATA = __DATA__;
+const KEY = "proof_review:" + DATA.key;
 const $ = s => document.querySelector(s);
-let DATA = null, FOCUS = 0;
+let FOCUS = 0;
 const KIND = {simple:"単純", judge:"要判断", unreadable:"判読不能"};
-const STATE = {pending:"未反映", applied:"反映済み", both:"一部反映", moot:"原稿に見当たらない", nofile:"ファイルが無い"};
+const STATE = {pending:"未反映", applied:"反映済み", both:"一部反映", moot:"原稿に見当たらない", nofile:"ファイルが無い", typed:"手入力 (HTML を作ったときの原稿で確かめていない)"};
 const DEC = {approved:"採用", rejected:"不採用", pending:"保留", applied:"反映済み"};
 function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
-function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("on");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("on"),1500)}
-async function load(){const r=await fetch("/api/items");DATA=await r.json();render()}
-function status(it){return it.decision?it.decision.status:"undecided"}
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("on");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("on"),1800)}
+function diffHtml(a,b){a=a||"";b=b||"";let p=0;while(p<a.length&&p<b.length&&a[p]===b[p])p++;
+ let s=0;while(s<a.length-p&&s<b.length-p&&a[a.length-1-s]===b[b.length-1-s])s++;
+ const e=x=>esc(x).replace(/\n/g,"<span class=nl>↵</span>\n");
+ const mid=(x,tag)=>x?`<${tag}>${e(x)}</${tag}>`:"";
+ return [e(a.slice(0,p))+mid(a.slice(p,a.length-s),"del")+e(a.slice(a.length-s)),
+         e(b.slice(0,p))+mid(b.slice(p,b.length-s),"ins")+e(b.slice(b.length-s))]}
+// 決定: {id: decisions.json の 1 件}．初めは HTML に入れた記録，ブラウザに残した分で上書きする
+let DECS = {};
+DATA.items.forEach(it=>{if(it.decision)DECS[it.id]=it.decision});
+try{Object.assign(DECS, JSON.parse(localStorage.getItem(KEY)||"{}"))}catch(e){}
+function persist(){try{localStorage.setItem(KEY,JSON.stringify(DECS))}catch(e){toast("ブラウザに保存できません．こまめに「回答を JSON で保存」してください")}}
+function status(it){const d=DECS[it.id];return d?d.status:"undecided"}
 function visible(it){const f=$("#filter").value, s=status(it);
  if(f==="all")return true; if(f==="undecided")return s==="undecided";
  if(["simple","judge","unreadable"].includes(f))return it.kind===f; return s===f}
@@ -343,26 +360,32 @@ function subHtml(s, editable, iid, k, n){
   `<span class="t">修正後</span><span>${s.new_html||'<span class=mut>(削除)</span>'}</span></div>`;
  if(editable) h+=`<details><summary class="mut">修正後を直す</summary><textarea rows="3" data-edit="${iid}|${k}|${n}">${esc(s.new)}</textarea></details>`;
  return h+`</div>`}
-function chosen(it){const d=it.decision; if(d&&d.choice)return d.choice;
+function chosen(it){const d=DECS[it.id]; if(d&&d.choice)return d.choice;
  const r=it.options.find(o=>o.recommended)||it.options[0]; return r?r.key:"own"}
+function shown(it, o){ // 選んだ案を欄で直していれば，直した文で見せる
+ const d=DECS[it.id];
+ if(!(d&&d.choice===o.key&&d.edited))return o.items;
+ return d.items.map((x,n)=>{const base=o.items[n]||{};const [a,b]=diffHtml(x.old,x.new);
+  return Object.assign({},base,x,{old_html:a,new_html:b,state:x.new===base.new?base.state:"typed",line:base.line})})}
+function ownFile(it){const o=it.options.find(x=>x.items.length);return o?o.items[0].file:(DATA.files[0]||"")}
 function card(it, idx){
- const d=it.decision, s=status(it), ch=chosen(it);
- let imgs=it.images.length?`<div class="tabs">`+it.images.map((m,i)=>`<button data-img="${idx}|${i}" class="${i?"":"on"}">${esc(m.name)}</button>`).join("")+
-  `</div><img id="img${idx}" src="/img?k=${encodeURIComponent(it.images[0].key)}" loading="lazy" alt="${esc(it.images[0].name)}">`:'<span class="mut">画像なし</span>';
+ const d=DECS[it.id], s=status(it), ch=chosen(it), hasImg=it.images.length>0;
+ const imgs=hasImg?`<div class="imgs"><div class="tabs">`+it.images.map((m,i)=>`<button data-img="${idx}|${i}" class="${i?"":"on"}">${esc(m.name)}</button>`).join("")+
+  `</div><img id="img${idx}" src="${it.images[0].src}" alt="${esc(it.images[0].name)}"></div>`:"";
  let opts=it.options.map(o=>{
-  const useEdited = d && d.choice===o.key && d.edited;
-  const subs=(useEdited?it.decided_items:o.items).map((x,n)=>subHtml(x,true,it.id,o.key,n)).join("") || '<div class="mut">原稿は変えない</div>';
+  const subs=shown(it,o).map((x,n)=>subHtml(x,true,it.id,o.key,n)).join("") || '<div class="mut">原稿は変えない</div>';
   return `<div class="opt ${ch===o.key?"sel":""}" data-opt="${it.id}|${o.key}"><span class="ol">${esc(o.key)}.</span> ${esc(o.label)}${o.recommended?'<span class="rec">おすすめ</span>':""}${subs}</div>`}).join("");
- const own = d&&d.choice==="own"&&d.items[0] ? d.items[0] : {file:(DATA.files[0]||""),old:"",new:""};
+ const own = d&&d.choice==="own"&&d.items[0] ? d.items[0] : {file:ownFile(it),old:"",new:""};
  opts+=`<div class="opt ${ch==="own"?"sel":""}" data-opt="${it.id}|own"><span class="ol">自分で書く</span>`+
   `<div class="own"><input type="text" data-own="${it.id}|file" value="${esc(own.file)}" placeholder="ファイル">`+
   `<textarea rows="2" data-own="${it.id}|old" placeholder="修正前 (原稿の文字どおり)">${esc(own.old)}</textarea>`+
   `<textarea rows="2" data-own="${it.id}|new" placeholder="修正後">${esc(own.new)}</textarea></div></div>`;
- return `<section class="card" id="c${idx}" data-idx="${idx}"><div class="imgs">${imgs}</div><div>`+
+ const where=[it.page!=null&&it.page!==""?`p.${esc(it.page)}`:"", esc(it.band||"")].filter(Boolean).join(" ");
+ return `<section class="card${hasImg?"":" noimg"}" id="c${idx}" data-idx="${idx}">${imgs}<div>`+
   `<div class="hd"><span class="id">${esc(it.id)}</span><span class="badge k-${it.kind}">${KIND[it.kind]||it.kind}</span>`+
-  `<span class="mut">p.${esc(it.page??"")} ${esc(it.band)}</span><span class="state s-${s}">${DEC[s]||""}</span></div>`+
+  (where?`<span class="mut">${where}</span>`:"")+`<span class="state s-${s}">${DEC[s]||""}</span></div>`+
   `<div class="label">${esc(it.label)}</div>`+
-  (it.reading?`<div class="reading"><span class="mut">朱書き:</span> ${esc(it.reading)}</div>`:"")+
+  (it.reading?`<div class="reading"><span class="mut">${esc(DATA.reading_label)}:</span> ${esc(it.reading)}</div>`:"")+
   (it.note?`<div class="note">${esc(it.note)}</div>`:"")+ opts +
   `<div class="btns"><button class="ap ${s==="approved"?"on":""}" data-act="${it.id}|approved">採用 (a)</button>`+
   `<button class="rj ${s==="rejected"?"on":""}" data-act="${it.id}|rejected">不採用 (r)</button>`+
@@ -370,7 +393,7 @@ function card(it, idx){
   `<button data-act="${it.id}|undecided">取り消し (u)</button></div>`+
   `<textarea rows="1" data-memo="${it.id}" placeholder="メモ (保留の理由など．欄から離れると保存)">${esc(d?d.memo:"")}</textarea>`+
   `</div></section>`}
-function render(){ $("#title").textContent = DATA.title||"朱書きの採否"; counts();
+function render(){ $("#title").textContent = DATA.title; document.title = DATA.title; counts();
  const list=DATA.items.map((it,i)=>visible(it)?card(it,i):"").join("");
  $("#list").innerHTML = list || '<p class="mut">この表示に当たる項目はありません．</p>';
  const cards=[...document.querySelectorAll(".card")]; if(cards.length){FOCUS=Math.min(FOCUS,cards.length-1);cards[FOCUS].classList.add("focus")}}
@@ -380,34 +403,56 @@ function gather(id){
  const it=item(id), ch=selected(id), memo=(document.querySelector(`[data-memo="${CSS.escape(id)}"]`)||{}).value||"";
  if(ch==="own"){const g=f=>(document.querySelector(`[data-own="${CSS.escape(id)}|${f}"]`)||{}).value||"";
   return {choice:"own", memo, items:[{file:g("file"),old:g("old"),new:g("new")}]}}
- const o=it.options.find(x=>x.key===ch); if(!o) return {choice:ch, memo};
+ const o=it.options.find(x=>x.key===ch); if(!o) return {choice:ch, memo, items:[]};
  let edited=false; const items=o.items.map((s,n)=>{const ta=document.querySelector(`[data-edit="${CSS.escape(id)}|${ch}|${n}"]`);
   const nv=ta?ta.value:s.new; if(nv!==s.new)edited=true; return {file:s.file,old:s.old,new:nv}});
- return edited?{choice:ch,memo,items,edited:true}:{choice:ch,memo}}
-async function decide(id, st){
- const it=item(id); if(st==="approved"&&it.kind==="unreadable"&&selected(id)!=="own"){toast("判読不能の項目は「自分で書く」に直し方を書いてから採用します");return}
- const body=Object.assign({id, status:st}, gather(id));
- const r=await fetch("/api/decide",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
- const j=await r.json(); if(!j.ok){toast("保存できません: "+j.error);return}
- toast(`${id}: ${DEC[st]||"未決に戻した"}`); const y=window.scrollY; await load(); window.scrollTo(0,y)}
+ return {choice:ch,memo,items,edited}}
+function decide(id, st, given){ // decisions.json の 1 件を作る (proof_review.py の Store.decide と同じ形)
+ const it=item(id), g=given||gather(id);
+ if(st==="approved"&&it.kind==="unreadable"&&g.choice!=="own"){toast("判読不能の項目は「自分で書く」に直し方を書いてから採用します");return false}
+ if(st==="undecided"){delete DECS[id]}
+ else{
+  for(const s of g.items){if(!s.file||(!s.old&&!s.new)){toast("ファイルと，修正前か修正後のどちらかが要ります");return false}}
+  const o=it.options.find(x=>x.key===g.choice);
+  let label=it.label||id;
+  if(o&&it.options.length>1&&o.label)label=`${label} (${g.choice}: ${o.label})`;
+  if(g.choice==="own")label=`${label} (自分で書いた直し)`;
+  const e={id, tag:it.tag||"proof", label, status:st, files:[], items:g.items.map(s=>({file:s.file,old:s.old,new:s.new,count:1})),
+   choice:g.choice, memo:g.memo||"", page:it.page??null, band:it.band||""};
+  if(g.edited)e.edited=true;
+  DECS[id]=e}
+ persist(); return true}
+function act(id, st){if(!decide(id,st))return; toast(`${id}: ${DEC[st]||"未決に戻した"}`);const y=window.scrollY;render();window.scrollTo(0,y)}
+function fname(){return DATA.answers_name}
+$("#save").addEventListener("click",()=>{
+ const order={};DATA.items.forEach((it,i)=>order[it.id]=i);
+ const decs=Object.values(DECS).filter(d=>d.id in order).sort((a,b)=>order[a.id]-order[b.id]);
+ const a=document.createElement("a");
+ a.href=URL.createObjectURL(new Blob([JSON.stringify({decisions:decs},null,2)+"\n"],{type:"application/json"}));
+ a.download=fname();a.click();toast(`${decs.length} 件を ${fname()} に保存`)});
+$("#loadbtn").addEventListener("click",()=>$("#loadfile").click());
+$("#loadfile").addEventListener("change",e=>{const f=e.target.files[0]; if(!f)return;
+ f.text().then(t=>{const j=JSON.parse(t); const list=Array.isArray(j)?j:(j.decisions||[]); let n=0;
+  for(const d of list){if(d&&d.id&&item(d.id)){DECS[d.id]=d;n++}}
+  persist();render();toast(`${n} 件を読み込んだ`)}).catch(err=>toast("読めません: "+err));e.target.value=""});
 document.addEventListener("click",e=>{
  const t=e.target.closest("[data-act],[data-opt],[data-img]"); if(!t)return;
- if(t.dataset.act){const [id,st]=t.dataset.act.split("|");decide(id,st);return}
+ if(t.dataset.act){const [id,st]=t.dataset.act.split("|");act(id,st);return}
  if(t.dataset.img){const [i,k]=t.dataset.img.split("|").map(Number);const it=DATA.items[i];
-  $("#img"+i).src="/img?k="+encodeURIComponent(it.images[k].key);
+  $("#img"+i).src=it.images[k].src;
   t.parentNode.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b===t));return}
  if(t.dataset.opt&&!e.target.closest("textarea,input,summary")){const [id]=t.dataset.opt.split("|");
   document.querySelectorAll(`[data-opt^="${CSS.escape(id)}|"]`).forEach(o=>o.classList.toggle("sel",o===t))}});
-document.addEventListener("change",async e=>{const t=e.target;
- if(t.dataset.memo!==undefined){const id=t.dataset.memo, it=item(id); if(!it.decision)return; decide(id,it.decision.status)}});
+document.addEventListener("change",e=>{const t=e.target;
+ if(t.dataset.memo!==undefined){const id=t.dataset.memo; if(DECS[id]){DECS[id].memo=t.value;persist();toast(`${id}: メモを保存`)}}});
 $("#filter").addEventListener("change",()=>{FOCUS=0;render()});
-$("#bulk").addEventListener("click",async()=>{
+$("#bulk").addEventListener("click",()=>{
  const ids=DATA.items.filter(it=>visible(it)&&it.kind==="simple"&&status(it)==="undecided").map(it=>it.id);
  if(!ids.length){toast("対象がありません");return}
  if(!confirm(`表示中の単純な修正 ${ids.length} 件を，案 a のまま採用します．`))return;
- for(const id of ids){await fetch("/api/decide",{method:"POST",headers:{"Content-Type":"application/json"},
-  body:JSON.stringify({id,status:"approved",choice:chosen(item(id))})})}
- toast(`${ids.length} 件を採用`); load()});
+ for(const id of ids){const it=item(id),o=it.options.find(x=>x.key===chosen(it));
+  decide(id,"approved",{choice:o?o.key:"",memo:"",items:o?o.items.map(s=>({file:s.file,old:s.old,new:s.new})):[],edited:false})}
+ toast(`${ids.length} 件を採用`); render()});
 document.addEventListener("keydown",e=>{
  if(e.target.closest("textarea,input,select")||e.ctrlKey||e.metaKey||e.altKey)return;
  const cards=[...document.querySelectorAll(".card")]; if(!cards.length)return;
@@ -416,60 +461,42 @@ document.addEventListener("keydown",e=>{
   cards[FOCUS].classList.add("focus");cards[FOCUS].scrollIntoView({block:"start",behavior:"smooth"})};
  if(e.key==="j")move(1); else if(e.key==="k")move(-1);
  else if("123".includes(e.key)){const o=it.options[+e.key-1]; if(o){const el=cur.querySelector(`[data-opt="${CSS.escape(it.id)}|${o.key}"]`); el&&el.click()}}
- else if(e.key==="a")decide(it.id,"approved"); else if(e.key==="r")decide(it.id,"rejected");
- else if(e.key==="h")decide(it.id,"pending"); else if(e.key==="u")decide(it.id,"undecided");});
-load();
+ else if(e.key==="a")act(it.id,"approved"); else if(e.key==="r")act(it.id,"rejected");
+ else if(e.key==="h")act(it.id,"pending"); else if(e.key==="u")act(it.id,"undecided");});
+render();
 </script></body></html>
 """
 
 
-def make_handler(store):
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self, fmt, *args):
-            pass
+def data_uri(path):
+    with open(path, "rb") as fh:
+        body = fh.read()
+    ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    return "data:%s;base64,%s" % (ctype, base64.b64encode(body).decode("ascii"))
 
-        def _send(self, code, body, ctype):
-            self.send_response(code)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
 
-        def _json(self, obj, code=200):
-            self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
-
-        def do_GET(self):
-            parts = urlparse(self.path)
-            if parts.path == "/":
-                return self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
-            if parts.path == "/api/items":
-                return self._json(store.view())
-            if parts.path == "/img":
-                key = parse_qs(parts.query).get("k", [""])[0]
-                if key not in store.images or not os.path.isfile(key):   # 項目に載った画像だけを見せる
-                    return self._json({"error": "not found"}, 404)
-                with open(key, "rb") as fh:
-                    body = fh.read()
-                return self._send(200, body, mimetypes.guess_type(key)[0] or "application/octet-stream")
-            self._json({"error": "not found"}, 404)
-
-        def do_POST(self):
-            origin = self.headers.get("Origin", "")
-            if origin and urlparse(origin).netloc != self.headers.get("Host"):   # ほかのページからの書き込みを断る
-                return self._json({"ok": False, "error": "forbidden"}, 403)
-            try:
-                data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))).decode("utf-8"))
-                if urlparse(self.path).path != "/api/decide":
-                    raise LookupError("not found")
-                self._json(store.decide(data))
-            except (ValueError, KeyError, TypeError) as error:
-                self._json({"ok": False, "error": "壊れた要求: %s" % error}, 400)
-            except LookupError as error:
-                self._json({"ok": False, "error": str(error)}, 404)
-            except OSError as error:
-                self._json({"ok": False, "error": str(error)}, 500)
-    return Handler
+def build_page(store, out, title=None, reading_label=None):
+    """1 枚の HTML の文字列を返す。差分・原稿での状態は作った時点の原稿で決める。画像は埋め込む。"""
+    view = store.view()
+    items = []
+    for it in view["items"]:
+        imgs = []
+        for m in it["images"]:
+            if not os.path.isfile(m["key"]):
+                raise ValueError("%s: 画像が無い: %s" % (it["id"], m["key"]))
+            imgs.append({"name": m["name"], "src": data_uri(m["key"])})
+        row = {k: v for k, v in it.items() if k not in ("images", "decided_items")}
+        row["images"] = imgs
+        items.append(row)
+    has_img = any(it["images"] for it in items)
+    stem = os.path.splitext(os.path.basename(out))[0]
+    key = hashlib.sha1(json.dumps([stem, [it["id"] for it in items]], ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
+    data = {"title": title or view["title"] or ("朱書きの採否" if has_img else "修正案の採否"),
+            "reading_label": reading_label or ("朱書き" if has_img else "読み取り"),
+            "key": key, "answers_name": "%s_decisions.json" % stem,
+            "files": view["files"], "items": items}
+    blob = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    return PAGE.replace("__TITLE__", html.escape(data["title"])).replace("__DATA__", blob)
 
 
 # ---------------------------------------------------------------- コマンド
@@ -485,20 +512,17 @@ def make_store(a):
     return Store(paths, a.decisions or default_decisions(paths), a.base)
 
 
-def cmd_serve(a):
+def cmd_html(a):
     store = make_store(a)
-    server = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(store))
-    url = "http://127.0.0.1:%d/" % a.port
-    print("項目 %d 件．決定の記録: %s" % (len(store.items), os.path.abspath(store.decisions_path)))
-    print("%s を開く (終了は Ctrl+C)" % url, flush=True)
-    if not a.no_browser:
-        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n終了")
-    finally:
-        server.server_close()
+    out = a.out or os.path.join(os.path.dirname(os.path.abspath(store.item_paths[0])), "review.html")
+    page = build_page(store, out, a.title, a.reading_label)
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    with open(out, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(page)
+    stem = os.path.splitext(os.path.basename(out))[0]
+    print("項目 %d 件 → %s (%d KB)" % (len(store.items), os.path.abspath(out), len(page.encode("utf-8")) // 1024))
+    print("ブラウザで開き，決め終えたら「回答を JSON で保存」(%s_decisions.json)。" % stem)
+    print("当てるとき: apply <項目 JSON> --decisions <保存した JSON> --base <原稿> [--apply]")
 
 
 def cmd_status(a):
@@ -587,14 +611,16 @@ def main(argv=None):
             stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("serve", "status", "apply"):
+    for name in ("html", "status", "apply"):
         p = sub.add_parser(name)
         p.add_argument("items", nargs="+", help="項目 JSON (glob 可)")
-        p.add_argument("--decisions", help="決定の記録 (既定: 最初の項目 JSON と同じ場所の decisions.json)")
+        p.add_argument("--decisions", help="決定の記録．HTML で保存した回答もこれで渡す "
+                                           "(既定: 最初の項目 JSON と同じ場所の decisions.json)")
         p.add_argument("--base", default=".", help="項目の file を解決する原稿のディレクトリ (既定: 今のディレクトリ)")
-        if name == "serve":
-            p.add_argument("--port", type=int, default=8766)
-            p.add_argument("--no-browser", action="store_true", help="ブラウザを自動で開かない")
+        if name == "html":
+            p.add_argument("--out", help="書き出す HTML (既定: 最初の項目 JSON と同じ場所の review.html)")
+            p.add_argument("--title", help="ページの題 (既定: 項目 JSON の title)")
+            p.add_argument("--reading-label", help="reading の見出し (既定: 画像があれば「朱書き」，無ければ「読み取り」)")
         if name == "apply":
             p.add_argument("--apply", action="store_true", help="原稿へ当てる (付けなければ確かめるだけ)")
             p.add_argument("--out", help="置換リストの書き出し先 (既定: decisions.json と同じ場所の fixes_review.json)")
@@ -603,8 +629,8 @@ def main(argv=None):
             p.add_argument("--author", default="apply-proof-marks", help="Word の変更履歴・コメントの作成者名")
     a = ap.parse_args(argv)
     try:
-        if a.cmd == "serve":
-            return cmd_serve(a)
+        if a.cmd == "html":
+            return cmd_html(a)
         if a.cmd == "status":
             return cmd_status(a)
         return cmd_apply(a)

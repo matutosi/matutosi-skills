@@ -4,7 +4,7 @@
 
     python tests/test_proof_review.py
 
-一時ディレクトリに原稿・項目 JSON・画像を作り，判定・決定の保存・サーバ・apply を試す。
+一時ディレクトリに原稿・項目 JSON・画像を作り，判定・決定の保存・静的な HTML・apply を試す。
 """
 
 import json
@@ -12,11 +12,7 @@ import os
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
-import urllib.error
-import urllib.parse
-import urllib.request
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -119,40 +115,62 @@ class TestStore(Base):
         self.assertEqual(set(self.store.decisions()), {"K1", "s1"})
 
 
-class TestServer(Base):
-    def setUp(self):
-        super().setUp()
-        self.server = P.ThreadingHTTPServer(("127.0.0.1", 0), P.make_handler(self.store))
-        self.url = "http://127.0.0.1:%d" % self.server.server_address[1]
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+def page_data(page):
+    """HTML に埋め込んだ DATA を取り出す"""
+    start = page.index("const DATA = ") + len("const DATA = ")
+    end = page.index(";\nconst KEY", start)
+    return json.loads(page[start:end])
 
-    def tearDown(self):
-        self.server.shutdown()
-        self.server.server_close()
-        super().tearDown()
 
-    def post(self, data, origin=None):
-        req = urllib.request.Request(self.url + "/api/decide", data=json.dumps(data).encode("utf-8"),
-                                     headers={"Content-Type": "application/json"})
-        if origin:
-            req.add_header("Origin", origin)
-        return json.load(urllib.request.urlopen(req))
+class TestHtml(Base):
+    def test_page_embeds_items_and_images(self):
+        out = os.path.join(self.dir, "out", "review_ch01.html")
+        page = P.build_page(self.store, out)
+        self.assertIn("<title>第1章</title>", page)
+        self.assertNotIn("/api/", page)                     # サーバに問い合わせない
+        d = page_data(page)
+        self.assertEqual([it["id"] for it in d["items"]], ["s1", "j1", "u1"])
+        self.assertTrue(d["items"][0]["images"][0]["src"].startswith("data:image/png;base64,"))
+        self.assertEqual(d["items"][2]["images"], [])
+        self.assertEqual(d["answers_name"], "review_ch01_decisions.json")
+        self.assertEqual(d["items"][0]["options"][0]["items"][0]["state"], "pending")
+        self.assertEqual(d["reading_label"], "朱書き")
+        self.assertNotIn(self.dir, page)                    # 手元のパスを入れない
 
-    def test_page_items_image(self):
-        self.assertIn(b"<title>", urllib.request.urlopen(self.url + "/").read())
-        v = json.load(urllib.request.urlopen(self.url + "/api/items"))
-        self.assertEqual(len(v["items"]), 3)
-        key = v["items"][0]["images"][0]["key"]
-        self.assertTrue(urllib.request.urlopen(self.url + "/img?k=" + urllib.parse.quote(key)).read().startswith(b"\x89PNG"))
-        with self.assertRaises(urllib.error.HTTPError):    # 項目に無いファイルは見せない
-            urllib.request.urlopen(self.url + "/img?k=" + urllib.parse.quote(os.path.join(self.dir, "ch01.md")))
+    def test_text_only_items(self):
+        """画像の無い修正案 (原稿だけから作ったもの) は 1 段組・見出しは「読み取り」"""
+        rows = [dict(it, images=[]) for it in ITEMS["items"]]
+        path = os.path.join(self.dir, "marks", "items_text.json")
+        write(path, json.dumps({"items": rows}, ensure_ascii=False))
+        page = P.build_page(P.Store([path], self.dec, self.dir), os.path.join(self.dir, "t.html"))
+        d = page_data(page)
+        self.assertEqual(d["title"], "修正案の採否")
+        self.assertEqual(d["reading_label"], "読み取り")
+        self.assertIn(".card.noimg", page)
+        self.assertIn('hasImg?"":" noimg"', page)
 
-    def test_decide_and_origin(self):
-        self.assertTrue(self.post({"id": "s1", "status": "approved", "choice": "a"})["ok"])
-        self.assertEqual(self.store.decisions()["s1"]["status"], "approved")
-        with self.assertRaises(urllib.error.HTTPError) as cm:
-            self.post({"id": "s1", "status": "rejected"}, origin="http://evil.example")
-        self.assertEqual(cm.exception.code, 403)
+    def test_initial_decisions_and_cli(self):
+        self.store.decide({"id": "s1", "status": "approved", "choice": "a"})
+        out = os.path.join(self.dir, "r.html")
+        rc = subprocess.run([sys.executable, os.path.join(SCRIPTS, "proof_review.py"), "html", self.items,
+                             "--out", out, "--base", self.dir], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            env=dict(os.environ, PYTHONIOENCODING="utf-8")).returncode
+        self.assertEqual(rc, 0)
+        d = page_data(open(out, encoding="utf-8").read())
+        self.assertEqual(d["items"][0]["decision"]["status"], "approved")
+
+    def test_missing_image(self):
+        os.remove(os.path.join(self.dir, "marks", "p003_b1.png"))
+        with self.assertRaises(ValueError):
+            P.build_page(self.store, os.path.join(self.dir, "r.html"))
+
+    def test_script_has_no_closing_tag_in_data(self):
+        rows = [dict(ITEMS["items"][0], note="</script><b>x</b>")]
+        path = os.path.join(self.dir, "marks", "items_x.json")
+        write(path, json.dumps({"items": rows}, ensure_ascii=False))
+        page = P.build_page(P.Store([path], self.dec, self.dir), os.path.join(self.dir, "x.html"))
+        self.assertEqual(page.count("</script>"), 1)
+        self.assertEqual(page_data(page)["items"][0]["note"], "</script><b>x</b>")
 
 
 class TestApply(Base):
@@ -175,6 +193,19 @@ class TestApply(Base):
         self.assertIn("小さな鳥が", body)             # 不採用は当てない
         self.assertEqual(self.store.decisions()["s1"]["status"], "applied")
         rc, out = self.run_cli("status", self.items)
+        self.assertIn("反映済み 1", out)
+
+    def test_apply_downloaded_answers(self):
+        """HTML で保存した回答 (decisions.json と同じ形．置き場は別) を --decisions で当てる"""
+        ans = os.path.join(self.dir, "review_decisions.json")
+        write(ans, json.dumps({"decisions": [
+            {"id": "j1", "tag": "proof", "label": "言い方 (自分で書いた直し)", "status": "approved", "files": [],
+             "items": [{"file": "ch01.md", "old": "小さな鳥が", "new": "小鳥が", "count": 1}],
+             "choice": "own", "memo": "", "page": 3, "band": "p003_b2"}]}, ensure_ascii=False))
+        rc, out = self.run_cli("apply", self.items, "--decisions", ans, "--apply")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("小鳥が", open(os.path.join(self.dir, "ch01.md"), encoding="utf-8").read())
+        rc, out = self.run_cli("status", self.items, "--decisions", ans)
         self.assertIn("反映済み 1", out)
 
     def test_apply_text_and_docx(self):
