@@ -2,10 +2,13 @@
 
 1 つの規則は 1 つの関数．`@rule('D03', '題', 段, old='X8')` で登録する．
 関数は表 (common.Table) と設定の値 (rule_settings.tsv の param) を受け取り，直すセルを Change で返す (表は書き換えない)．
+段 0 の規則だけは，セルではなく列の調査区数を Change(kind='n_plots', row=0, col=列, new=数か '<5' か '') で返す
+(転記にも写しにも行を足さない．decide.py が列の調査区数として持ち，ほかの規則と to_csv.py に渡す)．
 
 **当てる順は段の順**．段の中は番号の順 (`order` を付けた規則はその位置)．番号の順には頼らない．
 段とファイル (2026-11-17 ユーザ決定 1a・2a):
 
+    段 0 s0_columns.py 列の種類を決める   調査区数の印字の無い・1 の列．ほかの規則が列の種類を読む前に当てる
     段 1 s1_glyph.py   字の乱れを整える   値の意味は変えない．ほかの規則が値を読む前に当てる
     段 2 s2_format.py  書式をそろえる     常在度の書き方
     段 3 s3_names.py   名前を直す         段 5・6 はこの後 (学名で引く・種を数える)
@@ -25,15 +28,15 @@ Change = collections.namedtuple('Change', 'kind row col new why')
 Rule = collections.namedtuple('Rule', 'id title group old fn order stage')
 RULES = []
 STAGES = collections.OrderedDict([
-    (1, '字の乱れを整える'), (2, '書式をそろえる'), (3, '名前を直す'),
+    (0, '列の種類を決める'), (1, '字の乱れを整える'), (2, '書式をそろえる'), (3, '名前を直す'),
     (4, '表頭を直す'), (5, '階層を直す'), (6, '行を移す')])
 
 
 def rule(rid, title, stage, old='', order=None):
-    """規則を登録する．stage は段 (1-6)．old は今のスキル (veg-table-to-csv) の規則の番号 (X8 など)．
+    """規則を登録する．stage は段 (0-6)．old は今のスキル (veg-table-to-csv) の規則の番号 (X8 など)．
     order は段の中の順 (省くと番号の数字．段の中で先に当てたいときに小数で指定する)"""
     if stage not in STAGES:
-        raise ValueError(f'{rid}: 段 {stage} は無い (1-6)')
+        raise ValueError(f'{rid}: 段 {stage} は無い (0-6)')
 
     def deco(fn):
         if any(r.id == rid for r in RULES):
@@ -46,7 +49,7 @@ def rule(rid, title, stage, old='', order=None):
 
 
 def load_all():
-    """rules/ の段のファイル (s1_…-s6_…) を全部読み込み，登録済みの規則を当てる順で返す"""
+    """rules/ の段のファイル (s0_…-s6_…) を全部読み込み，登録済みの規則を当てる順で返す"""
     here = os.path.dirname(os.path.abspath(__file__))
     for name in sorted(os.listdir(here)):
         if re.match(r's\d_.*\.py$', name):

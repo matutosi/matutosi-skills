@@ -71,6 +71,7 @@ class Trace:
         self.read = {}                                   # (kind, row, col) -> AI の読み
         self.judge = collections.defaultdict(list)       # (kind, row, col) -> [番号]
         self.modify = collections.defaultdict(list)      # (kind, row, col) -> [説明]
+        self.cols = collections.defaultdict(list)        # 列 -> [(段 0 の規則の番号, 説明)] (列の調査区数を決め直した)
 
     def keys_for(self, kind, row, col):
         """出力の 1 行に掛かるセル: そのセルと，同じ行の行の項目 (@layer など)"""
@@ -118,6 +119,13 @@ def apply_rules(t, rule_list, settings, trace, counts):
         if not use:
             continue
         for ch in list(r.fn(t, param)):
+            if ch.kind == 'n_plots':                      # 段 0: 列の調査区数を決め直す (転記のセルではない)
+                old = t.n_plots().get(ch.col)
+                t.n_override = dict(getattr(t, 'n_override', {}), **{ch.col: ch.new})
+                trace.cols[ch.col].append((r.id, f'調査区数 {"(印字なし)" if old is None else old} → '
+                                                 f'{ch.new or "(地点の列)"}．{ch.why}'))
+                counts[r.id] += 1
+                continue
             old = t.get(ch.kind, ch.row, ch.col)
             if old == ch.new:
                 continue
@@ -138,6 +146,19 @@ def keep_arabic_parse(raw, n_plots=0, keep_arabic=False):
 _PARSE = to_csv.parse_value
 
 
+_PER_COLUMN = to_csv.plots_per_column
+
+
+def mark_columns(rows, trace):
+    """段 0 の規則で調査区数を決め直した列の行に，規則の番号と説明を足す (組成と，表頭の列の種類の行)"""
+    for r in rows:
+        got = trace.cols.get(r.get('plot', ''))
+        if not got or ('s_name' not in r and r.get('item_ja') != '列の種類'):
+            continue
+        r['note_judge'] = ';'.join(x for x in [r['note_judge']] + [rid for rid, _ in got] if x)
+        r['note_modify'] = '; '.join(x for x in [r['note_modify']] + [why for _, why in got] if x)
+
+
 def to_rows(t, t_read, trace, soc_default):
     """決定の表 t を to_csv.py に通し，行をセルの ID に結び付けて列を足す"""
     tmp = tempfile.mkdtemp(prefix='csv2_')
@@ -146,10 +167,13 @@ def to_rows(t, t_read, trace, soc_default):
         t.write_to(tdir, note_token=True)
         to_csv.SOC_DEFAULT = soc_default
         to_csv.parse_value = keep_arabic_parse
+        override = getattr(t, 'n_override', {})
+        to_csv.plots_per_column = lambda header: common.merge_n_plots(_PER_COLUMN(header), override)
         try:
             sites, comp = to_csv.build(tdir)
         finally:
             to_csv.parse_value = _PARSE
+            to_csv.plots_per_column = _PER_COLUMN
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     for rows, is_comp in ((sites, False), (comp, True)):
@@ -185,6 +209,7 @@ def to_rows(t, t_read, trace, soc_default):
                 r['note_read'] = '; '.join(x for x in (note, ai) if x)
             r['note_judge'] = ';'.join(j for k in keys for j in trace.judge.get(k, []))
             r['note_modify'] = '; '.join(x for k in keys for x in trace.modify.get(k, []))
+    mark_columns(sites + comp, trace)
     internal_rules.add(sites, False)                      # to_csv.py の中の決まり (T 規則) の番号を足す
     internal_rules.add(comp, True)
     return sites, comp
@@ -240,6 +265,9 @@ def decide(root, out=None, settings_path='', soc_default='one', allow_unfrozen=F
         conf += found
         sites += s
         comp += c
+        for p, got in sorted(trace.cols.items()):         # 段 0: 列の調査区数 (転記のセルではないので d/ の ID)
+            log.append([f'{t.name}/d/調査区数/{p}', '', t.n_override.get(p, '') or '(地点の列)', ';'.join(rid for rid, _ in got),
+                        '; '.join(why for _, why in got)])
         for key in sorted(set(trace.judge) | set(trace.read)):
             if not trace.judge.get(key) and key not in trace.read:
                 continue

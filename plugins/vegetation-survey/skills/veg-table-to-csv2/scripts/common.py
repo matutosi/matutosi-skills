@@ -103,8 +103,8 @@ class Table:
         return out
 
     def n_plots(self):
-        """常在度の列の調査区数 {列: 数} (表頭の調査区数の行から)"""
-        return to_csv.plots_per_column(self.dicts('header'))
+        """常在度の列の調査区数 {列: 数} (表頭の調査区数の行から．段 0 の規則が決め直した列はその値)"""
+        return merge_n_plots(to_csv.plots_per_column(self.dicts('header')), getattr(self, 'n_override', {}))
 
     # ---- セルの ID ----
     def cid(self, kind, row, col):
@@ -143,6 +143,18 @@ class Table:
 
 TOKEN_L, TOKEN_R = chr(0x27E6), chr(0x27E7)          # ⟦ ⟧ (転記の note には出ない字)
 TOKEN = re.compile(r'[;\s]*' + TOKEN_L + r'([hbon])(\d+)' + TOKEN_R)
+
+
+def merge_n_plots(base, override):
+    """列の調査区数 {列: 数} に，段 0 の規則の値 {列: '<5' か数か ''} を重ねる．'' はその列を地点の列にする"""
+    out = dict(base)
+    for p, v in (override or {}).items():
+        v = str(v).strip()
+        if not v:
+            out.pop(p, None)
+        else:
+            out[p] = 4 if v == '<5' else int(v)
+    return out
 
 
 def parse_id(cell_id):

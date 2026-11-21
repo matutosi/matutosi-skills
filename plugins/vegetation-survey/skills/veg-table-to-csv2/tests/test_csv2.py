@@ -1102,6 +1102,67 @@ class UpperVConstancyTest(unittest.TestCase):
             self.assertNotIn("D40", comp[key]["note_judge"])
 
 
+class ColumnKindTest(unittest.TestCase):
+    """段 0 (D41・D42): 調査区数の印字の無い常在度の列と，調査区数 1 の地点の列 (2026-11-20 ユーザ決定 a)"""
+
+    def _decide(self, header, body):
+        from rules import s3_names as names
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            d = make(header, body)
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        return d, {(r["j_name"], r["plot"]): r for r in rows(os.path.join(d, "composition.csv"))}
+
+    def test_missing_count_paren_species(self):
+        """D41: 出現種数が括弧つきの列 (中部 Tab.021) の 3(2-3) は常在度 3．転記は印字のまま"""
+        d, comp = self._decide(
+            [HEAD3, ["出現種数", "Artenzahl", "", "13", "(25)", "16", ""]],
+            [BODY3, ["sp", "", "", "Aa a", "エー", "K", "2・3", "3(2-3)", "+", ""],
+             ["sp", "", "", "Bb b", "ビー", "K", "+", "1(+)", "・", ""]])
+        a2 = comp[("エー", "2")]
+        self.assertEqual((a2["constancy"], a2["cover"], a2["sociability"]), ("3", "2-3", ""))
+        self.assertEqual(a2["value_raw"], "3(2-3)")
+        self.assertIn("D41", a2["note_judge"])
+        self.assertIn("調査区数", a2["note_modify"])
+        a1 = comp[("エー", "1")]                               # 地点の列はそのまま
+        self.assertEqual((a1["cover"], a1["sociability"], a1["constancy"]), ("2", "3", ""))
+        self.assertNotIn("D41", a1["note_judge"])
+        with open(os.path.join(d, "transcripts", "Tab.001", "header.tsv"), encoding="utf-8") as f:
+            self.assertNotIn("調査区数", f.read())                 # 転記に行を足さない
+        log = rows_tsv(os.path.join(d, "decisions.tsv"))
+        self.assertIn(("Tab.001/d/調査区数/2", "<5", "D41"), {(r["cell_id"], r["decided"], r["judge"]) for r in log})
+
+    def test_missing_count_mean_row(self):
+        """D41: 平均出現種数の行に値がある列 (関東 Tab.085)．最大が 5 以上の列とローマ数字の列には当てない"""
+        _, comp = self._decide(
+            [HEAD3, ["平均出現種数", "Mittlere Artenzahl", "", "22", "18", "20", ""]],
+            [BODY3, ["sp", "", "", "Aa a", "エー", "K", "2(+-2)", "6(1)", "V(+)", ""],
+             ["sp", "", "", "Bb b", "ビー", "K", "1(2)", "2(+)", "III", ""]])
+        self.assertEqual(comp[("エー", "1")]["constancy"], "2")
+        self.assertIn("D41", comp[("エー", "1")]["note_judge"])
+        self.assertNotIn("D41", comp[("エー", "2")]["note_judge"])   # 6 > 4: 調査区数が決まらない
+        self.assertNotIn("D41", comp[("エー", "3")]["note_judge"])   # ローマ数字は今でも常在度
+        self.assertEqual(comp[("エー", "3")]["constancy"], "V")
+
+    def test_count_one_is_plot(self):
+        """D42: 調査区数 1 の列 (中部 Tab.058・関東 Tab.070) は地点の列．常在度の形の値がある列は除く"""
+        _, comp = self._decide(
+            [HEAD3, ["調査区数", "Zahl d. Aufnahmen", "", "1", "1", "5", ""]],
+            [BODY3, ["sp", "", "", "Aa a", "エー", "K", "2・3", "1(+)", "IV(+-1)", ""],
+             ["sp", "", "", "Bb b", "ビー", "K", "+", "・", "II", ""]])
+        a1 = comp[("エー", "1")]
+        self.assertEqual((a1["cover"], a1["sociability"], a1["constancy"]), ("2", "3", ""))
+        self.assertIn("D42", a1["note_judge"])
+        self.assertEqual(comp[("ビー", "1")]["cover"], "+")
+        self.assertNotIn("D42", comp[("エー", "2")]["note_judge"])   # 1(+) は常在度の形
+        self.assertEqual(comp[("エー", "2")]["constancy"], "1")
+
+
 class ShikokuDecisionsTest(unittest.TestCase):
     def test_double_glyph_doubt_dot_and_late_dot(self):
         """D38 (字の重なり KK・vv)・D39 (・? は出現なし)・D20 の 12・ (2026-11-17 四国のあとのユーザ決定 5・6・8)"""
