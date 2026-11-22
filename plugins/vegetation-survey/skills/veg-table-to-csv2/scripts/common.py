@@ -146,14 +146,15 @@ TOKEN = re.compile(r'[;\s]*' + TOKEN_L + r'([hbon])(\d+)' + TOKEN_R)
 
 
 def merge_n_plots(base, override):
-    """列の調査区数 {列: 数} に，段 0 の規則の値 {列: '<5' か数か ''} を重ねる．'' はその列を地点の列にする"""
+    """列の調査区数 {列: 数} に，段 0 の規則の値 {列: '<5' か '5+' か数か ''} を重ねる．'' はその列を地点の列にする．
+    '<5' は 5 未満 (上限の 4 として扱う)．'N+' は N 以上 (調査区数の印字の無いローマ数字の列．下限の N として扱う)"""
     out = dict(base)
     for p, v in (override or {}).items():
         v = str(v).strip()
         if not v:
             out.pop(p, None)
         else:
-            out[p] = 4 if v == '<5' else int(v)
+            out[p] = 4 if v == '<5' else int(v.rstrip('+'))
     return out
 
 

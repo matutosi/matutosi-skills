@@ -200,21 +200,39 @@ def pref_by_place(t, param):
 
 
 ITEM_YM = re.compile(r'((?:19|20)\d\d)\s*[.．/年]\s*(\d{1,2})(?!\d)')
+ITEM_Y2 = re.compile(r"['’‘](\d{2})(?!\d)")
 DAY_ONLY = re.compile(r'^(\d{1,2})(\??)$')
+MONTH_DAY = re.compile(r'^(\d{1,2})\s*[\s/.]\s*(\d{1,2})(\??)$')
 
 
-@rule('D37', '調査年月日の値が日だけで，年月が項目名 (の括弧) にあるときは，項目名の年月を補う (Datum (1988.3) の 19 → 1988 3 19)', 4,
-      old='(規則の番号なし．2026-11-17 ユーザ決定)')
+def is_date_item(d):
+    key = (d.get('item_ja', '') + ' ' + d.get('item_de', '')).lower()
+    return '年月日' in key or '月日' in key or '調査日' in key or 'datum' in key
+
+
+@rule('D37', '調査年月日の値が日だけで年月が項目名 (の括弧) にあるときは項目名の年月を補う (Datum (1988.3) の 19 → 1988 3 19)．'
+             '項目名の年が 2 桁 (調査年月日 (\'78)) で値が月日だけのときは，年を 19xx として補う (8 2 → 1978 8 2)', 4,
+      old='(規則の番号なし．屋久島ページ内 Tab.024・025・030・北海道 Tab.049．2026-11-17・22 ユーザ決定)')
 def day_with_item_ym(t, param):
     """項目名 (和文と独文) から「年 . 月」を探す．値が 1-31 の日の数だけ (? つきも) のセルに当てる．
-    年だけの項目名 (Datum d. Aufn. (1982)) は今の to_csv.py が月日の値に年を補うので，ここでは当てない (沖縄 Tab.096・100)"""
+    年だけの項目名 (Datum d. Aufn. (1982)) は今の to_csv.py が月日の値に年を補うので，ここでは当てない (沖縄 Tab.096・100)．
+    年が引用符つきの 2 桁 ('78) なら to_csv.py は年を拾えないので，月日 (8 2・8/2) の値に 19xx を補う"""
     plots = t.plots('header')
     for d in t.dicts('header'):
-        name = d.get('item_ja', '') + ' ' + d.get('item_de', '')
-        key = name.lower()
-        if not ('年月日' in key or '月日' in key or '調査日' in key or 'datum' in key):
+        if not is_date_item(d):
             continue
+        name = d.get('item_ja', '') + ' ' + d.get('item_de', '')
         m = ITEM_YM.search(name)
+        y2 = ITEM_Y2.search(name)
+        if not m and y2 and not YEAR4.search(name):
+            y = 1900 + int(y2.group(1))
+            for p in plots:
+                v = (d.get(p) or '').strip()
+                md = MONTH_DAY.match(v)
+                if md and 1 <= int(md.group(1)) <= 12 and 1 <= int(md.group(2)) <= 31:
+                    yield Change('header', d['_row'], p, f'{y} {int(md.group(1))} {int(md.group(2))}{md.group(3)}',
+                                 f"値の印字は月日だけ ({v})．年は項目名の '{y2.group(1)} を {y} として補った")
+            continue
         if not m:
             continue
         y, mo = m.group(1), int(m.group(2))
@@ -226,3 +244,81 @@ def day_with_item_ym(t, param):
             if dm and 1 <= int(dm.group(1)) <= 31:
                 yield Change('header', d['_row'], p, f'{y} {mo} {int(dm.group(1))}{dm.group(2)}',
                              f'値の印字は日だけ ({v})．年月は項目名の {y}.{mo} を補った')
+
+
+ISO_DATE = re.compile(r'^\d{4}(?:-\d{2}(?:-\d{2})?)?(?:/\d{4}(?:-\d{2}(?:-\d{2})?)?)?$')
+
+
+@rule('D43', '注記の調査年月日の値を日付の形にそろえる (2. Aug. 1977 → 1977-08-02・1976-12-24～26 → 1976-12-24/1976-12-26)', 4,
+      old='(規則の番号なし．日の範囲の書き方の不ぞろい．九州ページ内 Tab.040・067・096．2026-11-22 ユーザ決定)')
+def note_dates(t, param):
+    """表頭の日付は to_csv.py が読む (T 規則) が，注記の値は転記のまま CSV に出るので，同じ読み方 (to_csv.norm_date) でそろえる．
+    日の範囲は 1979-10-19/1979-10-23 の形 (始め/終わり)．読めない値・日付が 2 つ以上ある値は直さない"""
+    from common import to_csv
+    for d in t.dicts('notes'):
+        if not is_date_item(d):
+            continue
+        v = (d.get('value') or '').strip()
+        if not v or ISO_DATE.match(v):
+            continue
+        q = '?' if v.endswith('?') else ''
+        s = v.rstrip('?').strip().translate(to_csv.FIX)
+        part = to_csv.partial_date(s)
+        new = part[0] if part and part[0] != '-' else to_csv.norm_date(s)
+        if new and ISO_DATE.match(new) and new != v:
+            yield Change('notes', d['_row'], '@value', new + q, f'値の印字は {v}．日付の形にそろえた')
+
+
+FELD_ID = re.compile(r'^(?:in\s+)?([A-Za-z]+)\s*[-‐ー−\s]?\s*(\d+[A-Za-z]?)\s*:?$', re.I)
+FELD_SYMBOLS = re.compile(r'^[A-Za-z]+\*?(?:\s*[,，・]\s*[A-Za-z]+\*?)*:?$')
+
+
+def feld_numbers(t):
+    """表頭の調査番号の行から {調査番号 (空白・ハイフンを除いた大文字): 地点} と {記号: [地点]}"""
+    ids, syms = {}, {}
+    for d in t.dicts('header'):
+        ja, de = d.get('item_ja', ''), d.get('item_de', '').lower()
+        if not (ja.startswith('調査番号') or de.startswith('feld')):
+            continue
+        for p in t.plots('header'):
+            m = FELD_ID.match((d.get(p) or '').strip())
+            if m:
+                ids.setdefault((m.group(1) + m.group(2)).upper(), p)
+                syms.setdefault(m.group(1).upper(), []).append(p)
+        break
+    return ids, syms
+
+
+@rule('D44', '1 回出現の見出しと注記の地点が調査番号 (in OK-1・OK: 大島) で印字された表は，表頭の調査番号の行から地点の番号を引く', 4, order=0.5,
+      old='(規則の番号なし．関東 Tab.068．2026-11-22 ユーザ決定)')
+def plot_by_feld_number(t, param):
+    """1 回出現の plot の `OK-1`・`OK 1`・`in OK-1:` は，表頭の調査番号が OK 1 の地点へ．
+    注記の plot の記号 (`OK`・`MM,MK`・`OK*`) は，調査番号がその記号で始まる地点すべてへ．
+    表頭に無い調査番号・地点の決まらない記号は直さない (印字のまま残り，地点に割り当たらない)"""
+    ids, syms = feld_numbers(t)
+    if not ids:
+        return
+    for d in t.dicts('once'):
+        v = (d.get('plot') or '').strip()
+        m = FELD_ID.match(v)
+        if v and not v.isdigit() and m:
+            p = ids.get((m.group(1) + m.group(2)).upper())
+            if p:
+                yield Change('once', d['_row'], '@plot', p, f'地点の印字は調査番号 {v}．表頭の調査番号から地点 {p} とした')
+    for d in t.dicts('notes'):
+        v = (d.get('plot') or '').strip()
+        if not v or v[0].isdigit():
+            continue
+        m = FELD_ID.match(v)
+        if not (m or FELD_SYMBOLS.match(v)):
+            continue
+        if m and (m.group(1) + m.group(2)).upper() in ids:          # 1 つの調査番号 (OK-1)
+            p = ids[(m.group(1) + m.group(2)).upper()]
+            yield Change('notes', d['_row'], '@plot', p, f'地点の印字は調査番号 {v}．表頭の調査番号から地点 {p} とした')
+            continue
+        want = [s.strip().rstrip('*').upper() for s in re.split(r'[,，・]', v.rstrip(':'))]
+        if not any(s in syms for s in want):                      # 記号のどれも表頭に無い
+            continue
+        plots = sorted({p for s in want if s in syms for p in syms[s]}, key=int)
+        yield Change('notes', d['_row'], '@plot', ','.join(plots),
+                     f'地点の印字は調査番号の記号 {v}．表頭の調査番号がその記号の地点 ({len(plots)} 地点) とした')

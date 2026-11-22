@@ -1138,29 +1138,94 @@ class ColumnKindTest(unittest.TestCase):
         self.assertIn(("Tab.001/d/調査区数/2", "<5", "D41"), {(r["cell_id"], r["decided"], r["judge"]) for r in log})
 
     def test_missing_count_mean_row(self):
-        """D41: 平均出現種数の行に値がある列 (関東 Tab.085)．最大が 5 以上の列とローマ数字の列には当てない"""
-        _, comp = self._decide(
+        """D41: 平均出現種数の行に値がある列 (関東 Tab.085)．算用数字で最大が 5 以上の列には当てない．
+        ローマ数字が半分以上の列は調査区数 5 以上とみる (+ だけのセルも常在度)"""
+        d, comp = self._decide(
             [HEAD3, ["平均出現種数", "Mittlere Artenzahl", "", "22", "18", "20", ""]],
             [BODY3, ["sp", "", "", "Aa a", "エー", "K", "2(+-2)", "6(1)", "V(+)", ""],
-             ["sp", "", "", "Bb b", "ビー", "K", "1(2)", "2(+)", "III", ""]])
+             ["sp", "", "", "Bb b", "ビー", "K", "1(2)", "2(+)", "III", ""],
+             ["sp", "", "", "Cc c", "シー", "K", "・", "・", "+", ""]])
         self.assertEqual(comp[("エー", "1")]["constancy"], "2")
         self.assertIn("D41", comp[("エー", "1")]["note_judge"])
         self.assertNotIn("D41", comp[("エー", "2")]["note_judge"])   # 6 > 4: 調査区数が決まらない
-        self.assertNotIn("D41", comp[("エー", "3")]["note_judge"])   # ローマ数字は今でも常在度
+        self.assertIn("D41", comp[("エー", "3")]["note_judge"])      # ローマ数字の列 (調査区数 5 以上)
+        self.assertIn("5 以上", comp[("エー", "3")]["note_modify"])
         self.assertEqual(comp[("エー", "3")]["constancy"], "V")
+        self.assertEqual((comp[("シー", "3")]["constancy"], comp[("シー", "3")]["cover"]), ("+", ""))
+        log = rows_tsv(os.path.join(d, "decisions.tsv"))
+        self.assertIn(("Tab.001/d/調査区数/3", "5+", "D41"), {(r["cell_id"], r["decided"], r["judge"]) for r in log})
+
+    def test_missing_count_star(self):
+        """D41 (a): 表頭の 3*・7* と「* は調査区数」の注 (九州ページ内 Tab.030)．注の無い表には当てない"""
+        head = [HEAD3, ["植生高", "Höhe d. Vegetation", "cm", "5", "3*", "7*", "2-3: * は表下の注 (*調査区数)"],
+                ["出現種数", "Artenzahl", "", "3", "4", "5", ""]]
+        body = [BODY3, ["sp", "", "", "Aa a", "エー", "K", "3・3", "3(2-3)", "V(+-4)", ""],
+                ["sp", "", "", "Bb b", "ビー", "K", "+", "1(+)", "II(+)", ""]]
+        d, comp = self._decide(head, body)
+        a2, a3 = comp[("エー", "2")], comp[("エー", "3")]
+        self.assertEqual((a2["constancy"], a2["cover"]), ("3", "2-3"))
+        self.assertIn("D41", a2["note_judge"])
+        self.assertIn("3*", a2["note_modify"])
+        self.assertIn("D41", a3["note_judge"])
+        log = {(r["cell_id"], r["decided"]) for r in rows_tsv(os.path.join(d, "decisions.tsv"))}
+        self.assertIn(("Tab.001/d/調査区数/2", "3"), log)
+        self.assertIn(("Tab.001/d/調査区数/3", "7"), log)
+        kinds = {r["plot"]: r for r in rows(os.path.join(d, "sites.csv")) if r["item_ja"] == "列の種類"}
+        self.assertEqual(kinds["2"]["value"], "常在度")
+        self.assertIn("D41", kinds["2"]["note_judge"])
+        height = {r["plot"]: r for r in rows(os.path.join(d, "sites.csv")) if r["item_ja"] == "植生高"}
+        self.assertEqual((height["1"]["value"], height["2"]["value"]), ("5", "-"))     # 3* は植生高の値ではない
+        self.assertIn("D23", height["2"]["note_judge"])
+        head[1][-1] = ""                                       # 注が無ければ * は調査区数とみない
+        _, comp = self._decide(head, body)
+        self.assertNotIn("D41", comp[("エー", "2")]["note_judge"])
 
     def test_count_one_is_plot(self):
-        """D42: 調査区数 1 の列 (中部 Tab.058・関東 Tab.070) は地点の列．常在度の形の値がある列は除く"""
-        _, comp = self._decide(
+        """D42: 調査区数 1 の列 (中部 Tab.058・関東 Tab.070) は地点の列．常在度の形の値がある列は除く．
+        当てたことは組成のセルと，表頭の調査区数・列の種類の行の note_judge・note_modify に残る"""
+        d, comp = self._decide(
             [HEAD3, ["調査区数", "Zahl d. Aufnahmen", "", "1", "1", "5", ""]],
             [BODY3, ["sp", "", "", "Aa a", "エー", "K", "2・3", "1(+)", "IV(+-1)", ""],
              ["sp", "", "", "Bb b", "ビー", "K", "+", "・", "II", ""]])
         a1 = comp[("エー", "1")]
         self.assertEqual((a1["cover"], a1["sociability"], a1["constancy"]), ("2", "3", ""))
         self.assertIn("D42", a1["note_judge"])
+        self.assertIn("地点の列", a1["note_modify"])
+        sites = [r for r in rows(os.path.join(d, "sites.csv")) if r["plot"] == "1"]
+        for item in ("調査区数", "列の種類"):
+            r = next(x for x in sites if x["item_ja"] == item)
+            self.assertIn("D42", r["note_judge"], item)
+            self.assertIn("地点の列", r["note_modify"], item)
         self.assertEqual(comp[("ビー", "1")]["cover"], "+")
         self.assertNotIn("D42", comp[("エー", "2")]["note_judge"])   # 1(+) は常在度の形
         self.assertEqual(comp[("エー", "2")]["constancy"], "1")
+
+
+class SubscriptSociabilityTest(unittest.TestCase):
+    def test_count_one_column_with_subscript(self):
+        """D42・D45: 調査区数 1 の列の 3(5) (群度が右下の小さい字 3₅) は被度・群度．出現地点数が調査区数を超える check を出さない．
+        2(…)〜5(…) の無い列の 1(+) は常在度のまま"""
+        from rules import s3_names as names
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            d = make([HEAD3, ["調査区数", "Zahl d. Aufnahmen", "", "1", "1", "5", ""]],
+                     [BODY3, ["sp", "", "", "Aa a", "エー", "K", "3(5)", "1(+)", "IV(+-1)", ""],
+                      ["sp", "", "", "Bb b", "ビー", "K", "1(2)", "1(1)", "II", ""],
+                      ["sp", "", "", "Cc c", "シー", "K", "+", "・", "I", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        comp = {(r["j_name"], r["plot"]): r for r in rows(os.path.join(d, "composition.csv"))}
+        a1, b1 = comp[("エー", "1")], comp[("ビー", "1")]
+        self.assertEqual((a1["cover"], a1["sociability"], a1["constancy"], a1["status"]), ("3", "5", "", "ok"))
+        self.assertEqual((b1["cover"], b1["sociability"], b1["constancy"]), ("1", "2", ""))
+        self.assertIn("D45", a1["note_judge"])
+        self.assertIn("右下", a1["note_modify"])
+        self.assertNotIn("超える", a1["note_read"])
+        self.assertEqual(comp[("エー", "2")]["constancy"], "1")       # 3(5) の形の無い列は常在度のまま
 
 
 class ShikokuDecisionsTest(unittest.TestCase):
@@ -1191,6 +1256,111 @@ class ShikokuDecisionsTest(unittest.TestCase):
         self.assertEqual(comp[("ディー", "2")]["value_decided"], "4・3")   # カンマの区切り
         self.assertEqual((comp[("ディー", "3")]["value_decided"], comp[("ディー", "3")]["note_judge"].split(";")[0]),
                          ("+(+-1)", "D13"))                            # 範囲の - の欠け (空白なし)
+
+
+class TwoDigitYearTest(unittest.TestCase):
+    """2 桁の年 (項目名の ('78)・セルの 1. Mai '78) と日の範囲の書き方 (D37・D43・to_csv.norm_date)"""
+
+    def test_two_digit_years_and_ranges(self):
+        from rules import s3_names as names
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        head = ["item_ja", "item_de", "unit", "1", "2", "3", "4", "5", "6", "note"]
+        try:
+            d = make([head,
+                      ["調査年月日('78)", "Datum d. Aufn.", "", "8 2", "8/4", "8 2", "8 2", "8 2", "8 2", ""],
+                      ["調査年月日", "Datum d. Aufn.", "", "1. Mai '78", "28. Apr. '80", "'60", "'77 10",
+                       "19.-23. Okt. '78", "19.-23. Okt. '78, u. 16. Dez. '78", ""]],
+                     [["kind", "group_ja", "group_de", "s_name", "j_name", "layer", "1", "2", "3", "4", "5", "6", "note"],
+                      ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", "+", "+", "+", ""]],
+                     notes=[["1", "調査年月日", "Datum", "1976-12-24～26", "", "24.-26. Dez. 1976", "ok", ""],
+                            ["2", "調査年月日", "Datum", "2. Aug. 1977", "", "", "ok", ""],
+                            ["3", "調査年月日", "Datum", "1979-10-19/1979-10-23", "", "", "ok", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        s = {}
+        for r in rows(os.path.join(d, "sites.csv")):
+            s.setdefault((r["cell_id"].split("/")[1], r["plot"]), r)
+        self.assertEqual(s[("h1", "1")]["value"], "1978-08-02")
+        self.assertIn("D37", s[("h1", "1")]["note_judge"])
+        self.assertEqual(s[("h1", "2")]["value"], "1978-08-04")
+        got = {p: (s[("h2", p)]["value"], s[("h2", p)]["status"]) for p in "123456"}
+        self.assertEqual(got["1"], ("1978-05-01", "ok"))
+        self.assertEqual(got["2"], ("1980-04-28", "ok"))
+        self.assertEqual(got["3"], ("1960", "ok"))
+        self.assertEqual(got["4"], ("1977-10", "ok"))
+        self.assertEqual(got["5"], ("1978-10-19/1978-10-23", "ok"))
+        self.assertEqual(got["6"][1], "check")                     # 日付が 2 つある印字は決めない
+        self.assertEqual((s[("n1", "1")]["value"], s[("n1", "1")]["note_judge"]), ("1976-12-24/1976-12-26", "D43"))
+        self.assertEqual(s[("n2", "2")]["value"], "1977-08-02")
+        self.assertNotIn("D43", s[("n3", "3")]["note_judge"])       # もうそろっている
+
+
+class FeldNumberTest(unittest.TestCase):
+    def test_once_and_notes_by_feld_number(self):
+        """D44: 1 回出現の in OK-2・注記の OK: / MM,MK: を表頭の調査番号から地点に引く (関東 Tab.068)"""
+        from rules import s3_names as names
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            d = make([HEAD3, ["調査番号", "Feld-Nr.", "", "OK 1", "OK 11", "MM 8", ""],
+                      ["出現種数", "Artenzahl", "", "1", "2", "1", ""]],
+                     [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "+", "+", ""]],
+                     once=[["OK-11", "Bb b", "ビー", "K", "+", "見出しの印字は in OK-11"],
+                           ["OK-99", "Cc c", "シー", "K", "+", ""]],
+                     notes=[["OK", "調査地", "Lage", "大島", "", "OK: Insel Oshima 大島", "ok", ""],
+                            ["MM,MK", "調査地", "Lage", "三宅島", "", "MM,MK: Insel Miyakejima 三宅島", "ok", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        comp = {(r["j_name"], r["plot"]): r for r in rows(os.path.join(d, "composition.csv"))}
+        self.assertIn(("ビー", "2"), comp)
+        self.assertIn("D44", comp[("ビー", "2")]["note_judge"])
+        self.assertIn(("シー", "OK-99"), comp)                        # 表頭に無い調査番号は印字のまま
+        place = {r["plot"]: r for r in rows(os.path.join(d, "sites.csv")) if r["item_ja"] == "調査地"}
+        self.assertEqual((place["1"]["value"], place["2"]["value"], place["3"]["value"]), ("大島", "大島", "三宅島"))
+        self.assertIn("D44", place["3"]["note_judge"])
+        conf = rows_tsv(os.path.join(d, "conflicts.tsv"))
+        self.assertFalse([r for r in conf if r["kind"] == "N" and r["cell_id"].endswith("/2")])   # 地点 2 の種数が合う
+
+
+class RingAndBareRangeTest(unittest.TestCase):
+    def test_ring_mark_and_bare_range(self):
+        """D46 (値の右上の小さな丸 +°・3・4° を外す．四国 Tab.086)・D47 (常在度の列の V+-5・I+・I1 を括弧に入れる．四国 Tab.062)．
+        地点の列の I1 は D47 で触らない"""
+        from rules import s3_names as names
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            d = make([HEAD3, ["調査区数", "Zahl d. Aufn.", "", "-", "-", "8", ""]],
+                     [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+°", "3・4°", "V+-5", ""],
+                      ["sp", "", "", "Bb b", "ビー", "K", "1・1", "・", "I+", ""],
+                      ["sp", "", "", "Cc c", "シー", "K", "I1", "+", "I1", ""]],
+                     once=[["2", "Dd d", "ディー", "K", "+°", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        comp = {(r["j_name"], r["plot"]): r for r in rows(os.path.join(d, "composition.csv"))}
+        a1, a2, a3 = comp[("エー", "1")], comp[("エー", "2")], comp[("エー", "3")]
+        self.assertEqual((a1["cover"], a1["status"]), ("+", "ok"))
+        self.assertEqual((a2["cover"], a2["sociability"], a2["status"]), ("3", "4", "ok"))
+        self.assertIn("D46", a1["note_judge"])
+        self.assertIn("丸", a2["note_modify"])
+        self.assertEqual((a3["cover"], a3["constancy"], a3["status"]), ("+-5", "V", "ok"))
+        self.assertIn("D47", a3["note_judge"])
+        b3, c3 = comp[("ビー", "3")], comp[("シー", "3")]
+        self.assertEqual((b3["cover"], b3["constancy"]), ("+", "I"))
+        self.assertEqual((c3["cover"], c3["constancy"]), ("1", "I"))
+        self.assertNotIn("D47", comp[("シー", "1")]["note_judge"])     # 地点の列は触らない
+        self.assertEqual(comp[("ディー", "2")]["cover"], "+")
+        self.assertIn("D46", comp[("ディー", "2")]["note_judge"])
 
 
 if __name__ == "__main__":

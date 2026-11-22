@@ -150,10 +150,11 @@ _PER_COLUMN = to_csv.plots_per_column
 
 
 def mark_columns(rows, trace):
-    """段 0 の規則で調査区数を決め直した列の行に，規則の番号と説明を足す (組成と，表頭の列の種類の行)"""
+    """段 0 の規則で調査区数を決め直した列の行に，規則の番号と説明を足す (組成と，表頭の列の種類・調査区数の行)"""
     for r in rows:
         got = trace.cols.get(r.get('plot', ''))
-        if not got or ('s_name' not in r and r.get('item_ja') != '列の種類'):
+        count_row = r.get('item_ja') == '調査区数' or r.get('item_de', '').lower().startswith('zahl d. aufn')
+        if not got or ('s_name' not in r and r.get('item_ja') != '列の種類' and not count_row):
             continue
         r['note_judge'] = ';'.join(x for x in [r['note_judge']] + [rid for rid, _ in got] if x)
         r['note_modify'] = '; '.join(x for x in [r['note_modify']] + [why for _, why in got] if x)

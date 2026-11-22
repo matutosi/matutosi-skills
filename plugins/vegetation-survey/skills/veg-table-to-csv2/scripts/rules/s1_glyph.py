@@ -101,14 +101,20 @@ def colon_point(t, param):
                 yield Change('header', d['_row'], p, f'{m.group(1)}.{m.group(2)}', '小数点が縦に 2 つ見える印字の乱れとみた')
 
 
-@rule('D23', '表頭の値の末尾の「*」(脚注の印) を外す (Y* → Y)', 1, old='(規則の番号なし．脚注の印)')
+@rule('D23', '表頭の値の末尾の「*」(脚注の印) を外す (Y* → Y)．「* は調査区数」の注がある表の数 (5*) は，その行の値ではないので - にする', 1,
+      old='(規則の番号なし．脚注の印)')
 def footnote_mark(t, param):
+    """「* は調査区数」の注がある表の `5*` は調査区数 (D41 が列の調査区数にする)．植生高などの値として残さない"""
+    from rules.s0_columns import STAR_VALUE, star_note
+    counts = bool(star_note(t))
     plots = t.plots('header')
     for d in t.dicts('header'):
         for p in plots:
             v = (d.get(p) or '').strip()
             core = v.rstrip('*＊').rstrip()
-            if core and core != v:
+            if counts and STAR_VALUE.match(v):
+                yield Change('header', d['_row'], p, '-', f'印字は {v}．* は調査区数の注なので，この行の値ではないとみて - にした (調査区数は D41)')
+            elif core and core != v:
                 yield Change('header', d['_row'], p, core, f'印字は {v}．末尾の * は脚注の印とみて外した')
 
 
@@ -249,3 +255,61 @@ def hyphen_layer(t, param):
             new = [HYPHEN_LAYER.sub(r'\1\2', x) for x in layers]
             if new != layers:
                 yield Change(kind, d['_row'], '@layer', ';'.join(new), f"階層の印字は {','.join(layers)}．横棒を外した")
+
+
+@rule('D45', '調査区数 1 の列で群度を右下の小さい字で印字した値 (3₅．転記は 3(5)) は，被度・群度 (3・5) とする', 1,
+      old='(規則の番号なし．読み方の手引き 2 節．2026-11-22 ユーザ決定)')
+def subscript_sociability(t, param):
+    """当てる列は s0_columns.subscript_columns (調査区数の印字が 1 で，2(…)〜5(…) の形が 1 つでもある列)．
+    常在度の書き方の 1(+) と取り違えないよう，列ごとに決める．1 回出現の値も同じ列の条件で"""
+    from rules.s0_columns import SUB_SOC, subscript_columns
+    cols = subscript_columns(t)
+    if not cols:
+        return
+    for row, p, v in body_cells(t):
+        m = SUB_SOC.match(v.translate(to_csv.FIX).strip()) if p in cols else None
+        if m:
+            yield Change('body', row, p, f"{m.group('c')}・{m.group('s')}{m.group('q')}",
+                         f'印字は {v} (群度が右下の小さい字)．調査区数 1 の列なので被度・群度とみた')
+    for d in t.dicts('once'):
+        p = d.get('plot', '').strip()
+        v = (d.get('value') or '').strip()
+        m = SUB_SOC.match(v.translate(to_csv.FIX)) if p in cols else None
+        if m:
+            yield Change('once', d['_row'], '@value', f"{m.group('c')}・{m.group('s')}{m.group('q')}",
+                         f'印字は {v} (群度が右下の小さい字)．調査区数 1 の列なので被度・群度とみた')
+
+
+RING = re.compile(r'^(?P<v>.*?\S)\s*[°˚º゜ﾟ](?P<q>\??)$')
+
+
+@rule('D46', '値の右上の小さな丸 (+°・3・4°) を外す．丸の意味は凡例に無く，値は丸を除いた形とする', 1,
+      old='(規則の番号なし．四国 Tab.086．2026-11-23 ユーザ指示)')
+def ring_mark(t, param):
+    for row, p, v in body_cells(t):
+        m = RING.match(v.strip())
+        if m:
+            yield Change('body', row, p, m.group('v') + m.group('q'), f'印字は {v} (値の右上に小さな丸)．丸を外した')
+    for d in t.dicts('once'):
+        v = (d.get('value') or '').strip()
+        m = RING.match(v)
+        if m:
+            yield Change('once', d['_row'], '@value', m.group('v') + m.group('q'), f'印字は {v} (値の右上に小さな丸)．丸を外した')
+
+
+BARE_RANGE = re.compile(rf'^(?P<head>V|IV|III|II|I)(?P<a>{COV})(?:\s*-\s*(?P<b>{COV}))?(?P<q>\??)$')
+
+
+@rule('D47', '常在度の列で，上付きの範囲を括弧なしに書いた値 (V+-5・I+・I1) を括弧に入れる (V(+-5)・I(+)・I(1))', 1,
+      old='(規則の番号なし．四国 Tab.062．2026-11-23 ユーザ指示)')
+def bare_range(t, param):
+    """常在度の列 (調査区数の印字のある列) だけに当てる．地点の列の I1 などは別の意味がありうるので触らない"""
+    n = t.n_plots()
+    for row, p, v in body_cells(t):
+        if n.get(p, 0) <= 0:
+            continue
+        m = BARE_RANGE.match(v.translate(to_csv.FIX).strip())
+        if m:
+            rng = m.group('a') + ('-' + m.group('b') if m.group('b') else '')
+            yield Change('body', row, p, f"{m.group('head')}({rng}){m.group('q')}",
+                         f'印字は {v} (範囲が括弧なし)．括弧に入れた')
