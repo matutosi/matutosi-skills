@@ -560,6 +560,35 @@ class ShiftCheckTest(unittest.TestCase):
         flagged = [l for l in out.split("---")[1].splitlines() if l.startswith("  列 ")]
         self.assertEqual({l.split(":")[0].strip() for l in flagged}, {"列 3"})
 
+    def test_grid_accepts_row_y(self):
+        """marks_grid.py が書く row_y.tsv を --grid にそのまま渡せる (この表・このページの行．無い行は前後から補う)"""
+        d = tempfile.mkdtemp()
+        rowy = [60 + 30 * r for r in range(self.R)]
+        src = os.path.join(d, "p.png")
+        self.draw(src, rowy)
+        self.transcript(d, shift_col={2})
+        path = os.path.join(d, "row_y.tsv")
+        lines = ["table\tpage\trow\tname\ty", "Tab.9\tp\t1\tx\t999"]                  # 別の表の行は読まない
+        lines += [f"Tab.11\tp\t{r + 1}\tsp{r}\t{y}" for r, y in enumerate(rowy) if r != 7]   # 行 8 は対応しなかった
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        rc, out = run(self.sc.main, [src, d, "Tab.11", "--box", "120", "60", "450", str(rowy[-1]), "--grid", path])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("row_y.tsv に無い行 [8]", out)
+        self.assertIn("列 3: 列全体で d=+1", out)
+
+    def test_small_table_is_out_of_scope(self):
+        """種の行が --min-rows より少ない表は「対象外」と知らせて止まる (九州ページ内 Tab.069 は 3 行)"""
+        d = tempfile.mkdtemp()
+        rowy = [60 + 30 * r for r in range(self.R)]
+        src = os.path.join(d, "p.png")
+        self.draw(src, rowy)
+        self.transcript(d)
+        rc, out = run(self.sc.main, [src, d, "Tab.11", "--box", "120", "60", "450", str(rowy[-1]), "--ref", "35", "80",
+                                     "--min-rows", "31"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("対象外", out)
+
     def test_grid_count_mismatch_stops(self):
         d = tempfile.mkdtemp()
         rowy = [60 + 30 * r for r in range(self.R)]

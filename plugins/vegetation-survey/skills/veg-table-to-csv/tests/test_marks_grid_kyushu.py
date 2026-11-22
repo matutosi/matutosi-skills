@@ -240,5 +240,116 @@ class SmallTest(unittest.TestCase):
         self.assertIn("分けた行をまとめた: 1 組 2-3", out)
 
 
+def dotted_box(draw, x0, y0, x1, y1, d=9, step=18):
+    """点線の枠 (直径 d の点が step px おき．四国のページ内の表の a・b の枠)"""
+    for x in range(x0, x1 + 1, step):
+        for y in (y0, y1):
+            draw.rectangle((x, y, x + d - 1, y + d - 1), fill=0)
+    for y in range(y0 + step, y1, step):
+        for x in (x0, x1):
+            draw.rectangle((x, y, x + d - 1, y + d - 1), fill=0)
+
+
+def dashed_box(draw, x0, y0, x1, y1, t=7, ln=16, step=24):
+    """破線の枠 (太さ t・長さ ln の線が step px おき．長さが太さの 2.5 倍に満たない．四国 Tab.124)"""
+    for x in range(x0, x1 - ln + 1, step):
+        for y in (y0, y1):
+            draw.rectangle((x, y, x + ln - 1, y + t - 1), fill=0)
+    for y in range(y0 + step, y1 - ln + 1, step):
+        for x in (x0, x1):
+            draw.rectangle((x, y, x + t - 1, y + ln - 1), fill=0)
+
+
+@unittest.skipIf(mg is None, "numpy・scipy・Pillow が無い")
+class PageTableTest(unittest.TestCase):
+    """ページ内の表 (行の間隔 110 px・点 17 px・字の高さ 60 px) の型 (四国のページ内の表 94 表で出たもの)"""
+
+    XS = [80 + 190 * c for c in range(6)]
+    PITCH = 110
+
+    def page_table(self, value, extra=None):
+        return make_table(8, self.XS, value, y0=80, pitch=self.PITCH, dot_d=17, extra=extra, cross_r=30, cross_t=4)
+
+    def box(self):
+        return ["--box", "20", "20", str(self.XS[-1] + 70), str(80 + self.PITCH * 8 - 40)]
+
+    def test_dotted_lines_unit(self):
+        """点線・破線の枠は並びとみて，行ごと・列ごとに 1 つの点や値は並びとみない"""
+        import numpy as np
+
+        def comp(x, y, w, h):
+            return [x, y, w, h, w * h, 1.0, x - w / 2, x + w / 2, y - h / 2, y + h / 2]
+
+        frame_dots = [comp(100, 50 + 16 * k, 9, 9) for k in range(6)]      # 点線 (縦)
+        frame_dash = [comp(50 + 24 * k, 300, 16, 7) for k in range(6)]     # 破線 (横．長さが太さの 2.3 倍)
+        data_dots = [comp(400, 50 + 110 * k, 10, 10) for k in range(6)]    # 点の列 (行の間隔 110)
+        row_dots = [comp(500 + 40 * k, 700, 10, 10) for k in range(6)]     # 点の行 (列の間隔 40．周期が長さの 2.5 倍を超える)
+        got = mg.dotted_lines(np.array(frame_dots + frame_dash + data_dots + row_dots, float), 8, 60, 110)
+        self.assertEqual(got.tolist(), [True] * 12 + [False] * 12)
+
+    def test_dotted_frame_default(self):
+        """点線の枠 (9 px の点) と破線の枠があっても，既定の引数で行の間隔・点の大きさを測り違えない (3a．四国 Tab.044・124・149)"""
+        xs, p = self.XS, self.PITCH
+
+        def frames(draw):
+            dotted_box(draw, xs[0] - 60, 80 + p - 50, xs[2] + 60, 80 + 3 * p + 45)
+            dashed_box(draw, xs[3] - 60, 80 + 4 * p - 50, xs[5] + 60, 80 + 6 * p + 45)
+
+        d, src = self.page_table({(1, 0), (2, 1), (5, 4)}, extra=frames)
+        _, out = run([src, d, "Tab.1"] + self.box())
+        self.assertIn("点線・破線の枠とみて除いたかたまり", out)
+        self.assertRegex(out, r"点の大きさ: 1[78] px")                    # 枠の 9 px の点ではなく紙面の点
+        self.assertIn("画像の行 8", out)
+        self.assertIn("食い違い 0 セル", out)
+
+    def test_auto_max_h(self):
+        """--max-h を省くと，行の間隔の見込みが 80 px 以上の表 (ページ内の表) では 1.1 倍にし，
+        折り込みの表 (40-55 px) は 45 のまま (3b)"""
+        self.assertEqual(mg.auto_max_h(110), 121)
+        self.assertEqual(mg.auto_max_h(55), 45)
+        self.assertEqual(mg.auto_max_h(0), 45)
+        xs = self.XS
+        d, src = self.page_table({(1, 0), (2, 1), (3, 2), (6, 5)})        # 値は高さ 61 px
+        _, out = run([src, d, "Tab.1"] + self.box())
+        self.assertIn("--max-h", out)
+        self.assertIn("食い違い 0 セル", out)
+        _, out = run([src, d, "Tab.1"] + self.box() + ["--max-h", "45", "--glyph-h", "45"])
+        self.assertNotIn("食い違い 0 セル", out)                          # 前の既定では値を落とした
+
+    def test_summary_thin_roman(self):
+        """総合常在度表の細い 1 画の I (縦の線 62 px) を罫線とみて消さない (3c．四国ページ内 Tab.078)"""
+        xs, p = self.XS, self.PITCH
+        romans = {(0, 0), (2, 3), (4, 1), (6, 5)}
+        fives = {(1, 2), (5, 4)}
+
+        def glyphs(draw):
+            for r, c in romans:                                     # I: 太さ 6 の縦の線 + 上下のセリフ
+                x, y = xs[c], 80 + r * p
+                draw.rectangle((x - 3, y - 31, x + 2, y + 31), fill=0)
+                draw.rectangle((x - 12, y - 33, x + 11, y - 29), fill=0)
+                draw.rectangle((x - 12, y + 29, x + 11, y + 33), fill=0)
+            for r, c in fives:                                      # V
+                x, y = xs[c], 80 + r * p
+                draw.line([(x - 18, y - 30), (x, y + 30), (x + 18, y - 30)], fill=0, width=6)
+
+        d, src = make_table(8, xs, (), y0=80, pitch=p, dot_d=17, skip=romans | fives, extra=glyphs)
+        body = os.path.join(d, "transcripts", "Tab.001", "body.tsv")
+        with open(body, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        rows = [lines[0]]
+        for r, line in enumerate(lines[1:]):
+            cells = line.split("\t")
+            for c in range(len(xs)):
+                cells[6 + c] = "I" if (r, c) in romans else "V" if (r, c) in fives else "・"
+            rows.append("\t".join(cells))
+        with open(body, "w", encoding="utf-8", newline="") as f:
+            f.write("\n".join(rows) + "\n")
+        _, out = run([src, d, "Tab.1"] + self.box())
+        self.assertIn("総合常在度表", out)
+        self.assertIn("食い違い 0 セル", out)
+        _, out = run([src, d, "Tab.1"] + self.box() + ["--rule", "60"])
+        self.assertIn("転記 I・画像は", out)                              # 前の既定 (罫線 60 px) では I を落とした
+
+
 if __name__ == "__main__":
     unittest.main()

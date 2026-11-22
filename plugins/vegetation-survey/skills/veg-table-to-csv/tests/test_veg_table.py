@@ -723,6 +723,39 @@ class SparseTest(unittest.TestCase):
     def test_plot_list(self):
         self.assertEqual(to_csv.plot_list("1,7-9"), ["1", "7", "8", "9"])
         self.assertEqual(to_csv.plot_list("in 1"), ["in 1"])
+        self.assertEqual(to_csv.plot_list("10,26-18"), ["10", "26-18"])     # 逆順の範囲は落とさない
+
+    def test_two_digit_year_dates(self):
+        """セルの 2 桁の年 (引用符つき) と日の範囲 (書き方は 1979-10-19/1979-10-23 にそろえる)"""
+        self.assertEqual(to_csv.norm_date("12. Mai '79"), "1979-05-12")
+        self.assertEqual(to_csv.norm_date("8. 'Jan. 1978"), "1978-01-08")
+        self.assertEqual(to_csv.norm_date("19.—23., Okt. 1979"), "1979-10-19/1979-10-23")
+        self.assertEqual(to_csv.norm_date("'75.11.7~9"), "1975-11-07/1975-11-09")
+        self.assertIsNone(to_csv.norm_date("19.-23. Okt. '78, u. 16. Dez. '78"))
+        self.assertEqual(to_csv.partial_date("'60"), ("1960", "年だけの印字"))
+        self.assertIsNone(to_csv.partial_date("12 5"))                   # 引用符の無い 2 桁は年とみない
+
+    def test_reversed_range_is_kept_as_check(self):
+        """注記の地点 10,26-18 (北海道 Tab.020)．26-18 を落とさず check で残す"""
+        d = tempfile.mkdtemp()
+        t = os.path.join(d, "Tab.001")
+        os.makedirs(t)
+        files = {
+            "meta.tsv": ["key\tvalue", "file\tx_001", "table\tTab.1"],
+            "header.tsv": ["item_ja\titem_de\tunit\t10\t18\tnote", "植被率\t\t%\t90\t80\t"],
+            "notes.tsv": ["plot\titem_ja\titem_de\tvalue\tunit\tvalue_raw\tstatus\tnote",
+                          "10,26-18\t調査地\t\tA町\t\t\tok\t"],
+            "body.tsv": ["kind\tgroup_ja\tgroup_de\ts_name\tj_name\tlayer\t10\t18\tnote",
+                         "sp\t\t\tC\tスギ\tB1\t5・5\t4・4\t"],
+        }
+        for k, v in files.items():
+            with open(os.path.join(t, k), "w", encoding="utf-8") as f:
+                f.write("\n".join(v) + "\n")
+        sites, _ = to_csv.build(t)
+        got = {r["plot"]: r for r in sites if r["item_ja"] == "調査地"}
+        self.assertEqual(got["10"]["status"], "ok")
+        self.assertEqual(got["26-18"]["status"], "check")
+        self.assertIn("逆順", got["26-18"]["note"])
 
 
 class SpeciesKeyTest(unittest.TestCase):
@@ -807,7 +840,10 @@ class CheckTest(unittest.TestCase):
         with open(p, "w", encoding="utf-8") as f:
             f.write(text + "\n3\tBryum argenteum\tギンゴケ\t\t+\t蘚苔・地衣類の段落 (Moose u. Flechten)\n")
         run(to_csv.main, [self.d])
-        self.assertIn("出現種数 3 に対し読んだ種 4", run(chk.main, [self.d])[1])     # 印字が蘚苔を数えるか分からない
+        out = run(chk.main, [self.d])[1]
+        self.assertIn("出現種数 3 に対し読んだ種 4", out)     # 印字が蘚苔を数えるか分からない
+        self.assertIn("蘚苔類を除く 3", out)                    # 別の数え方に並べる (四国 Tab.148)
+        self.assertIn("蘚苔類・地衣類を除くと，合わなかった地点 3 がすべて印字と合う", out)
         self.assertIn("一致 3・不一致 0", run(chk.main, [self.d, "--no-moss"])[1])
         h = os.path.join(self.d, "transcripts", "Tab.1", "header.tsv")
         with open(h, encoding="utf-8") as f:
@@ -1269,6 +1305,21 @@ class ImageTest(unittest.TestCase):
         self.assertEqual(extra, [5])
         self.assertEqual(asg[7], -1)
         self.assertEqual(asg[:5], [0, 1, 2, 3, 4])
+
+    def test_marks_wide_rows_small_table_summary(self):
+        """行の間隔の下限 (九州ページ内 Tab.027)・少ない点でも大きさを測る (Tab.069)・総合常在度表の見分け (Tab.147)"""
+        mg = self._mg()
+        import numpy as np
+        marks = [[(100 + 113 * k + d, "v") for k in range(5) for d in (0, 24)] for _ in range(3)]   # 字の中の切れ 24 px
+        self.assertLess(mg.row_pitch(marks), 60)                     # 下限が無いと字の中の切れを行の間隔とみる
+        floor = mg.pitch_floor((0, 50, 100, 50 + 113 * 5), 5)
+        self.assertAlmostEqual(mg.row_pitch(marks, floor), 113 - 24, delta=30)
+        self.assertGreater(mg.row_pitch(marks, floor), 60)
+        comps = np.array([[0, 0, 19, 19, 300, .85, 0, 0, 0, 0]] * 8, float)   # 点 8 個 (19 px)
+        self.assertEqual(mg.measure_dot_size(comps)[0], 19)
+        self.assertTrue(mg.summary_table([["3", "V(+-1)"], ["・", "II"], ["4", "・"]]))
+        self.assertFalse(mg.summary_table([["2・3", "V(+-1)"], ["+", "II"], ["1・1", "・"]]))   # 地点の列がある
+        self.assertFalse(mg.summary_table([["3", "2"], ["1", "4"]]))                            # ローマ数字が無い
 
     def test_marks_regular_columns_ignore_frame(self):
         """点線の枠の破線が列の間に山を作っても，等間隔の当てはめで列を取る (0.5.14．近畿 Tab.061)"""

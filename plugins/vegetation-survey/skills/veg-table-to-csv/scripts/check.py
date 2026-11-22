@@ -13,7 +13,8 @@
    種は学名 (無ければ和名) で数え，階層が違っても 1 種と数える．1 回出現の種も含める．
    出現種数が 2 行 (維管束とコケなど) に分かれる表は，2 行の合計と比べる．
    出現種数の項目名に「ohne Moos」「蘚苔類を除く」とある表は，蘚苔類・地衣類の行 (群の見出しが蘚苔・コケ・地衣か，
-   階層 M) を数えない (`--no-moss` で全部の表に当てる)．
+   階層 M) を数えない (`--no-moss` で全部の表に当てる)．書き添えの無い表で，合わなかった地点が蘚苔類を除くと
+   すべて合うときは `[数え方]` に `--no-moss` を勧める行を出す (別の数え方にも「蘚苔類を除く」を並べる)．
    常在度の列は地点ではないので比べない．
    合わないときは，別の数え方 (種 × 階層，本体だけ，見出し × 種 × 和名) の数も並べる．
    `--list 表:地点` で，その地点で数えた種の一覧を出せる．
@@ -244,16 +245,20 @@ def main(argv=None):
     body_only = defaultdict(set)        # 種 (本体だけ)
     once_only = defaultdict(set)        # 種 (1 回出現だけ)
     by_row = defaultdict(set)           # 見出し × 学名 × 和名 (同じ種が 2 つの見出しに載ると 2)
+    no_moss_sp = defaultdict(set)       # 種 (蘚苔類・地衣類を除く)．項目名に書き添えの無い表の手がかり (四国 Tab.148)
     const_cols = set()
     for r in comp:
         key = (r['table'], r['plot'])
         if r.get('constancy', '').strip():
             const_cols.add(key)
             continue                                  # 常在度の列は地点ではない
-        if r['table'] in no_moss and is_moss(r):
+        moss = is_moss(r)
+        if r['table'] in no_moss and moss:
             n_moss += 1
             continue                                  # 出現種数が蘚苔類を数えない表
         sp = spkey(r)
+        if not moss:
+            no_moss_sp[key].add(sp)
         counted[key].add(sp)
         by_layer[key].add((sp, r['layer'].strip()))
         by_row[key].add((r.get('group_ja', ''), sp, r['j_name'].strip()))
@@ -286,6 +291,8 @@ def main(argv=None):
     n_abr = 0
     abr_msgs = []
     how = defaultdict(lambda: defaultdict(list))     # 表 → 数え方 → [地点]．地点ごとに，どの数え方で印字と合うか
+    moss_fits = defaultdict(list)                     # 表 → 蘚苔類を除くと印字と合う (合わなかった) 地点
+    ng_plots = defaultdict(list)                      # 表 → 合わなかった地点
     for key, vals in wants.items():
         if key in const_cols and key not in counted:
             n_const += 1
@@ -297,10 +304,15 @@ def main(argv=None):
             n_ok += 1
         else:
             n_ng += 1
+            n_nm = len(no_moss_sp.get(key, ()))
+            moss_alt = n_nm != got                    # 蘚苔類の行がある地点だけ並べる
             alt = (f"種×階層 {len(by_layer.get(key, ()))}・本体だけの種 {n_body}・"
-                   f"見出し×種×和名 {len(by_row.get(key, ()))}")
+                   f"見出し×種×和名 {len(by_row.get(key, ()))}" + (f"・蘚苔類を除く {n_nm}" if moss_alt else ''))
             match = [name for name, v in (('本体だけ', n_body), ('種×階層', len(by_layer.get(key, ()))),
-                                          ('見出し×種×和名', len(by_row.get(key, ())))) if v == want]
+                                          ('見出し×種×和名', len(by_row.get(key, ()))),
+                                          ('蘚苔類を除く', n_nm if moss_alt else -1)) if v == want]
+            if moss_alt and n_nm == want:
+                moss_fits[key[0]].append(key[1])
             hit = f"．{'・'.join(match)}と合う" if match else ''
             rows_of = defaultdict(set)                # 同じ種が表の 2 か所 (見出し違い) に印字されていれば，1 種と数えている
             for g, sp, jn in by_row.get(key, ()):
@@ -317,6 +329,7 @@ def main(argv=None):
                 continue
             if key[1].isdigit():
                 diffs[key[0]][int(key[1])] = (got, want)
+            ng_plots[key[0]].append(key[1])
             bad('種数', msg)
 
     # 6. 1 回出現の種が本体にも
@@ -340,6 +353,11 @@ def main(argv=None):
         for s, e, d, ok in heading_shifts(num(body_only), num(once_only), want):
             print(f'[見出しのずれ] {table}: 1 回出現の見出し in {s}〜{e} を {d:+d} 地点ずらす (in {s} → 地点 {s + d}) と，'
                   f'地点 {" ".join(map(str, ok))} の種数がすべて印字と合う (規則 X35．画像で見出しを確かめてから移す)')
+    for table in sorted(moss_fits, key=lambda t: (len(t), t)):   # 項目名に書き添えの無い，蘚苔類を数えない表 (四国 Tab.148)
+        if sorted(moss_fits[table]) == sorted(ng_plots[table]):
+            ps = ' '.join(sorted(moss_fits[table], key=lambda p: (len(p), p)))
+            print(f'[数え方] {table}: 蘚苔類・地衣類を除くと，合わなかった地点 {ps} がすべて印字と合う．'
+                  f'出現種数が蘚苔類を数えない表とみて `--no-moss` で照合し直す (log.md にそう書く)')
     for msg in abr_msgs:
         print(f'[以下略] {msg}')
     for table in sorted(how, key=lambda t: (len(t), t)):   # 数え方が地点で分かれる表 (印字の取り違えか見出しのずれの手がかり)

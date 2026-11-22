@@ -7,8 +7,13 @@
 - `--box` は値の列だけを囲む (常在度の列は値が右へ伸びるので，その分も入れる)．座標は原寸の画像のもの．
   上端は 1 行目の印より，下端は最後の行の印より 30 px 以上離す．印にかかると，その列だけ端の行を落として
   列ごと 1 行ずれる (九州 Tab.011)．近いとき・列ごとの 1 行目 (最後の行) の印の y がそろわないときは `[注意]` を出す．
-- 罫線 (長い縦・横の線) と，少し波打つ細い線 (折り目) を消し，字のかたまりを取る．線に重なった点や値の太い部分は残し，
-  細い線の付いた点は点に戻す．細く短い線が等間隔に並ぶ破線 (`--dash` 以下の太さ) と L 字の角は枠とみて除く．
+- 罫線 (`--rule` 以上続く縦・横の線) と，少し波打つ細い線 (折り目) を消し，字のかたまりを取る．`--rule` を省くと
+  60 px と `--max-h` の 1.2 倍の大きいほう (総合常在度表の細い 1 画の `I` の縦の線を罫線とみて消さない．四国ページ内 Tab.078)．
+  線に重なった点や値の太い部分は残し，細い線の付いた点は点に戻す．
+- 点線・破線の枠 (太さ `--dash` の 1.5 倍以下の細かい点か短い線が，同じ x か y の上に 4 つ以上，長さの 2.5 倍以下の周期で
+  詰まって並ぶもの．形は問わない) は，点の大きさ・列・行の間隔を測る前に外す (四国ページ内 Tab.044・124・149 の
+  9 px の点の枠・7x16 px の線の枠)．紙面の点や値は行・列の間隔ごとに 1 つなので並びとみない．
+  そのあと，細く短い線 (`--dash` 以下の太さ) が行の間隔より細かく並ぶ破線と L 字の角も枠とみて除く．
   点 (`・`) の x の山から列の中心を測り，
   縦に 1500 px ごとに測り直して紙面の傾きを追う．山が列の数に足りないときや，山の間隔が不ぞろい (点線の枠の破線を
   列と取り違えた) で等間隔の列がどれも点に当たるときは，等間隔の n 列を当てはめる (0.5.14)．
@@ -26,6 +31,12 @@
 - 画像の印が丸く詰まった 1 つのかたまり (点より大きい点・点に重なったよごれ) のときは `[画像に点の形]` として分けて出す．
 - 常在度の列 (`V(1-2)` のようにローマ数字と括弧) は body.tsv の値から自動で見分け，値が点の位置から右へ伸びるとみる．
   `--const 9 10 11` で列を指定することもできる．
+- どの列も値の半分以上がローマ数字か算用数字の常在度の表 (総合常在度表) は，大きな数字・ローマ数字を捨てない設定
+  (`--max-h`・`--glyph-h` を行の間隔の見込みの 1.1 倍・`--dash 0`・常在度の列の右への広げなし・`--keep-rows`) を既定にする．
+- 行の間隔は，`--box` の高さ ÷ 転記の種の行の数の半分より小さい差を数えずに測る．外れるときは `--row-pitch`．
+- `--max-h` (これより高いかたまりを捨てる) を省くと，行の間隔の見込み (`--box` の高さ ÷ 転記の種の行の数．
+  `--row-pitch` があればそれ) が 80 px 以上の表 (ページ内の表．字の高さ約 60 px) は見込みの 1.1 倍，
+  それより細かい表 (折り込みの表) は 45．`--glyph-h` を省くと `--max-h` と点の大きさの 3.5 倍の大きいほう．
 - `--diff-png` は食い違いのセルを切り出して並べた画像 (多いときは `_01` `_02` …)，
   `--band K0 K1 --band-png` は画像の行 K0〜K1 を，列ごとの行の y で切って横にそろえた帯の画像．
   `--tsv` は行 × 列の印の表 (d 点・v 値・_ 印なし) と y を書く．
@@ -324,7 +335,7 @@ def is_dot(q, a):
             and fill >= a.dot_fill and max(w, h) <= 1.8 * min(w, h))
 
 
-def measure_dot_size(comps, dot_min=3, least=20):
+def measure_dot_size(comps, dot_min=3, least=5):
     """紙面の点 (・) の大きさ (px)．小さく丸く詰まったかたまり (充填率 0.6 以上・縦横比 1.5 以内) の
     幅と高さの大きいほうの最頻値．数が least に満たなければ None．戻り: (大きさ, 数)"""
     if not len(comps):
@@ -416,6 +427,58 @@ def dashed_frames(comps, pitch_x, pitch_y, a):
                 out[run] = True
     if comps.shape[1] > 15:                             # 枠の角 (L 字．components の is_corner)
         out |= (comps[:, 15] > 0) & (np.minimum(w, h) <= a.dash * 4)
+    return out
+
+
+def dotted_lines(comps, dash, pitch_x, pitch_y, least=4):
+    """点線・破線の枠 (細かい点か短い線が，同じ x か y の上に詰まって並ぶもの) のかたまり．戻り: 真偽の配列．
+    太さ dash 以下で，同じ線の上に least 個以上，隙間が長さの 1.5 倍以下・周期が長さの 2.5 倍以下で，
+    行 (縦の線) か列 (横の線) の間隔の見込みの半分より細かく並ぶもの．形 (細長さ) は問わない
+    (四国のページ内の表の枠は 7x10 px の点が 16 px おき・7x16 px の線が 24 px おきで，dashed_frames の
+    「長さが太さの 2.5 倍以上」に当たらず，点として行の間隔の計測と値の判定に混じっていた．Tab.124・149)．
+    紙面の点 (・) や値は行・列の間隔ごとに 1 つなので，周期が長さの 2.5 倍を大きく超え，並びとはみない．
+    点の大きさを測る前・行の間隔を測る前に使うので，間隔は --box と転記から見込んだ値を渡す"""
+    out = np.zeros(len(comps), bool)
+    if not len(comps) or dash <= 0:
+        return out
+    w, h = comps[:, 2], comps[:, 3]
+    thin, long_ = np.minimum(w, h), np.maximum(w, h)
+    cand = (thin <= 1.5 * dash) & (long_ <= 4 * dash) & (long_ < .35 * pitch_y)
+    for vertical in (True, False):
+        idx = np.where(cand)[0]
+        if len(idx) < least:
+            continue
+        key = comps[idx, 0] if vertical else comps[idx, 1]     # 同じ線に乗るか
+        lo, hi = (8, 9) if vertical else (6, 7)
+        span = h if vertical else w                              # 線の向きの長さ
+        period_max = .5 * (pitch_y if vertical else pitch_x)
+        idx = idx[np.argsort(key, kind='stable')]
+        key = np.sort(key, kind='stable')
+        clusters, cur = [], [idx[0]]
+        for k in range(1, len(idx)):
+            if key[k] - key[k - 1] <= 4:
+                cur.append(idx[k])
+            else:
+                clusters.append(cur)
+                cur = [idx[k]]
+        clusters.append(cur)
+        for cl in clusters:
+            if len(cl) < least:
+                continue
+            cl = sorted(cl, key=lambda i: comps[i, lo])
+            run = [cl[0]]
+            for p, q in zip(cl, cl[1:]):
+                gap = comps[q, lo] - comps[p, hi]
+                period = (comps[q, lo] + comps[q, hi] - comps[p, lo] - comps[p, hi]) / 2
+                ln = max(span[p], span[q], dash)               # 細かい点 (4-5 px) も太さの上限までは見込む
+                if -2 <= gap <= 1.5 * ln and period <= min(2.5 * ln, period_max):
+                    run.append(q)
+                    continue
+                if len(run) >= least:
+                    out[run] = True
+                run = [q]
+            if len(run) >= least:
+                out[run] = True
     return out
 
 
@@ -660,10 +723,41 @@ def edge_warnings(marks, y0, y1, pitch, margin=30, off=None):
     return out
 
 
-def row_pitch(marks):
+def row_pitch(marks, floor=0.0):
+    """行の間隔 (列ごとの隣の印の y の差の中央値)．floor より小さい差 (1 つの字の中の切れ・下線) は数えない"""
     d = [b[0] - a[0] for ms in marks for a, b in zip(ms, ms[1:])]
-    d = [v for v in d if v > 4]
-    return float(np.median(d)) if d else 20.0
+    d = [v for v in d if v > max(4, floor)]
+    return float(np.median(d)) if d else max(20.0, floor)
+
+
+def auto_max_h(est, base=45, page=80):
+    """--max-h の既定．行の間隔の見込み est (--box の高さ ÷ 転記の種の行の数) が page px 以上の表
+    (ページ内の表．字の高さ約 60 px で 45 を超える．四国 Tab.074・124) は est の 1.1 倍，
+    それより細かい表 (折り込みの表．行の間隔 40-55 px) は base のまま"""
+    return int(round(1.1 * est)) if est and est >= page and 1.1 * est > base else base
+
+
+def pitch_floor(box, nrows):
+    """行の間隔の下限: --box の高さを転記の種の行の数で割った値の半分 (行の間隔の広い小さい表で，
+    字の中の切れの差 (24 px) を行の間隔 (113 px) と取り違えないため．九州ページ内 Tab.027)"""
+    return .5 * (box[3] - box[1]) / nrows if nrows else 0.0
+
+
+SUMMARY_RE = re.compile(r'^(?:[IV]+|[1-9]\d*)(?:\(.*\))?\??$|^(?:r|\+)\(')
+
+
+def summary_table(vals):
+    """全列が常在度の列 (総合常在度表)．どの列も値の半分以上がローマ数字か算用数字の常在度 (`V`・`3`・`II(+-1)`) で，
+    表のどこかにローマ数字がある．値は大きな数字・ローマ数字で，点の位置から右へ伸びない (九州ページ内 Tab.147)"""
+    if not vals:
+        return False
+    roman = False
+    for c in range(len(vals[0])):
+        got = [row[c] for row in vals if has_value(row[c])]
+        if got and sum(bool(SUMMARY_RE.match(v)) for v in got) * 2 < len(got):
+            return False
+        roman = roman or any(re.match(r'^[IV]+', v) for v in got)
+    return roman
 
 
 # ---- 行の格子 ----
@@ -1028,21 +1122,29 @@ def main(argv=None):
     ap.add_argument('--rows', type=int, help='画像の行の数 (省くと列ごとの印の数の最頻値)')
     ap.add_argument('--seed', type=int, help='起点の列 (1 始まり)')
     ap.add_argument('--threshold', type=int, default=128, help='これより暗い画素を字とみる')
-    ap.add_argument('--rule', type=int, default=60, help='これ以上続く縦・横の線を罫線として消す (px)')
+    ap.add_argument('--rule', type=int, default=None,
+                    help='これ以上続く縦・横の線を罫線として消す (px．省くと 60 と --max-h の 1.2 倍の大きいほう．'
+                         '字の縦の線 (常在度の I) を罫線とみて消さないため)')
     ap.add_argument('--min-area', type=int, default=8, help='これより小さいかたまりを捨てる (よごれ)')
     ap.add_argument('--dot-min', type=int, default=3, help='点の幅・高さの下限')
     ap.add_argument('--dot-max', type=int, default=None,
                     help='点の幅・高さの上限 (省くと紙面の点の大きさを測って決める: 最頻値の 1.25 倍．16 より下げない)')
     ap.add_argument('--dot-speck', type=float, default=.7,
                     help='点のすぐそばのかたまりが 1 つだけで，面積がその点のこの割合未満 (大きさも点以下) なら，よごれとして点とみる')
-    ap.add_argument('--dash', type=int, default=8, help='この太さ以下の短い線が等間隔に並ぶものを枠の破線として除く (0 で除かない)')
+    ap.add_argument('--dash', type=int, default=None,
+                    help='この太さ以下の短い線が等間隔に並ぶものを枠の破線として除き，この 1.5 倍以下の細かい点・線が詰まって並ぶ '
+                         'ものを点線・破線の枠として先に外す (0 で除かない．省くと 8．総合常在度表では 0)')
     ap.add_argument('--dot-fill', type=float, default=.5, help='点の充填率の下限 (中部 Tab.57 は 0.56)')
     ap.add_argument('--speck', type=float, default=.45, help='点の面積の中央値のこの割合より小さいかたまりをよごれとして捨てる')
     ap.add_argument('--thin', type=int, default=5, help='この太さ以下の細長いかたまりを線の切れとみる')
-    ap.add_argument('--max-h', type=int, default=45, help='これより高いかたまりを捨てる')
+    ap.add_argument('--max-h', type=int, default=None,
+                    help='これより高いかたまりを捨てる (省くと，行の間隔の見込み (--box の高さ ÷ 種の行の数) が 80 px 以上の表 '
+                         '(ページ内の表) と総合常在度表は見込みの 1.1 倍，それ以外 (折り込みの表) は 45)')
+    ap.add_argument('--row-pitch', type=float, default=None,
+                    help='行の間隔 (px)．省くと印の並びから測る (--box の高さ ÷ 種の行の数の半分より小さい差は数えない)')
     ap.add_argument('--glyph-h', type=int, default=None,
                     help='--max-h より高くても，幅が点の 0.8 倍以上の字 (4 の長い斜線など) はこの高さまで残す '
-                         '(省くと点の大きさの 3.5 倍．九州の大新 Tab.121)')
+                         '(省くと --max-h と点の大きさの 3.5 倍の大きいほう．九州の大新 Tab.121)')
     ap.add_argument('--limit', type=int, default=200, help='食い違いを表示する上限')
     ap.add_argument('--tsv', help='行 x 列の印の表を書く')
     ap.add_argument('--diff-png', help='食い違いのセルを切り出して並べた画像を書く')
@@ -1088,10 +1190,42 @@ def main(argv=None):
         print('body.tsv に種の行が無い．照合はせず，行の格子と画像だけを作る')
     const = {c - 1 for c in a.const} if a.const is not None else const_columns(vals)
     box = tuple(a.box)
+    floor = pitch_floor(box, len(vals))
+    if a.const is None and summary_table(vals):         # 総合常在度表 (九州ページ内 Tab.147)．引数で渡したものは変えない
+        auto = []
+        if a.max_h is None:
+            a.max_h = max(45, int(round(1.1 * 2 * floor))) if floor else 140
+            auto.append(f'--max-h {a.max_h}')
+        if a.glyph_h is None:
+            a.glyph_h = a.max_h
+            auto.append(f'--glyph-h {a.glyph_h}')
+        if a.dash is None:
+            a.dash = 0                                  # I・II・III の縦の線を枠の破線とみない
+            auto.append('--dash 0')
+        const = set()                                   # 値は列の中心にそろう (右へ伸ばさない)
+        auto.append('常在度の列の右への広げなし')
+        if not a.keep_rows:
+            a.keep_rows = True
+            auto.append('--keep-rows')
+        print('全列が常在度の列 (総合常在度表) とみて，大きな数字・ローマ数字を捨てない設定にした: ' + '・'.join(auto))
+    if a.max_h is None:                                 # 字の高さの上限は行の間隔の見込みから (ページ内の表は字が 60 px 前後)
+        a.max_h = auto_max_h(a.row_pitch or 2 * floor)
+        if a.max_h > 45:
+            print(f'--max-h {a.max_h} (自動: 行の間隔の見込み {a.row_pitch or 2 * floor:.0f} px の 1.1 倍)')
+    if a.dash is None:
+        a.dash = 8
+    if a.rule is None:                                  # 罫線は字より長い (I の縦の線 62 px を消さない．四国ページ内 Tab.078)
+        a.rule = max(60, int(round(1.2 * a.max_h)))
     comps = components(a.image, box, a.threshold, a.rule, a.min_area, core=max(3, a.thin - 1), keep_max=a.max_h)
     if not len(comps):
         sys.exit('--box の中に字が無い')
-    size, nsize = measure_dot_size(comps, a.dot_min)
+    frame = np.zeros(len(comps), bool)                  # 点線・破線の枠．点の大きさ・列・行の間隔を測る前に外す
+    if a.dash > 0:                                      # (かたまりは残し，あとの dashed_frames の並びの判定には使う)
+        est_y = a.row_pitch or (2 * floor if floor else box[3] - box[1])
+        frame = dotted_lines(comps, a.dash, (box[2] - box[0]) / max(1, n), est_y)
+        if frame.any():
+            print(f'点線・破線の枠とみて除いたかたまり: {int(frame.sum())} 個')
+    size, nsize = measure_dot_size(comps[~frame], a.dot_min)
     a.dot_size = size or 0
     if a.dot_max is None:
         a.dot_max = auto_dot_max(size)
@@ -1128,7 +1262,7 @@ def main(argv=None):
             comps[:, i] -= off
         print('行の傾きを補正した: ' + ('y ごとに ' + ' '.join(f'{int(y)}:{v:+.0f}' for y, v in zip(sy, sv)) + ' (y:右端で下がる px)' if a.shear_at
                                        else f'右端で {a.shear:+.0f} px'))
-    dots = comps[[is_dot(q, a) for q in comps]]
+    dots = comps[np.array([is_dot(q, a) for q in comps], bool) & ~frame]
     a.dot_area = float(np.median(dots[:, 4])) if len(dots) else 0
     a.speck_area = a.speck * a.dot_area
     if a.centers:
@@ -1149,13 +1283,16 @@ def main(argv=None):
     if const:
         print('常在度の列: ' + ' '.join(str(c + 1) for c in sorted(const)))
     col = assign_columns(comps, cols, const, a)
-    pitch_y = row_pitch(group_marks(comps, col, n, 8, a))
+    col[frame] = -1
+    if a.row_pitch:
+        floor = .8 * a.row_pitch
+    pitch_y = a.row_pitch or row_pitch(group_marks(comps, col, n, 8, a), floor)
     dash = dashed_frames(comps, cols.pitch, pitch_y, a)
     if dash.any():
         print(f'枠の破線とみて除いた線: {int((dash & (col >= 0)).sum())} 本 (列の外を含め {int(dash.sum())} 本)')
         col[dash] = -1
     marks = group_marks(comps, col, n, .4 * pitch_y, a)
-    pitch_y = row_pitch(marks)
+    pitch_y = a.row_pitch or row_pitch(marks, floor)
     shifts = [float(tilt(cols.base[c])) for c in range(n)] if a.shear else None
     for msg in edge_warnings(marks, box[1], box[3], pitch_y, off=shifts):
         print('[注意] ' + msg)

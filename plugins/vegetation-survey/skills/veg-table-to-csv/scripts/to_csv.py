@@ -353,14 +353,21 @@ def layer_from_below(body, n_plots=None):
 
 
 def plot_list(spec):
-    """注記の地点の指定 `1,7-9` を ['1', '7', '8', '9'] にする．形が違えばそのまま"""
+    """注記の地点の指定 `1,7-9` を ['1', '7', '8', '9'] にする．形が違えばそのまま．
+    逆順の範囲 (`26-18`) は広げられないので，その部分を文字のまま残す (落とさない．build が check を付ける)"""
     if not re.fullmatch(r'\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*', spec):
         return [spec]
     out = []
     for part in spec.split(','):
         lo, _, hi = part.partition('-')
+        if hi and int(hi) < int(lo):
+            out.append(part)
+            continue
         out += [str(i) for i in range(int(lo), int(hi or lo) + 1)]
     return out
+
+
+REVERSED_RANGE = re.compile(r'^(\d+)-(\d+)$')
 
 
 def read_tsv(path):
@@ -428,8 +435,9 @@ DASHES = {'-', '—', '–', '−', '―'}
 
 def partial_date(s):
     """月や日が - の日付・月の範囲の日付を (値, note) にする．当たらなければ None (0.5.10．中部 Tab.77・104・121)
-    `- - -` → `-`．`'80 - -` → `1980`．`'80 6 -` → `1980-06`．`'80 6-11` (6〜11 月) → `1980` (note に範囲)"""
-    t = s.split()
+    `- - -` → `-`．`'80 - -` → `1980`．`'80 6 -` → `1980-06`．`'80 6-11` (6〜11 月) → `1980` (note に範囲)．
+    `'60` → `1960` (年だけ)．`'77 10` → `1977-10` (年と月だけ．引用符か 4 桁の年のときだけ)"""
+    t = s.replace('’', "'").replace('‘', "'").split()
     if t and all(x in DASHES for x in t):
         return '-', ''
     if not t or not re.fullmatch(r"'?\d{2}|\d{4}", t[0]):
@@ -437,6 +445,11 @@ def partial_date(s):
     y = int(t[0].lstrip("'"))
     y = y + 1900 if y < 100 else y
     rest = t[1:]
+    marked = t[0][0] == "'" or len(t[0]) == 4            # 年とはっきり分かる印字 ('60・1960．引用符の無い 2 桁は月日と紛れる)
+    if marked and not rest:                            # '60 (年だけ)
+        return f'{y:04d}', '年だけの印字'
+    if marked and len(rest) == 1 and re.fullmatch(r'\d{1,2}', rest[0]) and 1 <= int(rest[0]) <= 12:
+        return f'{y:04d}-{int(rest[0]):02d}', '日の印字なし'     # '77 10 (年と月だけ)
     if rest and all(x in DASHES for x in rest):
         return f'{y:04d}', '月日の印字は -'
     if len(rest) == 2 and re.fullmatch(r'\d{1,2}', rest[0]) and rest[1] in DASHES:
@@ -449,14 +462,48 @@ def partial_date(s):
     return None
 
 
+APOS = "'’‘"
+YEAR_TOKEN = rf"(?:[{APOS}](\d{{2}})(?!\d)|(\d{{4}}))"     # '78 (19xx とみる) か 1978
+MONTH_DATE = re.compile(rf"(\d{{1,2}})\.?\s*[{APOS}]?([A-Za-zäÄ]+)\.?,?\s*{YEAR_TOKEN}")        # 6. Juli 1983・1. Mai '78
+DAY_RANGE_WORD = re.compile(rf"(\d{{1,2}})\.?\s*[-—–－~～〜]+\s*(\d{{1,2}})\.?,?\s*[{APOS}]?([A-Za-zäÄ]+)\.?,?\s*{YEAR_TOKEN}")
+DAY_RANGE_NUM = re.compile(rf"(?:[{APOS}]?(\d{{2}})|(\d{{4}}))\s*[-/年.]\s*(\d{{1,2}})\s*[-/月.]\s*(\d{{1,2}})\s*日?\s*[~～〜]\s*(\d{{1,2}})\s*日?")
+
+
+def month_of(word):
+    w = word.lower()
+    return MONTHS.get(w) or MONTHS.get(w[:4]) or MONTHS.get(w[:3])
+
+
+def year_of(two, four):
+    """YEAR_TOKEN の組から 4 桁の年 ('78 は 1978)"""
+    return 1900 + int(two) if two else int(four)
+
+
+def date_range(y, mon, d1, d2):
+    """日の範囲を 1979-10-19/1979-10-23 の形に (書き方は 1 つにそろえる)．日の順が逆・月が無効なら None"""
+    if not (1 <= mon <= 12 and 1 <= d1 < d2 <= 31):
+        return None
+    return f'{y:04d}-{mon:02d}-{d1:02d}/{y:04d}-{mon:02d}-{d2:02d}'
+
+
 def norm_date(s, year=None):
+    """日付の印字を 1983-07-06 の形にする．日の範囲は 1979-10-19/1979-10-23．読めなければ None．
+    2 桁の年は引用符つき ('78・’78) だけを 19xx とみる．月の名は独文と英語の略称の両方．
+    日付が 2 つ以上ある印字 (19.-23. Okt. '78, u. 16. Dez. '78) は 1 つに決めない"""
     s = s.strip().rstrip('.')
-    m = re.search(r'(\d{1,2})\.?\s*([A-Za-zäÄ]+)\.?\s*(\d{4})', s)           # 6. Juli 1983
+    if len(MONTH_DATE.findall(s)) > 1:
+        return None
+    m = DAY_RANGE_WORD.fullmatch(s)                    # 19.-23. Okt. '78・19.—23., Okt. 1979
+    if m and month_of(m.group(3)):
+        return date_range(year_of(m.group(4), m.group(5)), month_of(m.group(3)), int(m.group(1)), int(m.group(2)))
+    m = DAY_RANGE_NUM.fullmatch(s)                     # '75.11.7~9・1976-12-24～26
     if m:
-        w = m.group(2).lower()
-        mon = MONTHS.get(w) or MONTHS.get(w[:4]) or MONTHS.get(w[:3])
+        return date_range(year_of(m.group(1), m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5)))
+    m = MONTH_DATE.search(s)                           # 6. Juli 1983・28. Apr. '80
+    if m:
+        mon = month_of(m.group(2))
         if mon:
-            return f'{int(m.group(3)):04d}-{mon:02d}-{int(m.group(1)):02d}'
+            return f'{year_of(m.group(3), m.group(4)):04d}-{mon:02d}-{int(m.group(1)):02d}'
     m = re.search(r'(\d{4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})', s)
     if m:
         return f'{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}'
@@ -516,10 +563,15 @@ def build(tdir):
         for p in (plot_list(r.get('plot', '')) if r.get('plot', '') or not all_plots else all_plots):
             if p in drop:
                 continue
+            st, note = r.get('status') or 'ok', r.get('note', '')
+            m = REVERSED_RANGE.match(p)
+            if m and int(m.group(2)) < int(m.group(1)):      # 逆順の範囲 (10,26-18 の 26-18)．地点に割り当てず check で残す
+                st = 'check'
+                note = ';'.join(x for x in (note, f'地点の範囲 {p} が逆順．地点に割り当てていない') if x)
             sites.append(dict(file=file, table=table, plot=p, item_ja=r.get('item_ja', ''),
                               item_de=r.get('item_de', ''), value=r.get('value', ''),
                               unit=r.get('unit', ''), value_raw=r.get('value_raw', ''),
-                              source='note', status=r.get('status') or 'ok', note=r.get('note', '')))
+                              source='note', status=st, note=note))
 
     n_plots = plots_per_column(header)                 # 常在度の列の調査区数 {列: 数} (1 回出現でも使う)
     keep_arabic = arabic_major_columns(body, n_plots)  # 規則 X8 の例外の列

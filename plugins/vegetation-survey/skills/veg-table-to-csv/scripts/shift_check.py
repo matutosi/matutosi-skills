@@ -18,6 +18,10 @@
 - `--grid <grid.tsv>` は行の y を `--ref` で測らず，marks_grid.py `--tsv` の表の `y_first` (`--grid-y last` なら `y_last`) から取る．
   階層の印字の無い行・群の見出し・字間の広い和名・短い和名で `--ref` が行を測り違える表向き (`--ref` は不要)．
   行の数は転記の種の行の数か，まとめた物理の行の数と合う (まとめた行は marks_grid.py と同じ `--merge-rows`・`--merge-split` を渡す)．
+  marks_grid.py が書く `row_y.tsv` (転記の行ごとの y) もそのまま渡せる．この表・この画像のページの行を使い，
+  対応しなかった行の y は前後の行から補う．
+- 種の行 (まとめた行) が `--min-rows` (既定 8) より少ない表は「対象外」と知らせて止まる (1 行ずらしても食い違いの差が出にくい)．
+  その表は marks_grid.py の直接の照合か，原寸の画像との目の照合で代える．
 - `--ref` で行の数が合わないとき `--fix-rows` を付けると，止まらずに足りない行を間隔の広い所に補い，余分な行を印の少ない行から
   除いて続ける (`[行の補正]` と補った y を出す．補った所の前後の列は信用しない)．群の見出しは，まとめた行があっても転記の並びで自動で除く．
 - `--track` の既定は `chain` (列ごとに隣の列の行の y へ DP でつなぐ)．傾きが一様な表で前の動き (列ごとの中央値の補正) に戻すなら `--track none`．
@@ -141,13 +145,43 @@ def parse_merge(specs):
     return out
 
 
-def read_grid(path, which='first'):
+def read_row_y(rows, path, table, page, nrows):
+    """marks_grid.py が書く row_y.tsv (列: table page row name y) から，この表の転記の行 1〜nrows の y を読む．
+    同じ表に別のページの行があれば，画像と同じページの行を使う．対応しなかった行 (row_y.tsv に無い行) は
+    前後の行の y から直線で補う (補った行を知らせる)"""
+    h = rows[0]
+    want = table_dir(table)
+    got = [dict(zip(h, r)) for r in rows[1:] if len(r) >= len(h)]
+    got = [r for r in got if table_dir(r['table']) == want]
+    if not got:
+        sys.exit(f'{path} に表 {table} の行が無い (marks_grid.py をこの表で回す)')
+    pages = {r['page'] for r in got}
+    if page in pages:
+        got = [r for r in got if r['page'] == page]
+    elif len(pages) > 1:
+        sys.exit(f'{path} の表 {table} の行が複数のページ ({", ".join(sorted(pages))}) にある．画像のページ {page} が無い')
+    ys = {int(r['row']): float(r['y']) for r in got if r['row'].isdigit()}
+    if not nrows:
+        nrows = max(ys)
+    known = sorted(k for k in ys if 1 <= k <= nrows)
+    if len(known) < 2:
+        sys.exit(f'{path} の表 {table} の行が {len(known)} 行だけ．行の y を補えない')
+    miss = [k for k in range(1, nrows + 1) if k not in ys]
+    if miss:
+        print(f'[行の補正] row_y.tsv に無い行 {miss[:12]}{" …" if len(miss) > 12 else ""} の y を前後の行から補った (その行の前後の列は信用しない)')
+    return [float(np.interp(k, known, [ys[j] for j in known])) for k in range(1, nrows + 1)]
+
+
+def read_grid(path, which='first', table='', page='', nrows=0):
     """marks_grid.py の `--tsv` が書く表 (行・種名・地点ごとの印・y_first・y_last) から，行ごとの y を読む．
-    which: 'first' は第 1 列での y (y_first)・'last' は最後の列での y (y_last)"""
+    which: 'first' は第 1 列での y (y_first)・'last' は最後の列での y (y_last)．
+    marks_grid.py が書く row_y.tsv (列: table page row name y．転記の行ごとの y) もそのまま読める (which は使わない)"""
     with open(path, encoding='utf-8-sig', newline='') as f:
         rows = list(csv.reader(f, delimiter='\t'))
+    if rows and {'table', 'page', 'row', 'y'} <= set(rows[0]):
+        return read_row_y(rows, path, table, page, nrows)
     if not rows or 'y_first' not in rows[0] or 'y_last' not in rows[0]:
-        sys.exit(f'{path} は marks_grid.py --tsv の表ではない (見出しに y_first・y_last が無い)')
+        sys.exit(f'{path} は marks_grid.py の --tsv の表でも row_y.tsv でもない (見出しに y_first・y_last か table・row・y が無い)')
     k = rows[0].index('y_first' if which == 'first' else 'y_last')
     ys = []
     for r in rows[1:]:
@@ -593,7 +627,10 @@ def main(argv=None):
     ap.add_argument('--ref2', type=int, nargs=2, metavar=('X0', 'X1'), help='右側でもう 1 か所行の y を測る範囲 (傾きの補間)')
     ap.add_argument('--rows-in', help='行の y を 1 行ずつ書いたファイル (転記の種の行の数か，まとめた物理の行の数)')
     ap.add_argument('--grid', help='marks_grid.py --tsv が書く表．その y_first (--grid-y last なら y_last) を行の y に使う'
-                                   ' (--ref で測らない．階層の印字の無い行・見出し・字間の広い和名の表向き)')
+                                   ' (--ref で測らない．階層の印字の無い行・見出し・字間の広い和名の表向き)．'
+                                   'marks_grid.py が書く row_y.tsv もそのまま渡せる (この表・この画像のページの行を使う)')
+    ap.add_argument('--min-rows', type=int, default=8,
+                    help='種の行 (まとめた行) がこれより少ない表は「対象外」と知らせて止まる (既定 8)')
     ap.add_argument('--grid-y', choices=('first', 'last'), default='first', help='--grid で使う y (第 1 列か最後の列)')
     ap.add_argument('--fix-rows', action='store_true',
                     help='--ref で測った行の数が合わないとき，止まらずに足す・除くを補ってつづける (補った所を示す．既定は止まる)')
@@ -638,6 +675,10 @@ def main(argv=None):
             print(f'分けた行をまとめた: {len(groups)} 組 ' + ' '.join(f'{g[0] + 1}-{g[-1] + 1}' for g in groups[:12])
                   + (' …' if len(groups) > 12 else ''))
     phys = physical_rows(len(sp), groups)
+    if len(phys) < a.min_rows:
+        print(f'対象外: 種の行が {len(phys)} 行 (--min-rows {a.min_rows} 未満)．行の少ない表では 1 行ずらしても食い違いの差が'
+              ' 出にくく，判定が当てにならない．marks_grid.py の直接の照合か，原寸の画像との目の照合で代える')
+        return 0
     im = Image.open(a.image).convert('L')
     X0, Y0, X1, Y1 = a.box
 
@@ -666,7 +707,8 @@ def main(argv=None):
     # 1. 行の y
     if a.rows_in or a.grid:
         if a.grid:
-            ys = read_grid(a.grid, a.grid_y)
+            ys = read_grid(a.grid, a.grid_y, a.table, os.path.splitext(os.path.basename(a.image))[0],
+                           len(phys) if groups else len(sp))
             src_name = f'--grid ({a.grid_y})'
         else:
             with open(a.rows_in, encoding='utf-8') as f:
