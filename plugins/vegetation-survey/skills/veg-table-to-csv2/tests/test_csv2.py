@@ -1363,5 +1363,35 @@ class RingAndBareRangeTest(unittest.TestCase):
         self.assertIn("D46", comp[("ディー", "2")]["note_judge"])
 
 
+class TildeAndThousandsTest(unittest.TestCase):
+    def test_tilde_range_and_thousands(self):
+        """D48 (範囲の波線 IV(2~5)・3(+~1) を - に．近畿ページ内 Tab.105・108)・D49 (海抜高度 2,100 → 2100．調査番号は触らない)"""
+        from rules import s3_names as names
+        keep = names.lookup
+        names.lookup = lambda j: ("none", "")
+        try:
+            d = make([HEAD3, ["調査区数", "Zahl d. Aufn.", "", "-", "-", "8", ""],
+                      ["海抜高度", "Höhe ü. M.", "m", "2,100", "950", "1,140", ""],
+                      ["調査番号", "Feld-Nr.", "", "1,234", "2", "3", ""]],
+                     [BODY3, ["sp", "", "", "Aa a", "エー", "K", "+", "・", "IV(2~5)", ""],
+                      ["sp", "", "", "Bb b", "ビー", "K", "・", "1・1", "I(+～1)", ""]])
+            run(freeze.main, [d])
+            rc, out = run(decide.main, [d])
+        finally:
+            names.lookup = keep
+        self.assertEqual(rc, 0, out)
+        comp = {(r["j_name"], r["plot"]): r for r in rows(os.path.join(d, "composition.csv"))}
+        a3, b3 = comp[("エー", "3")], comp[("ビー", "3")]
+        self.assertEqual((a3["cover"], a3["constancy"], a3["status"]), ("2-5", "IV", "ok"))
+        self.assertIn("D48", a3["note_judge"])
+        self.assertEqual((b3["cover"], b3["constancy"]), ("+-1", "I"))
+        sites = rows(os.path.join(d, "sites.csv"))
+        alt = {r["plot"]: r for r in sites if r["item_ja"] == "海抜高度"}
+        self.assertEqual((alt["1"]["value"], alt["3"]["value"], alt["2"]["value"]), ("2100", "1140", "950"))
+        self.assertIn("D49", alt["1"]["note_judge"])
+        no = next(r for r in sites if r["item_ja"] == "調査番号" and r["plot"] == "1")
+        self.assertNotIn("D49", no["note_judge"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

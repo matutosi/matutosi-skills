@@ -322,3 +322,20 @@ def plot_by_feld_number(t, param):
         plots = sorted({p for s in want if s in syms for p in syms[s]}, key=int)
         yield Change('notes', d['_row'], '@plot', ','.join(plots),
                      f'地点の印字は調査番号の記号 {v}．表頭の調査番号がその記号の地点 ({len(plots)} 地点) とした')
+
+
+THOUSANDS = re.compile(r'^[1-9]\d{0,2}(?:,\d{3})+$')
+
+
+@rule('D49', '表頭の数の桁区切りのカンマを外す (海抜高度 2,100 → 2100．カンマの後ろがちょうど 3 桁の値だけ)', 4,
+      old='(規則の番号なし．関東ページ内 Tab.119・121 ほか．2026-11-23 ユーザ指示)')
+def thousands_sep(t, param):
+    plots = t.plots('header')
+    for d in t.dicts('header'):
+        key = d.get('item_ja', '') + ' ' + d.get('item_de', '').lower()
+        if '番号' in key or 'nr' in key or '年月日' in key or '月日' in key or 'datum' in key:
+            continue                                     # 調査番号・日付は数でない
+        for p in plots:
+            v = (d.get(p) or '').strip()
+            if THOUSANDS.match(v):
+                yield Change('header', d['_row'], p, v.replace(',', ''), f'印字は {v} (桁区切りのカンマ)．カンマを外した')

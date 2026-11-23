@@ -313,3 +313,16 @@ def bare_range(t, param):
             rng = m.group('a') + ('-' + m.group('b') if m.group('b') else '')
             yield Change('body', row, p, f"{m.group('head')}({rng}){m.group('q')}",
                          f'印字は {v} (範囲が括弧なし)．括弧に入れた')
+
+
+TILDE_RANGE = re.compile(r'^(?P<head>[^()]*)\((?P<body>[^()]*[~～〜][^()]*)\)(?P<q>\??)$')
+
+
+@rule('D48', '値の括弧の中の範囲の波線 (IV(2~5)・3(+~1)) を - にそろえる', 1,
+      old='(規則の番号なし．近畿ページ内 Tab.105・108．2026-11-23 ユーザ指示)')
+def tilde_range(t, param):
+    for row, p, v in body_cells(t):
+        m = TILDE_RANGE.match(v.strip())
+        if m:
+            body = re.sub(r'\s*[~～〜]\s*', '-', m.group('body'))
+            yield Change('body', row, p, f"{m.group('head')}({body}){m.group('q')}", f'印字は {v} (範囲が波線)．- にそろえた')
