@@ -5,6 +5,10 @@ description: Markdownファイル内の表セルをパディングして列幅�
 
 # Markdown Table Pad
 
+> **Claude Code 以外 (Codex・Antigravity など) で使うとき**
+>
+> - `${CLAUDE_SKILL_DIR}` はこの SKILL.md のあるフォルダを指す．置き換わらずに文字のまま残っていたら，そのフォルダのパスに読み替える．
+
 ## スクリプトの場所
 
 ```

@@ -5,6 +5,10 @@ description: 日本語Markdown原稿を「1文ごとに改行」「引用(> )は
 
 # Sentence Per Line
 
+> **Claude Code 以外 (Codex・Antigravity など) で使うとき**
+>
+> - `${CLAUDE_SKILL_DIR}` はこの SKILL.md のあるフォルダを指す．置き換わらずに文字のまま残っていたら，そのフォルダのパスに読み替える．
+
 ## スクリプトの場所
 
 ```

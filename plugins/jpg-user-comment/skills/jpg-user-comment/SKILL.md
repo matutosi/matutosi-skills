@@ -5,6 +5,10 @@ description: Read and write the Exif UserComment (tag 0x9286) of JPEG files usin
 
 # JPEG ユーザーコメント ⇄ CSV
 
+> **Claude Code 以外 (Codex・Antigravity など) で使うとき**
+>
+> - `${CLAUDE_SKILL_DIR}` はこの SKILL.md のあるフォルダを指す．置き換わらずに文字のまま残っていたら，そのフォルダのパスに読み替える．
+
 JPEG の Exif **UserComment** (tag 0x9286) を CSV (`filename,comment`) で読み書きする。
 `scripts/jpg_comment.py` は Python 標準ライブラリのみで動作する (Pillow / piexif は不要)。
 CSV を写真を見ながら直すときは `scripts/comment_server.py` を使う (「ブラウザで写真を見ながら直す」の節)。

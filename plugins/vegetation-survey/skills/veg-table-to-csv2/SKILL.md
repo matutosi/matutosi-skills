@@ -5,6 +5,10 @@ description: 組成表 (印刷された植生の表) の転記を印字のまま
 
 # 組成表の転記を固定し，規則で決定を作る (veg-table-to-csv2)
 
+> **Claude Code 以外 (Codex・Antigravity など) で使うとき**
+>
+> - `veg-table-to-csv` のスクリプトを使うので，`veg-table-to-csv` のスキルを同じ置き場に並べて置く．
+
 組成表の画像を印字のまま読んで転記を作り，その転記を固定して，規則で決定の CSV を作るスキルです．
 画像を読むときの決まりは [references/reading.md](references/reading.md) にあります．
 切り出し・照合・検算の道具 (`crop.py`・`marks_grid.py`・`shift_check.py`・`ul_sheet.py` など) は，`veg-table-to-csv` のものを使います．

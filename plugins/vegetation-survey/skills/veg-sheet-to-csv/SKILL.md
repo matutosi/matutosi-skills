@@ -5,6 +5,11 @@ description: 植生調査票 (手書き・印刷の PDF や画像) を読み取�
 
 # 植生調査票 → CSV
 
+> **Claude Code 以外 (Codex・Antigravity など) で使うとき**
+>
+> - `${CLAUDE_SKILL_DIR}` はこの SKILL.md のあるフォルダを指す．置き換わらずに文字のまま残っていたら，そのフォルダのパスに読み替える．
+> - サブエージェント (Agent ツール) や背景で動くエージェントが無いツールでは，それらに任せる手順を本体が1つずつ順に行う (手順と結果は同じで，時間がかかるだけ)．
+
 調査票の画像を読んで JSON にまとめ，`scripts/build_csv.py` で CSV にする．
 列の定義は [references/columns.md](references/columns.md)．標準ライブラリだけで動く (**Python 3.8 以上**)．
 

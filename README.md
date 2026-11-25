@@ -115,6 +115,32 @@ matutosi-skills のプラグインを，すべて新しい版に更新して
 
 1つだけ更新するときは，「matutosi-skills の ja-manuscript を新しい版に更新して」のようにプラグイン名を書きます．
 
+<a id="other-tools"></a>
+
+## Claude Code 以外で使う / Other agents (Codex, Antigravity)
+
+スキルは共通の形 (`SKILL.md` と `scripts/` のフォルダ．[Agent Skills](https://agentskills.io/)) で書いているので，Codex や Antigravity でも読み込めます．
+ただし，プラグインとしては入れられません．**スキルのフォルダ (`plugins/<プラグイン>/skills/<スキル>/`) を，ツールが読む場所に丸ごと置きます**．
+
+| ツール | すべての作業で使う場所 | 1つのリポジトリ・作業フォルダだけで使う場所 |
+|---|---|---|
+| [Codex](https://developers.openai.com/codex/skills) | `~/.agents/skills/<スキル>/` | `<リポジトリ>/.agents/skills/<スキル>/` |
+| [Antigravity](https://antigravity.google/docs/skills) | `~/.gemini/config/skills/<スキル>/` | `<作業フォルダ>/.agents/skills/<スキル>/` |
+
+このリポジトリを clone してから，スキルのフォルダへのリンク (Windows はジャンクション) を張ると，`git pull` で新しい版になります．
+Python と追加のパッケージは，Claude Code で使うときと同じものが要ります ([必要な環境](#requirements))．
+
+スキルによって，Claude Code の機能に頼る手順があります．Claude Code 以外での動作は試していません．
+
+| 見込み | スキル | 注意 |
+|---|---|---|
+| そのまま動く | `video-highlight`・`graphical-abstract`・`manuscript-polish`・`rewrite-improve` | |
+| パスの読み替えで動く | `markdown-table-pad`・`sentence-per-line`・`jpg-user-comment`・`build-index`・`veg-sheet-to-csv` | スクリプトの場所を `${CLAUDE_SKILL_DIR}` と書いている．置き換わらなければ，SKILL.md のあるフォルダに読み替える (各 SKILL.md の冒頭に書いた) |
+| 一部の手順を順に行う | `polish-loop`・`apply-proof-marks`・`pdf-to-jstage-xml`・`veg-table-to-csv` | サブエージェントや背景で動くエージェントに任せる手順を，1つのエージェントが順に行う．結果は同じで，時間がかかる |
+| 別のスキルと並べて置く | `apply-proof-marks` (`polish-loop` を使う)・`veg-table-to-csv2` (`veg-table-to-csv` を使う) | 2つのスキルを同じ置き場に置く |
+
+The skills follow the shared Agent Skills layout (`SKILL.md` plus `scripts/`), so Codex and Antigravity can load them: link or copy each skill folder into `~/.agents/skills/` (Codex) or `~/.gemini/config/skills/` (Antigravity). Steps that rely on Claude Code subagents run one after another instead, and `${CLAUDE_SKILL_DIR}` stands for the folder that holds the SKILL.md. Not tested outside Claude Code.
+
 <a id="plugins"></a>
 
 ## プラグイン / Plugins
