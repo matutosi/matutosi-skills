@@ -134,12 +134,11 @@ Python と追加のパッケージは，Claude Code で使うときと同じも�
 
 | 見込み | スキル | 注意 |
 |---|---|---|
-| そのまま動く | `video-highlight`・`graphical-abstract`・`manuscript-polish`・`rewrite-improve` | |
-| パスの読み替えで動く | `markdown-table-pad`・`sentence-per-line`・`jpg-user-comment`・`build-index`・`veg-sheet-to-csv` | スクリプトの場所を `${CLAUDE_SKILL_DIR}` と書いている．置き換わらなければ，SKILL.md のあるフォルダに読み替える (各 SKILL.md の冒頭に書いた) |
-| サブエージェントを使う | `polish-loop`・`apply-proof-marks`・`pdf-to-jstage-xml`・`veg-table-to-csv` | サブエージェントや背景で動くエージェントに任せる手順がある．Codex・Antigravity はサブエージェントに対応しているので，そのまま動く見込み．サブエージェントの無いツールでは，1つのエージェントが順に行う (結果は同じで，時間がかかる)．`pdf-to-jstage-xml` の選択肢の画面 (`AskUserQuestion`) は，番号つきの文章で代わりに示す |
+| そのまま動く | `video-highlight`・`graphical-abstract`・`manuscript-polish`・`rewrite-improve`・`markdown-table-pad`・`sentence-per-line`・`jpg-user-comment`・`build-index`・`veg-sheet-to-csv` | |
+| サブエージェントを使う | `polish-loop`・`apply-proof-marks`・`pdf-to-jstage-xml`・`veg-table-to-csv` | サブエージェントや背景で動くエージェントに任せる手順がある．サブエージェントの無いツールでは，1つのエージェントが順に行う (結果は同じで，時間がかかる)．`pdf-to-jstage-xml` の選択肢の画面 (`AskUserQuestion`) は，番号つきの文章で代わりに示す |
 | 別のスキルと並べて置く | `apply-proof-marks` (`polish-loop` を使う)・`veg-table-to-csv2` (`veg-table-to-csv` を使う) | 2つのスキルを同じ置き場に置く |
 
-The skills follow the shared Agent Skills layout (`SKILL.md` plus `scripts/`), so Codex and Antigravity can load them: link or copy each skill folder into `~/.agents/skills/` (Codex) or `~/.gemini/config/skills/` (Antigravity). Codex and Antigravity both support subagents; in agents without them, steps that rely on subagents run one after another instead, and `${CLAUDE_SKILL_DIR}` stands for the folder that holds the SKILL.md. Not tested outside Claude Code.
+The skills follow the shared Agent Skills layout (`SKILL.md` plus `scripts/`), so Codex and Antigravity can load them: link or copy each skill folder into `~/.agents/skills/` (Codex) or `~/.gemini/config/skills/` (Antigravity). In agents without subagents, steps that rely on them run one after another instead. Not tested outside Claude Code.
 
 <a id="plugins"></a>
 
