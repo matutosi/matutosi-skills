@@ -15,6 +15,8 @@ description: 2〜3分程度の動画から良い部分を自動で選んで，�
 - `faster-whisper`: 無ければ `python -m pip install faster-whisper`．
   初回はモデル (medium で約 1.5 GB) を Hugging Face から取ってくる (動画は送らない)．
   GPU が使えなければ CPU で動く (2分30秒の動画で約2分．`cublas64_12.dll` が無いと出るのは CPU に切り替えた知らせで，誤りではない)．
+- (任意) NVIDIA の GPU があれば，`python -m pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"` で GPU で書き起こせる
+  (2分30秒の動画で約10秒．Windows ではスクリプトが DLL の場所を自動で足す)．書き起こしの行に `on cuda` と出れば GPU で動いている．
 - Windows でシンボリックリンクの警告を消すには，環境変数 `HF_HUB_DISABLE_SYMLINKS_WARNING=1`．
 
 ## 手順

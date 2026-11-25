@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -130,9 +131,28 @@ def scene_cuts(video: Path, thr: float = 0.1) -> list[float]:
     return cuts
 
 
+def add_cuda_dlls() -> None:
+    """On Windows, let ctranslate2 find cuBLAS/cuDNN installed as pip wheels
+    (python -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12)."""
+    if os.name != "nt":
+        return
+    import importlib.util
+    for pkg in ("nvidia.cublas", "nvidia.cudnn"):
+        try:
+            spec = importlib.util.find_spec(pkg)
+        except ModuleNotFoundError:
+            continue
+        for base in (spec.submodule_search_locations or []) if spec else []:
+            d = os.path.join(base, "bin")
+            if os.path.isdir(d):
+                os.add_dll_directory(d)
+                os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+
+
 def transcribe(audio: np.ndarray, model: str, lang: str | None) -> tuple[list[dict], str]:
     if audio.size == 0:
         return [], "no audio"
+    add_cuda_dlls()
     try:
         from faster_whisper import WhisperModel
     except ImportError:

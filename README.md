@@ -246,7 +246,7 @@ Compose a graphical abstract for a paper or a book: condense the story without o
 - AI はそれを読んで筋道を決め，残す区間を `selection.json` に書きます．文の途中で切らない・言いよどみや脇道を落とす，などの選び方は SKILL.md にあります．
 - `render` が区間を切り出してつなぎます．切り口は近くの無音へ寄せるので，言葉の頭や尻が切れにくくなっています．
 - `check` が，できた動画を書き起こし直して，つなぎ目で言葉が切れていないかを確かめます．
-- **処理はすべて手元で行い，動画を外部へ送りません** (初回だけ，書き起こしのモデルを Hugging Face から取ってきます)．GPU が無くても CPU で動きます (2分30秒の動画の書き起こしで約2分)．
+- **処理はすべて手元で行い，動画を外部へ送りません** (初回だけ，書き起こしのモデルを Hugging Face から取ってきます)．GPU が無くても CPU で動きます (2分30秒の動画の書き起こしで約2分)．NVIDIA の GPU があれば，`pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"` で約10秒になります．
 - 順番の入れ替え・字幕・BGM はしません．話していない動画では，縮小画像と音量・場面の切り替えだけで選ぶので，選ぶ精度が落ちます．
 
 Cut a 2-3 minute video down to a target length (e.g. 60 or 30 seconds): ffmpeg and faster-whisper map the silences, scene changes and speech, the AI picks the segments that tell the story, and the script cuts them at nearby silences and joins them. Everything runs locally.
