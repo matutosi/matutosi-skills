@@ -1,7 +1,7 @@
 # matutosi-skills
 
 Claude Code のプラグインのマーケットプレイスです．
-次の5つのプラグイン (計13個のスキル) を収めています．
+次の6つのプラグイン (計14個のスキル) を収めています．
 
 | プラグイン | スキル | 何をするか |
 |---|---|---|
@@ -18,8 +18,9 @@ Claude Code のプラグインのマーケットプレイスです．
 | | `veg-table-to-csv` | 組成表 (ページ内の小さい表・折り込み) を AI が読み，地点情報と組成の CSV にする |
 | | `veg-table-to-csv2` | 組成表を印字のまま読んで転記を固定し，規則で決定の CSV を作り直す．どの規則でどう直したかを列に残す |
 | [graphical-abstract](#graphical-abstract) | `graphical-abstract` | 論文・書籍のグラフィカルアブストラクトを作る (絵は外部の画像生成ツールに回す) |
+| [video-highlight](#video-highlight) | `video-highlight` | 2〜3分の動画から良い部分を選び，60 秒・30 秒などの指定の長さに縮める |
 
-A Claude Code plugin marketplace with skills for Japanese manuscripts (Markdown; proof marks can also be applied to Word files as tracked changes), for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, for turning vegetation survey sheets into CSV, and for composing graphical abstracts of papers and books.
+A Claude Code plugin marketplace with skills for Japanese manuscripts (Markdown; proof marks can also be applied to Word files as tracked changes), for the Exif UserComment of JPEG files, for building J-STAGE full-text XML from journal PDFs, for turning vegetation survey sheets into CSV, for composing graphical abstracts of papers and books, and for cutting a short video down to its best parts.
 
 <a id="requirements"></a>
 
@@ -32,6 +33,7 @@ A Claude Code plugin marketplace with skills for Japanese manuscripts (Markdown;
 | jstage-xml | 3.11 以降 | `pymupdf` `lxml` `pyyaml`．論文一覧の取得 (`list_articles.py toc`) には `beautifulsoup4` も |
 | vegetation-survey | `veg-sheet-to-csv` は 3.8 以降，`veg-table-to-csv`・`veg-table-to-csv2` は 3.9 以降 | `veg-table-to-csv` は `Pillow`，PDF を読むときは `pymupdf`．種名の照合だけ `openpyxl`，格子の点検と下線の確認 (`check_grid.py`・`marks_grid.py`・`shift_check.py`・`ul_sheet.py`) と傾きの直し (`crop.py --deskew`) だけ `numpy` と `scipy`．`veg-table-to-csv2` の固定と決定 (`freeze.py`・`decide.py`) は標準ライブラリだけ (種名の照合に `openpyxl`)．`veg-sheet-to-csv` は種名の照合 (`openpyxl`) のほかは標準ライブラリだけ (`build_csv.py`・`review.py`) |
 | graphical-abstract | 3.8 以降 | `matplotlib` (`numpy` も入る)．PDF を読むときは `pymupdf`，JPEG の絵を使うときは `Pillow`．`make_prompts.py` は標準ライブラリだけ |
+| video-highlight | 3.9 以降 | `numpy` `Pillow` `faster-whisper`．ほかに `ffmpeg`・`ffprobe` (PATH に置く) |
 
 <a id="install"></a>
 
@@ -46,6 +48,7 @@ Claude Code で次を実行してください．
 /plugin install jstage-xml@matutosi-skills
 /plugin install vegetation-survey@matutosi-skills
 /plugin install graphical-abstract@matutosi-skills
+/plugin install video-highlight@matutosi-skills
 ```
 
 PowerShell などのターミナルから入れるときは，次のようにします (`/plugin` の代わりに `claude plugin` と書きます)．
@@ -57,6 +60,7 @@ claude plugin install jpg-user-comment@matutosi-skills
 claude plugin install jstage-xml@matutosi-skills
 claude plugin install vegetation-survey@matutosi-skills
 claude plugin install graphical-abstract@matutosi-skills
+claude plugin install video-highlight@matutosi-skills
 ```
 
 必要なプラグインだけを入れても構いません．
@@ -68,7 +72,7 @@ claude plugin install graphical-abstract@matutosi-skills
 GitHub の matutosi/matutosi-skills から ja-manuscript のスキルをインストールして
 ```
 
-プラグイン名 (`ja-manuscript`) を `jpg-user-comment`・`jstage-xml`・`vegetation-survey`・`graphical-abstract` に替えれば，ほかのプラグインも同じように入れられます．
+プラグイン名 (`ja-manuscript`) を `jpg-user-comment`・`jstage-xml`・`vegetation-survey`・`graphical-abstract`・`video-highlight` に替えれば，ほかのプラグインも同じように入れられます．
 
 <a id="update"></a>
 
@@ -84,6 +88,7 @@ Claude Code で次を実行し，マーケットプレイスの情報を取り�
 /plugin update jstage-xml@matutosi-skills
 /plugin update vegetation-survey@matutosi-skills
 /plugin update graphical-abstract@matutosi-skills
+/plugin update video-highlight@matutosi-skills
 ```
 
 PowerShell などのターミナルから更新するときは，次のようにします．
@@ -95,6 +100,7 @@ claude plugin update jpg-user-comment@matutosi-skills
 claude plugin update jstage-xml@matutosi-skills
 claude plugin update vegetation-survey@matutosi-skills
 claude plugin update graphical-abstract@matutosi-skills
+claude plugin update video-highlight@matutosi-skills
 ```
 
 入れていないプラグインの行は飛ばしてください．
@@ -228,6 +234,23 @@ Only the Python standard library is required.
 
 Compose a graphical abstract for a paper or a book: condense the story without overclaiming, lay it out in millimetres with matplotlib, check for overflowing or overlapping text, and hand the illustrations off to an external image generator with consistent prompts.
 
+<a id="video-highlight"></a>
+
+### video-highlight (動画を指定の長さに縮める)
+
+2〜3分の動画から良い部分を選んで，60 秒・30 秒などの指定の長さに縮めるスキル `video-highlight` です．
+「この動画を1分にまとめて」「30秒に縮めて」「良いところだけ切り出して」のように頼むと使われます．手順は [SKILL.md](plugins/video-highlight/skills/video-highlight/SKILL.md) にあります．
+
+- **調べるのと切るのはスクリプト，どこを残すかは AI** に分けます．
+- `analyze` が，ffmpeg で無音・場面の切り替え (スライドの切り替えも)・音量を調べ，faster-whisper で音声を書き起こして，区間の一覧 (`summary.md`) と縮小画像の一覧表 (コンタクトシート) を作ります．
+- AI はそれを読んで筋道を決め，残す区間を `selection.json` に書きます．文の途中で切らない・言いよどみや脇道を落とす，などの選び方は SKILL.md にあります．
+- `render` が区間を切り出してつなぎます．切り口は近くの無音へ寄せるので，言葉の頭や尻が切れにくくなっています．
+- `check` が，できた動画を書き起こし直して，つなぎ目で言葉が切れていないかを確かめます．
+- **処理はすべて手元で行い，動画を外部へ送りません** (初回だけ，書き起こしのモデルを Hugging Face から取ってきます)．GPU が無くても CPU で動きます (2分30秒の動画の書き起こしで約2分)．
+- 順番の入れ替え・字幕・BGM はしません．話していない動画では，縮小画像と音量・場面の切り替えだけで選ぶので，選ぶ精度が落ちます．
+
+Cut a 2-3 minute video down to a target length (e.g. 60 or 30 seconds): ffmpeg and faster-whisper map the silences, scene changes and speech, the AI picks the segments that tell the story, and the script cuts them at nearby silences and joins them. Everything runs locally.
+
 <a id="examples"></a>
 
 ## サンプル / Examples
@@ -243,6 +266,7 @@ Compose a graphical abstract for a paper or a book: condense the story without o
 | graphical-abstract | [examples/](plugins/graphical-abstract/examples/) | 架空の論文 (流れ) と架空の書籍 (読者の旅) の配置の JSON と，Gemini で作った絵 |
 
 `jstage-xml` には `examples/` がありません．雑誌の設定の作例として，植生学会誌の設定と記録 (`journals/vegsci.*`) が入っています．
+`video-highlight` にも `examples/` はありません (お手元の動画で試してください)．
 
 <a id="tests"></a>
 
@@ -267,6 +291,7 @@ python run_tests.py
 | vegetation-survey (`check_names.py` の xlsx を読む試験) | `openpyxl` | その試験だけ飛ばす |
 | vegetation-survey (`veg-table-to-csv` の画像の試験) | `Pillow` `pymupdf` | 飛ばす |
 | graphical-abstract | `matplotlib`．PDF の試験は `pymupdf` | 飛ばす |
+| video-highlight | `numpy`．通しの試験は `ffmpeg` (書き起こしは試さないので `faster-whisper` は要らない) | 通しの試験を飛ばす |
 
 GitHub では，push のたびに Ubuntu と Windows でテストを回します (`.github/workflows/test.yml`)．
 

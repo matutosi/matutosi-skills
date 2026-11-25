@@ -1,0 +1,8 @@
+{
+  "name": "video-highlight",
+  "version": "0.1.0",
+  "description": "2〜3分の動画から良い部分を選んで，指定した長さ (60 秒・30 秒など) に縮める．ffmpeg と faster-whisper で区間・書き起こし・縮小画像の一覧を作り，Claude が選んで切ってつなぎ，書き起こし直して切り口を確かめる．処理は手元だけで行う．",
+  "author": { "name": "Toshikazu Matsumura" },
+  "license": "MIT",
+  "keywords": ["video", "ffmpeg", "whisper", "highlight", "trim", "summary"]
+}

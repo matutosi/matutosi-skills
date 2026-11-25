@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "matutosi-skills",
-  "description": "Claude Code skills for Japanese manuscripts, photo metadata, J-STAGE full-text XML and graphical abstracts / 日本語原稿の整形・推敲，写真のコメント，J-STAGE の全文 XML，グラフィカルアブストラクトのためのスキル集",
+  "description": "Claude Code skills for Japanese manuscripts, photo metadata, J-STAGE full-text XML, graphical abstracts and short video highlights / 日本語原稿の整形・推敲，写真のコメント，J-STAGE の全文 XML，グラフィカルアブストラクト，動画の短縮のためのスキル集",
   "owner": {
     "name": "Toshikazu Matsumura"
   },
@@ -30,6 +30,11 @@
       "name": "graphical-abstract",
       "source": "./plugins/graphical-abstract",
       "description": "論文・書籍のグラフィカルアブストラクトを作る．筋を誇張せずに縮め，mm 単位の配置で組んで文字のはみ出し・重なりを点検する．絵は外部の画像生成ツールに回す．"
+    },
+    {
+      "name": "video-highlight",
+      "source": "./plugins/video-highlight",
+      "description": "2〜3分の動画から良い部分を選んで，60 秒・30 秒などの指定の長さに縮める．ffmpeg と faster-whisper で手元だけで処理する．"
     }
   ]
 }
